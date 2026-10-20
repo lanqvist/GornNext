@@ -1,0 +1,14 @@
+{
+  "_комментарий": "Английские названия типов предметов, которых нет в словаре ETor и прежних сборках. Ключ — type_cn из выгрузки tlidb. Нужен только сборке справочника (scripts/build-items.mjs).",
+  "追随者": "Follower",
+  "塔罗斯技能": "Tartarus Skill",
+  "始源塔罗斯技能": "Origin Tartarus Skill",
+  "塔罗斯技能历练材料": "Tartarus Skill Tempering Material",
+  "始源塔罗斯技能历练材料": "Origin Tartarus Skill Tempering Material",
+  "核心器官": "Core Organ",
+  "特殊器官-前缀": "Special Organ - Prefix",
+  "英雄追忆": "Hero Memory",
+  "追忆复苏素材": "Memory Revival Material",
+  "追忆复苏素材-月相": "Memory Revival Material - Moon Phase",
+  "回收追忆复苏素材-月相后获得的道具": "Moon Phase Recycling Reward"
+}

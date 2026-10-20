@@ -1,0 +1,12 @@
+[package]
+name = "gorn-core"
+description = "Трекер Горна: разбор лога игры, сумка, забеги, цены, анализ"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+serde = { version = "1", features = ["derive"] }
+regex = "1"
+indexmap = "2"

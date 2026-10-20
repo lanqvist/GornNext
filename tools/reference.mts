@@ -40,6 +40,8 @@
 //                                     rounds раундов. Строка на кадр — JSON {file, replies, memory, options}
 //   audit-core <вход.json>          — ядро аудита (prison-audit-core.ts) на готовых данных:
 //                                     {heads, recs} → {runs: splitRuns(heads), findings, summary}
+//   analyze <лог> [current]         — трекер: разбор файла лога (core/pipeline.ts) в JSON;
+//                                     ключи от карт — по data/items.json эталона
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -552,6 +554,31 @@ switch (cmd) {
     const input = JSON.parse(readFileSync(rest[0]!, 'utf8'));
     await line(JSON.stringify({ runs: core.splitRuns(input.heads), findings: core.findings(input.recs), summary: core.summary(input.recs) }));
     await flushLines();
+    break;
+  }
+  case 'analyze': {
+    const { readFileSync } = await import('node:fs');
+    const { analyzeLogFile } = await imp('core/pipeline.ts');
+    const { isMapKeyType } = await imp('core/patterns.ts');
+    const items = JSON.parse(readFileSync(`${tli}/data/items.json`, 'utf8')) as { id: number; typeCn?: string }[];
+    const keys = new Set(items.filter((it) => isMapKeyType(it.typeCn)).map((it) => it.id));
+    const r = await analyzeLogFile(rest[0]!, { isMapKey: (id: number) => keys.has(id), current: rest[1] === 'current' });
+    const out = {
+      runs: r.runs,
+      prices: r.prices,
+      trade: { listings: r.trade.listings, recalls: r.trade.recalls, receipts: r.trade.receipts, purchases: r.trade.purchases },
+      inventory: [...r.inventory],
+      slots: r.slots,
+      diagnostics: { ...r.diagnostics, unknownProtos: [...r.diagnostics.unknownProtos] },
+      seasonId: r.seasonId,
+      players: r.players,
+      lastPlayerId: r.lastPlayerId,
+      firstTs: r.firstTs,
+      lastTs: r.lastTs,
+      position: r.position,
+      segmenter: r.segmenter,
+    };
+    process.stdout.write(JSON.stringify(out) + '\n');
     break;
   }
   case 'selfplay': {

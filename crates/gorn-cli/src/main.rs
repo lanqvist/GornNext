@@ -11,6 +11,7 @@ mod audit;
 mod bench;
 mod debugtrace;
 mod frames;
+mod genlog;
 mod reference;
 mod replay;
 mod solverbench;
@@ -45,7 +46,7 @@ gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--ful
                 [--rng N=100000] [--solve N=580] [--solve-rounds R=400] [--solve-pool T=4]
                 [--play N=32] [--play-rounds R=300] [--tune N=20000]
                 [--frames ПАПКА|data] [--frames-max N]
-                [--audit ПАПКА|data] [--audit-runs N=2]
+                [--audit ПАПКА|data] [--audit-runs N=2] [--logs ПАПКА|ФАЙЛ|game] [--synth N]
                 [--replay ПАПКА|data] [--replay-rounds R=64] [--replay-from ЧЧММСС] [--replay-to ЧЧММСС]
                 [--from K=0] [--jobs J=ядра] [--quick] [--tli ../gorn-tli]
     сверка с эталоном: веса, ГСЧ, забеги по хешу и целиком, решатель";
@@ -145,6 +146,8 @@ fn main() -> ExitCode {
                     replay_to: o.get("replay-to").cloned().unwrap_or_else(|| "999999".into()),
                     audit: o.get("audit").cloned(),
                     audit_runs: num(&o, "audit-runs", 2)?,
+                    logs: o.get("logs").cloned(),
+                    synth: num(&o, "synth", 0)?,
                 })
             }
             "play" => {

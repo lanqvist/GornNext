@@ -1207,9 +1207,20 @@ dependencies = [
 name = "gorn-cli"
 version = "0.1.0"
 dependencies = [
+ "gorn-core",
  "gorn-prison",
  "png 0.17.16",
  "rayon",
+ "serde_json",
+]
+
+[[package]]
+name = "gorn-core"
+version = "0.1.0"
+dependencies = [
+ "indexmap 2.14.2",
+ "regex",
+ "serde",
  "serde_json",
 ]
 

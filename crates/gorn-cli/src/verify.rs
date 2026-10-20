@@ -51,6 +51,10 @@ pub struct Options {
     /// Ядро аудита: папка дней кадров («data» — runs папки данных) и сколько забегов на день.
     pub audit: Option<String>,
     pub audit_runs: u32,
+    /// Логи игры для сверки трекера: папка или файл («game» — папка логов Steam).
+    pub logs: Option<String>,
+    /// Синтетических логов трекера.
+    pub synth: u32,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -103,6 +107,12 @@ pub fn run(o: &Options) -> Result<bool, String> {
             days.push(root);
         }
         ok &= check_audit(&rf, &days, o.audit_runs)?;
+    }
+    if let Some(l) = &o.logs {
+        ok &= check_logs(&rf, l)?;
+    }
+    if o.synth > 0 {
+        ok &= check_synth(&rf, o.synth, o.jobs)?;
     }
     if o.tune > 0 {
         ok &= check_tune(&rf, o.tune)?;
@@ -858,4 +868,170 @@ fn check_audit(rf: &Reference, days: &[std::path::PathBuf], runs_per_day: u32) -
         }
     }
     Ok(report("ядро аудита (разбивка дней, находки и сводка забегов), проверок", cnt, bad, &shown, t))
+}
+
+// ── трекер: разбор логов ────────────────────────────────────────────────────
+
+/// Логи игры в папке, как listLogFiles эталона (от старых к новым, текущий последним).
+fn log_files(dir: &std::path::Path) -> Vec<(std::path::PathBuf, bool)> {
+    let mut v: Vec<(std::path::PathBuf, bool, std::time::SystemTime)> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter_map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    let md = e.metadata().ok()?;
+                    (name.starts_with("UE_game") && name.ends_with(".log") && md.len() > 0)
+                        .then(|| (e.path(), name == "UE_game.log", md.modified().unwrap_or(std::time::UNIX_EPOCH)))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort_by(|a, b| a.1.cmp(&b.1).then(a.2.cmp(&b.2)));
+    v.into_iter().map(|(p, c, _)| (p, c)).collect()
+}
+
+fn steam_log_dir() -> Option<std::path::PathBuf> {
+    let pf86 = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| r"C:\Program Files (x86)".into());
+    let d = std::path::Path::new(&pf86).join(r"Steam\steamapps\common\Torchlight Infinite\UE_game\TorchLight\Saved\Logs");
+    d.exists().then_some(d)
+}
+
+fn map_keys() -> Result<(Vec<i64>, Vec<i64>), String> {
+    let items: serde_json::Value = serde_json::from_str(include_str!("../../gorn-core/data/items.json")).map_err(|e| e.to_string())?;
+    let all: Vec<i64> = items.as_array().unwrap().iter().filter_map(|it| it["id"].as_i64()).collect();
+    let keys = items
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|it| gorn_core::patterns::is_map_key_type(it["typeCn"].as_str()))
+        .filter_map(|it| it["id"].as_i64())
+        .collect();
+    Ok((all, keys))
+}
+
+/// Один файл лога: разбор эталона против своего (JSON); отличия — в out.
+fn compare_log(rf: &Reference, src: &std::path::Path, current: bool, keys: &std::collections::HashSet<i64>, out: &mut Vec<String>) -> Result<serde_json::Value, String> {
+    let mut args = vec!["analyze".to_string(), src.to_string_lossy().to_string()];
+    if current {
+        args.push("current".into());
+    }
+    let raw = rf.output(&args)?;
+    let theirs: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| format!("{}: {e}", src.display()))?;
+    let is_key = |id: i64| keys.contains(&id);
+    let mine = gorn_core::analyze_log_file(src, gorn_core::AnalyzeOptions { is_map_key: Some(&is_key), current }).map_err(|e| e.to_string())?;
+    let mine = serde_json::to_value(&mine).map_err(|e| e.to_string())?;
+    json_diff(&theirs, &mine, "", out);
+    Ok(theirs)
+}
+
+/// Синтетические логи (gorn-cli gen-log): все виды событий и краевые случаи — разбор как у эталона.
+fn check_synth(rf: &Reference, n: u32, jobs: u32) -> Result<bool, String> {
+    let t = Clock::now();
+    let (items, keys_v) = map_keys()?;
+    let keys: std::collections::HashSet<i64> = keys_v.iter().copied().collect();
+    let parts = shards(0, n, jobs);
+    type Part = (u64, u64, Vec<String>, [usize; 4]);
+    let results: Vec<Result<Part, String>> = std::thread::scope(|sc| {
+        let hs: Vec<_> = parts
+            .iter()
+            .map(|&(a, k)| {
+                let (items, keys_v, keys) = (&items, &keys_v, &keys);
+                sc.spawn(move || -> Result<Part, String> {
+                    let (mut cnt, mut bad, mut shown, mut cov) = (0u64, 0u64, vec![], [0usize; 4]);
+                    for seed in a..a + k {
+                        let bytes = crate::genlog::generate(seed as u64, 3000, items, keys_v);
+                        let tmp = std::env::temp_dir().join(format!("gorn-synth-{}-{seed}.log", std::process::id()));
+                        std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
+                        for current in [false, true] {
+                            let mut d = vec![];
+                            let theirs = compare_log(rf, &tmp, current, keys, &mut d)?;
+                            cov[0] += theirs["runs"].as_array().map(|a| a.len()).unwrap_or(0);
+                            cov[1] += theirs["prices"].as_array().map(|a| a.len()).unwrap_or(0);
+                            cov[2] += ["listings", "recalls", "receipts", "purchases"].iter().map(|k| theirs["trade"][k].as_array().map(|a| a.len()).unwrap_or(0)).sum::<usize>();
+                            cov[3] += theirs["players"].as_array().map(|a| a.len()).unwrap_or(0);
+                            cnt += 1;
+                            if !d.is_empty() {
+                                bad += 1;
+                                if shown.len() < SHOW {
+                                    shown.push(format!("синтетический лог {seed} ({}):
+    {}", if current { "текущий" } else { "целиком" }, d.join("
+    ")));
+                                }
+                            }
+                        }
+                        let _ = std::fs::remove_file(&tmp);
+                    }
+                    Ok((cnt, bad, shown, cov))
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut cnt, mut bad, mut shown, mut cov) = (0, 0, vec![], [0usize; 4]);
+    for r in results {
+        let (c, b, s, v) = r?;
+        cnt += c;
+        bad += b;
+        shown.extend(s);
+        for i in 0..4 {
+            cov[i] += v[i];
+        }
+    }
+    println!("  покрытие: забегов {}, пробивок цен {}, операций биржи {}, профилей {}", cov[0], cov[1], cov[2], cov[3]);
+    Ok(report("трекер: синтетические логи (целиком и как текущий), разборов", cnt, bad, &shown, t))
+}
+
+/// Разбор каждого лога (забеги, цены, биржа, сумка, слоты, профили, нарезка) — как у эталона.
+fn check_logs(rf: &Reference, spec: &str) -> Result<bool, String> {
+    let t = Clock::now();
+    let path = if spec == "game" { steam_log_dir().ok_or("папка логов игры не найдена")? } else { std::path::PathBuf::from(spec) };
+    let files = if path.is_dir() { log_files(&path) } else { vec![(path.clone(), false)] };
+    let items: serde_json::Value = serde_json::from_str(include_str!("../../gorn-core/data/items.json")).map_err(|e| e.to_string())?;
+    let keys: std::collections::HashSet<i64> = items
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|it| gorn_core::patterns::is_map_key_type(it["typeCn"].as_str()))
+        .filter_map(|it| it["id"].as_i64())
+        .collect();
+    let is_key = |id: i64| keys.contains(&id);
+    let (mut cnt, mut bad, mut shown) = (0u64, 0u64, vec![]);
+    for (f, current) in &files {
+        // Текущий лог игра дописывает: копия, чтобы обе стороны читали одно и то же.
+        let src = if *current {
+            let tmp = std::env::temp_dir().join(format!("gorn-verify-current-{}.log", std::process::id()));
+            std::fs::copy(f, &tmp).map_err(|e| e.to_string())?;
+            tmp
+        } else {
+            f.clone()
+        };
+        let mut args = vec!["analyze".to_string(), src.to_string_lossy().to_string()];
+        if *current {
+            args.push("current".into());
+        }
+        let out = rf.output(&args)?;
+        let theirs: serde_json::Value = serde_json::from_slice(&out).map_err(|e| format!("{}: {e}", f.display()))?;
+        let mine = gorn_core::analyze_log_file(&src, gorn_core::AnalyzeOptions { is_map_key: Some(&is_key), current: *current })
+            .map_err(|e| e.to_string())?;
+        let mine = serde_json::to_value(&mine).map_err(|e| e.to_string())?;
+        if *current {
+            let _ = std::fs::remove_file(&src);
+        }
+        let mut d = vec![];
+        json_diff(&theirs, &mine, "", &mut d);
+        cnt += 1;
+        println!(
+            "  {}: забегов {}, строк {}",
+            f.file_name().unwrap().to_string_lossy(),
+            theirs["runs"].as_array().map(|a| a.len()).unwrap_or(0),
+            theirs["diagnostics"]["linesTotal"]
+        );
+        if !d.is_empty() {
+            bad += 1;
+            if shown.len() < SHOW {
+                shown.push(format!("{}:\n    {}", f.display(), d.join("\n    ")));
+            }
+        }
+    }
+    Ok(report("трекер: разбор логов, файлов", cnt, bad, &shown, t))
 }
