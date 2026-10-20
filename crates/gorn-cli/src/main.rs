@@ -39,7 +39,7 @@ gorn-cli tune --report [--runs 20000] [--threads T=0]
 gorn-cli replay ПАПКА [--budget 1000] [--from ЧЧММСС] [--to ЧЧММСС] [--rounds R] [--diffs файл.md] [--json]
     свой путь подсказок на сохранённых кадрах против прежнего, как prison-replay.ts;
     --rounds — решатель без срока (детерминированно), --json — строка на кадр
-gorn-cli audit [--new] [--days 2] [--budget 600] [--quiet 10] [--run ЧЧММСС] [--shots ПАПКА] [--out ПАПКА] [--no-keep]
+gorn-cli audit [--new] [--days 2] [--budget 600] [--quiet-min 10] [--run ЧЧММСС] [--shots ПАПКА] [--out ПАПКА] [--no-keep]
     аудит забегов по кадрам Горна, как prison-audit.ts: отчёты в gorn-prison-data/audits
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
                 [--rng N=100000] [--solve N=580] [--solve-rounds R=400] [--solve-pool T=4]
@@ -243,7 +243,7 @@ fn main() -> ExitCode {
                     only_new: o.contains_key("new"),
                     days: num(&o, "days", 2)? as usize,
                     budget: num(&o, "budget", 600)? as f64,
-                    quiet_min: num(&o, "quiet", 10)? as f64,
+                    quiet_min: num(&o, "quiet-min", 10)? as f64,
                     only_run: o.get("run").cloned(),
                     shots: o.get("shots").map(std::path::PathBuf::from).unwrap_or_else(audit::default_shots),
                     out: o.get("out").map(std::path::PathBuf::from).unwrap_or_else(|| data.join("audits")),
