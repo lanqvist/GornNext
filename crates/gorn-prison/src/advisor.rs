@@ -184,6 +184,10 @@ pub struct OwnAdvisor {
     /// Номер последнего кадра снаружи: сменился — расчёт по этому кадру бросить
     /// (`current !== msg.id` эталона). None — не бросать.
     pub latest: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
+    /// Журнал фактов (этап 7): каждое решение — позиция, оценки решателя по
+    /// всем ходам, быстрый и показанный совет. Отдельно от ответов: поток
+    /// ответов сверяется с эталоном и не меняется.
+    pub facts: Option<Box<dyn FnMut(Value) + Send>>,
 }
 
 impl Default for OwnAdvisor {
@@ -210,6 +214,7 @@ impl OwnAdvisor {
             last_search: None,
             sink: None,
             latest: None,
+            facts: None,
         }
     }
 
@@ -487,6 +492,7 @@ impl OwnAdvisor {
         if res.done {
             self.show(msg, shown, "final", res.rounds > 0, "", ctx, instant_code, &instant_text, w, h);
             self.pool = pool;
+            self.fact(msg, state, allowed, &res, instant_code, shown, ms());
             return;
         }
         self.show(msg, shown, "instant", false, "", ctx, instant_code, &instant_text, w, h);
@@ -496,22 +502,71 @@ impl OwnAdvisor {
         while !res.done && ms() < until {
             if self.latest.as_ref().is_some_and(|l| l.load(std::sync::atomic::Ordering::Relaxed) != msg.id) {
                 self.pool = pool;
+                // Игрок сходил раньше конца досчёта — факт с тем, что успели.
+                self.fact(msg, state, allowed, &res, instant_code, shown, ms());
                 return;
             }
             res = search.step(100.0, pool.as_ref());
         }
         self.pool = pool;
         if self.stale(msg.id) {
+            self.fact(msg, state, allowed, &res, instant_code, shown, ms());
             return;
         }
         let best = self.pick_best(&res, allowed);
         let search = self.cache.solve(state, opts, p, wts);
-        match best {
+        let fin = match best {
             Some(b) if b != shown && search.clearly_better(b, shown) => {
                 self.hold(&key, state, b, step, warden, day);
                 self.show(msg, b, "final", true, "уточнено", ctx, instant_code, &instant_text, w, h);
+                b
             }
-            _ => self.reply(Reply::Settled { id: msg.id, live: true }),
+            _ => {
+                self.reply(Reply::Settled { id: msg.id, live: true });
+                shown
+            }
+        };
+        self.fact(msg, state, allowed, &res, instant_code, fin, ms());
+    }
+
+    /// Факт решения для журнала (этап 7). Ходы, которых нет на экране, тоже
+    /// в списке — с пометкой: решатель считает и их.
+    #[allow(clippy::too_many_arguments)]
+    fn fact(&mut self, msg: &Shot, state: &State, allowed: &crate::adapter::Allowed, res: &SolveStep, instant: i32, advised: i32, ms: f64) {
+        if self.facts.is_none() {
+            return;
+        }
+        let mem = &self.adapter.mem;
+        let options: Vec<Value> = res
+            .options
+            .iter()
+            .map(|o| {
+                json!({ "code": o.code, "mean": o.mean, "gapSe": o.gap_se, "rounds": o.rounds, "pruned": o.pruned, "shown": allowed.allows(o.code) })
+            })
+            .collect();
+        let v = json!({
+            "shot": msg.id,
+            "fresh": msg.kind == ShotKind::Instruments && msg.fresh,
+            "day": mem.day,
+            "dayLimit": mem.day_limit,
+            "warden": mem.warden,
+            "step": format!("{:?}", mem.step),
+            "storage": state.m[crate::state::STORAGE],
+            "objective": mem.objective,
+            "theme": mem.start,
+            "tools": mem.tools,
+            "state": state.m.to_vec(),
+            "key": state_key_str(state),
+            "instant": instant,
+            "advised": advised,
+            "best": res.best,
+            "done": res.done,
+            "rounds": res.rounds,
+            "ms": ms,
+            "options": options,
+        });
+        if let Some(f) = self.facts.as_mut() {
+            f(v);
         }
     }
 

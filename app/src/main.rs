@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod assist;
+mod facts;
 mod capture;
 mod icons;
 mod layers;
@@ -693,6 +694,7 @@ fn main() {
             // Подсказки в тюрьме: строки лога — от трекера (одно дочитывание на всё).
             let paths = Paths {
                 state: data.join("prison-state.json"),
+                facts: data.join("prison-facts.db"),
                 display: data.join("prison-display.json"),
                 shots: pictures.join("Горн Next — тюрьма"),
             };

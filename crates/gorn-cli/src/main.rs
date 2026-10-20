@@ -11,6 +11,7 @@ mod audit;
 mod bench;
 mod dbcheck;
 mod enginecheck;
+mod facts;
 mod debugtrace;
 mod frames;
 mod genlog;
@@ -244,6 +245,20 @@ fn main() -> ExitCode {
                     o.get("rounds").map(|_| num(&o, "rounds", 0)).transpose()?.map(|r| r as u64),
                     o.get("diffs").map(String::as_str),
                     o.contains_key("json"),
+                )?;
+                Ok(true)
+            }
+            "facts" => {
+                let dir = match o.get("_") {
+                    Some(d) => std::path::PathBuf::from(d),
+                    None => return Err("facts: папка кадров тюрьмы (день или папка дней)".into()),
+                };
+                let db = o.get("db").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("prison-facts.db"));
+                facts::run(
+                    &dir,
+                    &db,
+                    o.get("rounds").map(|_| num(&o, "rounds", 0)).transpose()?.map(|r| r as u64),
+                    num(&o, "budget", 1500)? as f64,
                 )?;
                 Ok(true)
             }

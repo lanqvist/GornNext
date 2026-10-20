@@ -70,6 +70,8 @@ struct Sent {
 
 pub struct Paths {
     pub state: PathBuf,
+    /// Журнал фактов (этап 7): база `prison-facts.db`.
+    pub facts: PathBuf,
     pub display: PathBuf,
     pub shots: PathBuf,
 }
@@ -486,6 +488,7 @@ impl Assist {
             .ok()
             .and_then(|t| serde_json::from_str::<Value>(&t).ok());
         let near = self.near;
+        let facts = crate::facts::spawn(&self.paths.facts);
         std::thread::Builder::new()
             .name("горн-советник".into())
             .spawn(move || {
@@ -510,6 +513,11 @@ impl Assist {
                 adv.sink = Some(Box::new(move |r: &Reply| {
                     let _ = tx2.send(Event::Reply(r.clone()));
                 }));
+                if let Some(ftx) = facts {
+                    adv.facts = Some(Box::new(move |f| {
+                        let _ = ftx.send(f);
+                    }));
+                }
                 for job in jrx {
                     let frame = job.frame.as_ref().map(|f| Frame {
                         width: f.width,
