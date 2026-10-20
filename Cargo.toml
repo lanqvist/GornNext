@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["crates/gorn-prison", "crates/gorn-cli"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+gorn-prison = { path = "crates/gorn-prison" }
+rayon = "1.10"
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = false
+
+# Тесты сверки гоняют движок миллионы раз — без оптимизаций слишком долго.
+[profile.test]
+opt-level = 3

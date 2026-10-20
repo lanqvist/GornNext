@@ -1,0 +1,20 @@
+//! Тюрьма Талоса: движок правил, ГСЧ и мгновенная стратегия.
+//!
+//! Перенос ядра тюрьмы Горна (gorn-tli, `src/core/prison`) бит в бит:
+//! тот же сид даёт тот же забег. Правила — docs/prison/rules.md эталона;
+//! при расхождении текста и кода верен код эталона.
+
+pub mod actions;
+pub mod model;
+pub mod policy;
+pub mod rng;
+pub mod rules;
+pub mod runs;
+pub mod state;
+pub mod tables;
+
+pub use actions::{apply_code, apply_trusted, legal_codes, random_playout, start_run, CodeBuf, RunOptions};
+pub use model::{Params, DEFAULT_PARAMS};
+pub use policy::{default_weights, Instant, Weights};
+pub use rng::Rng;
+pub use state::{State, StreamHash};

@@ -1,0 +1,9 @@
+[package]
+name = "gorn-prison"
+description = "Тюрьма Талоса: движок, ГСЧ, мгновенная стратегия"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true

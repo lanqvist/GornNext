@@ -1,0 +1,10 @@
+[package]
+name = "gorn-cli"
+description = "Самоигра, замеры и сверка тюрьмы с эталоном на TS"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+gorn-prison.workspace = true
+rayon.workspace = true
