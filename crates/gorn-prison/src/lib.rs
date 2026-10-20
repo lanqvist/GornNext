@@ -10,6 +10,7 @@ pub mod policy;
 pub mod rng;
 pub mod rules;
 pub mod runs;
+pub mod solver;
 pub mod state;
 pub mod tables;
 

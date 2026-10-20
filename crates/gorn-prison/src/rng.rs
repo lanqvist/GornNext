@@ -49,12 +49,24 @@ fn hash_label(label: Label) -> u32 {
     }
 }
 
+/// Смешать два 32-битных числа (`mix` в solver/solve.ts).
+#[inline]
+pub fn mix_pair(a: u32, b: u32) -> u32 {
+    let mut x = (a ^ b.wrapping_mul(0x9e37_79b1)).wrapping_mul(0x85eb_ca6b);
+    x ^= x >> 13;
+    x = x.wrapping_mul(0xc2b2_ae35);
+    x ^ (x >> 16)
+}
+
 const TWO30: f64 = 1_073_741_824.0;
 const INV30: f64 = 1.0 / TWO30;
 
 #[derive(Clone, Debug)]
 pub struct Rng {
     st: [u32; 2],
+    /// Зерно раунда решателя (`DayRng` эталона): каждое утро ГСЧ
+    /// перезаправляется от (раунд, день). `None` — обычный ГСЧ.
+    day_round: Option<u32>,
 }
 
 impl Default for Rng {
@@ -65,7 +77,18 @@ impl Default for Rng {
 
 impl Rng {
     pub fn new(seed: u32) -> Self {
-        Rng { st: [seed, seed] }
+        Rng { st: [seed, seed], day_round: None }
+    }
+
+    /// ГСЧ раунда решателя: утро дня day перезаправляет его от (round, day).
+    pub fn day(seed: u32, round: u32) -> Self {
+        Rng { st: [seed, seed], day_round: Some(round) }
+    }
+
+    /// Сменить зерно раунда (для `Rng::day`).
+    #[inline]
+    pub fn set_round(&mut self, round: u32) {
+        self.day_round = Some(round);
     }
 
     /// Текущее состояние; можно сохранять и восстанавливать.
@@ -120,10 +143,15 @@ impl Rng {
         (self.bits30() as f64) < p * TWO30
     }
 
-    /// Начало утра дня day. Обычный ГСЧ ничего не делает; решатель (этап 3)
-    /// перезаправляет кости, чтобы с каждого утра они у кандидатов совпадали.
+    /// Начало утра дня day. Обычный ГСЧ ничего не делает; ГСЧ раунда решателя
+    /// перезаправляется от (раунд, день), чтобы с каждого утра кости у
+    /// кандидатов снова совпадали.
     #[inline]
-    pub fn morning(&mut self, _day: i32) {}
+    pub fn morning(&mut self, day: i32) {
+        if let Some(round) = self.day_round {
+            self.seed(mix_pair(round, 0x10000u32.wrapping_add(day as u32)));
+        }
+    }
 
     /// Независимый поток по метке: тот же родитель и метка → те же числа.
     pub fn stream<'a>(&self, label: impl Into<Label<'a>>) -> Rng {

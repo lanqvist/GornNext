@@ -136,3 +136,31 @@ impl<'a> Runner<'a> {
         self.run_with(mode, g, |_, _| {})
     }
 }
+
+/// Позиции prison-solve-bench: решения мгновенной стратегии в её забегах
+/// (сиды 4242+g, тема g % 5, цель случайная), каждое every-е, где ходов
+/// больше одного. 580 позиций аудита — games 18, every 2, первые 580.
+pub fn solve_positions(p: &Params, w: &Weights, games: u32, every: u32) -> Vec<State> {
+    let mut out = vec![];
+    let mut inst = Instant::new();
+    let mut buf: CodeBuf = [0; 32];
+    for g in 0..games {
+        let mut s = State::new();
+        let mut r = Rng::new(4242 + g);
+        start_run(&mut s, &mut r, p, RunOptions { start: (g % 5) as i32, ..RunOptions::default() });
+        let mut k = 0;
+        while s.m[PHASE] != P_END {
+            if legal_codes(&s, &mut buf) > 1 {
+                if k % every == 0 {
+                    out.push(s);
+                }
+                k += 1;
+            }
+            let c = inst.code(&s, p, w);
+            if let Err(e) = apply_code(&mut s, c, &mut r, p) {
+                panic!("позиции: {e}");
+            }
+        }
+    }
+    out
+}

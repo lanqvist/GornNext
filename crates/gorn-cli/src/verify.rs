@@ -30,6 +30,11 @@ pub struct Options {
     pub rng: u32,
     pub jobs: u32,
     pub from: u32,
+    /// Позиций решателя (из 580 аудита) и потолок раундов.
+    pub solve: u32,
+    pub solve_rounds: u32,
+    /// Потоков пула для проверки «пул = один поток» (0 — не проверять).
+    pub solve_pool: u32,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -51,6 +56,11 @@ pub fn run(o: &Options) -> Result<bool, String> {
     for (mode, n) in [(Mode::Instant, o.full), (Mode::Random, o.full_random)] {
         if n > 0 {
             ok &= check_full(&rf, mode, o.from, n, o.jobs)?;
+        }
+    }
+    if o.solve > 0 {
+        for rule in ["default", "free"] {
+            ok &= check_solve(&rf, rule, o.solve, o.solve_rounds, o.solve_pool, o.jobs)?;
         }
     }
     println!("{}", if ok { "СВЕРКА: совпадает" } else { "СВЕРКА: ЕСТЬ РАСХОЖДЕНИЯ" });
@@ -384,4 +394,98 @@ fn check_full(rf: &Reference, mode: Mode, from: u32, n: u32, jobs: u32) -> Resul
     }
     println!("  {}: сверено состояний {recs}", mode.name());
     Ok(report(&format!("забеги {} целиком, сидов", mode.name()), cnt, bad, &shown, t))
+}
+
+// ── решатель ────────────────────────────────────────────────────────────────
+
+fn hex(x: f64) -> String {
+    format!("{:x}", x.to_bits())
+}
+
+/// Строка как у `solve` в reference.mts.
+fn solve_line(i: usize, r: &gorn_prison::solver::SolveStep) -> String {
+    let opts: Vec<String> = r
+        .options
+        .iter()
+        .map(|o| format!("{}:{}:{}:{}:{}", o.code, hex(o.mean), hex(o.gap_se), o.rounds, o.pruned as i32))
+        .collect();
+    format!("{i} {} {} {} {} {}", r.rounds, r.done as i32, r.best, opts.len(), opts.join(" "))
+}
+
+/// Решатель при фиксированном числе раундов: те же оценки, что у эталона,
+/// и в пуле rayon — те же, что в одном потоке.
+fn check_solve(rf: &Reference, rule: &str, n: u32, rounds: u32, pool_threads: u32, jobs: u32) -> Result<bool, String> {
+    use gorn_prison::solver::{Search, SolveOptions, STOP_DEFAULTS, STOP_FREE};
+    let t = Clock::now();
+    let p = &DEFAULT_PARAMS;
+    let w = default_weights();
+    let pos = gorn_prison::runs::solve_positions(p, w, 18, 2);
+    let n = n.min(pos.len() as u32);
+    let stop = if rule == "free" { STOP_FREE } else { STOP_DEFAULTS };
+    let stop = gorn_prison::solver::StopRule { max_rounds: rounds as u64, ..stop };
+    let pool = if pool_threads > 1 {
+        Some(rayon::ThreadPoolBuilder::new().num_threads(pool_threads as usize).build().map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+    let parts = shards(0, n, jobs);
+    type Part = (u64, u64, Vec<String>);
+    let results: Vec<Result<Part, String>> = std::thread::scope(|sc| {
+        let hs: Vec<_> = parts
+            .iter()
+            .map(|&(a, k)| {
+                let (pos, pool) = (&pos, pool.as_ref());
+                sc.spawn(move || -> Result<Part, String> {
+                    let mut child = rf.spawn(&[
+                        "solve".into(),
+                        rule.into(),
+                        a.to_string(),
+                        k.to_string(),
+                        rounds.to_string(),
+                    ])?;
+                    let rd = BufReader::new(child.stdout.take().unwrap());
+                    let (mut cnt, mut bad, mut shown) = (0u64, 0u64, vec![]);
+                    for line in rd.lines() {
+                        let line = line.map_err(|e| e.to_string())?;
+                        let i: usize = line.split_whitespace().next().and_then(|x| x.parse().ok()).ok_or("solve: строка")?;
+                        let opts = SolveOptions { seed: 1000 + i as u32, stop, known_events: false };
+                        let one = Search::new(&pos[i], opts, p, w).step(f64::INFINITY, None);
+                        let par = match pool {
+                            Some(pool) => Search::new(&pos[i], opts, p, w).step(f64::INFINITY, Some(pool)),
+                            None => one.clone(),
+                        };
+                        let mine = solve_line(i, &one);
+                        cnt += 1;
+                        if mine != line || one != par {
+                            bad += 1;
+                            if shown.len() < SHOW {
+                                shown.push(if mine != line {
+                                    format!("решатель {rule}, позиция {i}:
+    TS   {line}
+    Rust {mine}")
+                                } else {
+                                    format!("решатель {rule}, позиция {i}: пул ≠ один поток
+    {}", solve_line(i, &par))
+                                });
+                            }
+                        }
+                    }
+                    child.wait().map_err(|e| e.to_string())?;
+                    if cnt != k as u64 {
+                        return Err(format!("решатель: эталон дал {cnt} позиций из {k}"));
+                    }
+                    Ok((cnt, bad, shown))
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut cnt, mut bad, mut shown) = (0, 0, vec![]);
+    for r in results {
+        let (c, b, s) = r?;
+        cnt += c;
+        bad += b;
+        shown.extend(s);
+    }
+    Ok(report(&format!("решатель ({rule}, {rounds} раундов), позиций"), cnt, bad, &shown, t))
 }

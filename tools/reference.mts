@@ -15,6 +15,12 @@
 //                                     [сид, K], затем K записей [код, состояние SIZE слов];
 //                                     первая запись — после startRun, код −1
 //   bench <selfplay-seeds>          — замеры (текстом), см. bench() ниже
+//   solve <default|free> <from> <n> <rounds> [games 18] [every 2]
+//                                   — решатель на позициях prison-solve-bench (сиды 4242+g,
+//                                     каждое every-е решение с ходами > 1): позиции from…from+n−1,
+//                                     зерно 1000+i, потолок rounds раундов, без срока. Строка:
+//                                     «i раундов done лучший k код:среднее:gapSe:раунды:отсечён …»
+//                                     (дробные — hex-биты f64)
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -40,6 +46,7 @@ const { Rng } = await imp('core/prison/engine/rng.ts');
 const st = await imp('core/prison/engine/state.ts');
 const { instantCode, policyPlayout } = await imp('core/prison/policy/instant.ts');
 const { DEFAULT_WEIGHTS } = await imp('core/prison/policy/weights.ts');
+const solver = await imp('core/prison/solver/solve.ts');
 
 const p = model.DEFAULT_PARAMS;
 const SIZE: number = st.SIZE;
@@ -157,6 +164,44 @@ async function runs(mode: string, from: number, n: number, detail: string): Prom
       }
       await line(`${g} ${k} ${s.m[st.STORAGE]} ${h1 >>> 0} ${h2 >>> 0}`);
     }
+  }
+  await flushLines();
+}
+
+// ── решатель ────────────────────────────────────────────────────────────────
+
+/** Позиции prison-solve-bench: решения мгновенной стратегии в её забегах (сиды 4242+g). */
+function solvePositions(games: number, every: number): any[] {
+  const out: any[] = [];
+  for (let g = 0; g < games; g++) {
+    const s = new st.State();
+    const r = new Rng(4242 + g);
+    actions.startRun(s, r, p, { start: model.START_EVENT_IDS[g % 5] });
+    let k = 0;
+    while (s.m[st.PHASE] !== st.P_END) {
+      if (actions.legalCodes(s, buf) > 1 && k++ % every === 0) out.push(st.clone(s));
+      actions.applyCode(s, instantCode(s, p), r, p);
+    }
+  }
+  return out;
+}
+
+const hex = (x: number) => {
+  const dv = new DataView(new ArrayBuffer(8));
+  dv.setFloat64(0, x);
+  return dv.getBigUint64(0).toString(16);
+};
+
+async function solveCmd(rule: string, from: number, n: number, rounds: number, games: number, every: number): Promise<void> {
+  const pos = solvePositions(games, every);
+  const free = rule === 'free' ? { minRounds: Infinity, zStop: Infinity, eps: -1 } : {};
+  for (let i = from; i < Math.min(from + n, pos.length); i++) {
+    solver.clearSolveCache();
+    const res = solver.solve(pos[i], { ...free, seed: 1000 + i, maxRounds: rounds }).step(Infinity);
+    const opts = res.options.map(
+      (o: any) => `${actions.encode(o.action)}:${hex(o.mean)}:${hex(o.gapSe)}:${o.rounds}:${o.pruned ? 1 : 0}`,
+    );
+    await line(`${i} ${res.rounds} ${res.done ? 1 : 0} ${actions.encode(res.best)} ${opts.length} ${opts.join(' ')}`);
   }
   await flushLines();
 }
@@ -332,6 +377,9 @@ switch (cmd) {
     break;
   case 'bench':
     await bench(num(0, 200000));
+    break;
+  case 'solve':
+    await solveCmd(rest[0] ?? 'default', num(1), num(2), num(3), num(4, 18), num(5, 2));
     break;
   case 'selfplay': {
     const s = new st.State();

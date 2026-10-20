@@ -22,8 +22,9 @@ gorn-cli bench [--selfplay N=200000] [--threads T=0] [--ts] [--tli ../gorn-tli]
     самоигра (один поток и T потоков, 0 — все ядра); --ts — затем то же в эталоне TS
 gorn-cli selfplay [--seeds N=200000] [--from K=0] [--mode instant|random] [--threads T=1]
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
-                [--rng N=100000] [--from K=0] [--jobs J=ядра] [--quick] [--tli ../gorn-tli]
-    сверка с эталоном: веса, ГСЧ, забеги по хешу и целиком";
+                [--rng N=100000] [--solve N=580] [--solve-rounds R=400] [--solve-pool T=4]
+                [--from K=0] [--jobs J=ядра] [--quick] [--tli ../gorn-tli]
+    сверка с эталоном: веса, ГСЧ, забеги по хешу и целиком, решатель";
 
 fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
     let mut m = HashMap::new();
@@ -98,6 +99,9 @@ fn main() -> ExitCode {
                     rng: num(&o, "rng", if quick { 10_000 } else { 100_000 })?,
                     jobs: num(&o, "jobs", cores())?,
                     from: num(&o, "from", 0)?,
+                    solve: num(&o, "solve", if quick { 40 } else { 580 })?,
+                    solve_rounds: num(&o, "solve-rounds", 400)?,
+                    solve_pool: num(&o, "solve-pool", 4)?,
                 })
             }
             "help" | "--help" | "-h" => {
