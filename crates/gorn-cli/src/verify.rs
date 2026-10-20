@@ -69,6 +69,8 @@ pub struct Options {
     pub tail: u32,
     /// Цены сообщества: 0 — нет, 1 — кэши на диске, 2 — ещё и обновление из сети.
     pub community: u32,
+    /// Сценариев движка трекера.
+    pub engine: u32,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -148,6 +150,9 @@ pub fn run(o: &Options) -> Result<bool, String> {
     }
     if o.community > 0 {
         ok &= check_community(&rf, o.community > 1)?;
+    }
+    if o.engine > 0 {
+        ok &= check_engine(&rf, o.engine, o.jobs)?;
     }
     if o.tune > 0 {
         ok &= check_tune(&rf, o.tune)?;
@@ -1515,4 +1520,116 @@ fn check_community(rf: &Reference, network: bool) -> Result<bool, String> {
         let _ = std::fs::remove_dir_all(&b);
     }
     Ok(report("трекер: цены сообщества, проверок", cnt, bad, &shown, t))
+}
+
+/// Движок трекера: сценарии на синтетических логах (часть — поверх настоящего
+/// gorn.db трекера, на копии), срезы и итоговая база — как у эталона.
+fn check_engine(rf: &Reference, n: u32, jobs: u32) -> Result<bool, String> {
+    let t = Clock::now();
+    let (items, keys_v) = map_keys()?;
+    let appdata = std::path::PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("gorn-tli");
+    let parts = shards(0, n, jobs);
+    type Part = (u64, u64, Vec<String>, usize);
+    let results: Vec<Result<Part, String>> = std::thread::scope(|sc| {
+        let hs: Vec<_> = parts
+            .iter()
+            .map(|&(a, k)| {
+                let (items, keys_v, appdata) = (&items, &keys_v, &appdata);
+                sc.spawn(move || -> Result<Part, String> {
+                    let (mut cnt, mut bad, mut shown, mut snaps) = (0u64, 0u64, vec![], 0usize);
+                    for seed in a..a + k {
+                        let root = std::env::temp_dir().join(format!("gorn-engine-{}-{seed}", std::process::id()));
+                        let _ = std::fs::remove_dir_all(&root);
+                        let (logs, da, db) = (root.join("logs"), root.join("ref"), root.join("own"));
+                        for d in [&logs, &da, &db] {
+                            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+                        }
+                        // Бэкап прошлой сессии и текущий лог: начало — уже на диске, остальное — живьём.
+                        let base = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000);
+                        if seed % 2 == 0 {
+                            let p = logs.join("UE_game-backup-2026.10.10-10.00.00.log");
+                            std::fs::write(&p, crate::genlog::generate(seed as u64 * 3 + 101, 1200, items, keys_v)).map_err(|e| e.to_string())?;
+                            std::fs::File::options().write(true).open(&p).and_then(|h| h.set_modified(base)).map_err(|e| e.to_string())?;
+                        }
+                        let full = crate::genlog::generate(seed as u64 * 3 + 7, 1500, items, keys_v);
+                        let cut = full[..full.len() * (20 + (seed % 60) as usize) / 100].iter().rposition(|&b| b == b'\n').map(|i| i + 1).unwrap_or(0);
+                        let cur = logs.join("UE_game.log");
+                        std::fs::write(&cur, &full[..cut]).map_err(|e| e.to_string())?;
+                        std::fs::File::options().write(true).open(&cur).and_then(|h| h.set_modified(base + std::time::Duration::from_secs(3600))).map_err(|e| e.to_string())?;
+                        let next = if seed % 4 == 1 { crate::genlog::generate(seed as u64 * 3 + 9, 600, items, keys_v) } else { vec![] };
+                        // Данные: кэш цен сообщества и (часть сценариев) настоящая база трекера.
+                        for d in [&da, &db] {
+                            for name in ["community-prices.json", "community-prices-1501.json"] {
+                                let from = appdata.join(name);
+                                if from.exists() {
+                                    std::fs::copy(&from, d.join(name)).map_err(|e| e.to_string())?;
+                                }
+                            }
+                            if seed % 3 == 0 {
+                                for suffix in ["", "-wal"] {
+                                    let from = appdata.join(format!("gorn.db{suffix}"));
+                                    if from.exists() {
+                                        std::fs::copy(&from, d.join(format!("gorn.db{suffix}"))).map_err(|e| e.to_string())?;
+                                    }
+                                }
+                            }
+                        }
+                        let players: Vec<String> = (0..3).map(|i| format!("95608272857761{i:04}")).chain(["0".to_string()]).collect();
+                        let script = crate::enginecheck::script(seed as u64, &logs, &full[cut..], &next, &players);
+                        let script_file = root.join("script.json");
+                        std::fs::write(&script_file, script.to_string()).map_err(|e| e.to_string())?;
+                        let raw = rf.output(&["engine".into(), script_file.to_string_lossy().to_string(), da.to_string_lossy().to_string()]);
+                        let mine = crate::enginecheck::run(&script, &db);
+                        let r = (|| {
+                            let theirs: serde_json::Value = serde_json::from_slice(&raw?).map_err(|e| format!("engine: {e}"))?;
+                            let mine = mine?;
+                            let mut d = vec![];
+                            json_diff(&theirs, &mine, "", &mut d);
+                            let tdb = crate::dbcheck::read(&da.join("gorn.db"), Some(1601))?;
+                            let mdb = crate::dbcheck::read(&db.join("gorn.db"), Some(1601))?;
+                            json_diff(&tdb, &mdb, "база", &mut d);
+                            if seed < 6 {
+                                let snaps: Vec<&serde_json::Value> = theirs.as_array().into_iter().flatten().filter(|e| e[0] == "snapshot").map(|e| &e[1]).collect();
+                                let count = |f: &dyn Fn(&serde_json::Value) -> bool| snaps.iter().filter(|s| f(s)).count();
+                                let len = |v: &serde_json::Value| v.as_array().map(|a| a.len()).unwrap_or(0);
+                                println!(
+                                    "  сценарий {seed}: срезов {}, в карте {}, с сумкой {}, с находками {}, со стратегиями {}, с прошлыми сезонами {}, забегов в истории до {}",
+                                    snaps.len(),
+                                    count(&|s| s["status"] == "running"),
+                                    count(&|s| !s["bag"].is_null()),
+                                    count(&|s| len(&s["sessionTop"]) > 0),
+                                    count(&|s| len(&s["strategies"]) > 0),
+                                    count(&|s| s["otherSeasonRuns"].as_u64().unwrap_or(0) > 0),
+                                    snaps.iter().map(|s| s["rate"]["sampleSize"].as_u64().unwrap_or(0)).max().unwrap_or(0)
+                                );
+                            }
+                            Ok::<_, String>((theirs.as_array().map(|a| a.len()).unwrap_or(0), d))
+                        })();
+                        let _ = std::fs::remove_dir_all(&root);
+                        let (k, d) = r?;
+                        snaps += k;
+                        cnt += 1;
+                        if !d.is_empty() {
+                            bad += 1;
+                            if shown.len() < SHOW {
+                                shown.push(format!("сценарий {seed} (отличий {}):\n    {}", d.len(), d.iter().take(25).cloned().collect::<Vec<_>>().join("\n    ")));
+                            }
+                        }
+                    }
+                    Ok((cnt, bad, shown, snaps))
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut cnt, mut bad, mut shown, mut snaps) = (0, 0, vec![], 0);
+    for r in results {
+        let (c, b, s, k) = r?;
+        cnt += c;
+        bad += b;
+        shown.extend(s);
+        snaps += k;
+    }
+    println!("  срезов, поисков и выгрузок сверено: {snaps}");
+    Ok(report("трекер: движок (срезы по сценарию и итоговая база), сценариев", cnt, bad, &shown, t))
 }

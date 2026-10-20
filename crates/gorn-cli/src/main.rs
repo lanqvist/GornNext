@@ -10,6 +10,7 @@
 mod audit;
 mod bench;
 mod dbcheck;
+mod enginecheck;
 mod debugtrace;
 mod frames;
 mod genlog;
@@ -165,6 +166,7 @@ fn main() -> ExitCode {
                     db_file: o.get("db-file").cloned(),
                     tail: num(&o, "tail", 0)?,
                     community: num(&o, "community", 0)?,
+                    engine: num(&o, "engine", 0)?,
                 })
             }
             "play" => {

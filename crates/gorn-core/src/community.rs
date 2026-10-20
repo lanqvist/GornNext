@@ -55,8 +55,11 @@ pub fn parse_iso_ms(s: &str) -> Option<i64> {
     Some(t.timestamp() * 1000 + (t.timestamp_subsec_nanos() / 1_000_000) as i64)
 }
 
-fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+/// Часы в мс; подменяются в проверках.
+pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
+
+pub fn system_clock() -> Clock {
+    Arc::new(|| chrono::Utc::now().timestamp_millis())
 }
 
 #[derive(Default)]
@@ -82,6 +85,7 @@ pub struct CommunityPriceFeed {
     polling: Arc<Mutex<Option<Arc<AtomicBool>>>>,
     /// Адрес сервера — подменяется в проверках.
     base_url: String,
+    clock: Clock,
 }
 
 impl CommunityPriceFeed {
@@ -94,7 +98,17 @@ impl CommunityPriceFeed {
             generation: Default::default(),
             polling: Default::default(),
             base_url: BASE_URL.into(),
+            clock: system_clock(),
         }
+    }
+
+    pub fn with_clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    fn now_ms(&self) -> i64 {
+        (self.clock)()
     }
 
     pub fn with_base_url(mut self, url: &str) -> Self {
@@ -167,12 +181,36 @@ impl CommunityPriceFeed {
         if self.size() > 0 {
             self.notify();
         }
-        let stale = self.fetched_at_ms().is_none_or(|t| now_ms() - t > PAST_SEASON_REFRESH_MS);
+        let stale = self.fetched_at_ms().is_none_or(|t| self.now_ms() - t > PAST_SEASON_REFRESH_MS);
         if stale {
             let feed = self.clone();
             std::thread::spawn(move || {
                 feed.refresh();
             });
+        }
+    }
+
+    /// Как start, но обновление — сразу в этом потоке и без опроса (проверки).
+    pub fn start_sync(&self, season_id: i64) {
+        self.stop();
+        self.switch_season(season_id);
+        self.load_cache(season_id);
+        if self.size() > 0 {
+            self.notify();
+        }
+        self.refresh();
+    }
+
+    /// Как load_once, но обновление — сразу в этом потоке (проверки).
+    pub fn load_once_sync(&self, season_id: i64) {
+        self.stop();
+        self.switch_season(season_id);
+        self.load_cache(season_id);
+        if self.size() > 0 {
+            self.notify();
+        }
+        if self.fetched_at_ms().is_none_or(|t| self.now_ms() - t > PAST_SEASON_REFRESH_MS) {
+            self.refresh();
         }
     }
 
@@ -224,9 +262,10 @@ impl CommunityPriceFeed {
 
     fn save_cache(&self, s: &State) {
         let Some(season_id) = s.season_id else { return };
+        let at = chrono::DateTime::from_timestamp_millis(self.now_ms()).unwrap_or_default();
         let data = CacheFile {
             season_id,
-            fetched_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            fetched_at: at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             cursor: s.cursor.clone(),
             prices: s.prices.values().cloned().collect(),
         };
@@ -317,7 +356,7 @@ impl CommunityPriceFeed {
         {
             let mut s = self.state.lock().unwrap();
             // Успешная сверка — свежесть, даже если новых цен не пришло.
-            s.fetched_at = Some(now_ms());
+            s.fetched_at = Some(self.now_ms());
             s.refresh_failed = false;
             if changed > 0 {
                 self.save_cache(&s);

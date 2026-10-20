@@ -110,6 +110,11 @@ pub fn day_start(ts: i64) -> i64 {
     midnight(local_date(ts))
 }
 
+/// Полночь следующего дня — по календарю, как `setDate(getDate() + 1)`.
+pub fn next_day_start(ts: i64) -> i64 {
+    midnight(local_date(ts) + Duration::days(1))
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DayTotals {

@@ -54,6 +54,10 @@
 //   community <папка> <файл> <сезон> [fetch]
 //                                   — лента цен сообщества (main/communityPrices.ts): кэш сезона,
 //                                     с fetch — обновление из сети; цены по id в JSON
+//   engine <сценарий.json> <папка данных>
+//                                   — движок трекера (main/engine.ts): часы подменены, сеть отключена,
+//                                     таймеры остановлены; шаги сценария — строки лога, часы, действия
+//                                     интерфейса; срезы, поиск, CSV в JSON
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -825,6 +829,76 @@ switch (cmd) {
     if (rest[3] === 'fetch') changed = await feed.refresh();
     const all = feed.all().sort((a: any, b: any) => a.configBaseId - b.configBaseId);
     process.stdout.write(JSON.stringify({ loaded, changed, stale: feed.stale, cursor: feed.cursor, all }) + '\n');
+    break;
+  }
+  case 'engine': {
+    // Движок трекера (main/engine.ts) по сценарию: часы подменены, сеть отключена,
+    // таймеры остановлены; шаги — строки лога, часы, действия интерфейса, срезы.
+    const { readFileSync } = await import('node:fs');
+    const { registerHooks } = await import('node:module');
+    // icons.ts тянет electron — как в тестах эталона, заглушка.
+    registerHooks({
+      resolve(spec: string, ctx: any, next: any) {
+        if (spec === 'electron') return { url: 'data:text/javascript,export const net={};export const protocol={};export default {};', shortCircuit: true };
+        return next(spec, ctx);
+      },
+    });
+    const script = JSON.parse(readFileSync(rest[0]!, 'utf8'));
+    const dataDir = rest[1]!;
+    let fakeNow = script.clock as number;
+    Date.now = () => fakeNow;
+    globalThis.fetch = (() => Promise.reject(new Error('offline'))) as any;
+    const settle = () => new Promise((r) => setTimeout(r, 30));
+    const { Engine } = await imp('main/engine.ts');
+    const items = JSON.parse(readFileSync(`${tli}/data/items.json`, 'utf8'));
+    const maps = JSON.parse(readFileSync(`${tli}/data/maps.json`, 'utf8'));
+    const o = script.options;
+    const engine: any = new Engine(dataDir, items, o.language, {
+      communityPrices: o.communityPrices,
+      playerFilter: o.playerFilter,
+      allSeasons: o.allSeasons,
+      excludedItems: o.excludedItems,
+      minDropFe: o.minDropFe,
+      maps,
+    });
+    engine.on('error', () => {});
+    await engine.start(script.logDir);
+    engine.tailer?.stop();
+    if (engine.heartbeat) clearInterval(engine.heartbeat);
+    engine.heartbeat = null;
+    await settle();
+    engine.community.stop();
+    const out: unknown[] = [];
+    for (const [op, a, b] of script.steps) {
+      if (op === 'clock') fakeNow = a;
+      else if (op === 'lines') {
+        engine.consume(a);
+        // Смена сезона запускает обновление цен сообщества — дождаться его, как в своём (синхронном).
+        if (a.some((l: string) => l.includes('+SeasonId ['))) {
+          await settle();
+          engine.community.stop();
+        }
+      }
+      else if (op === 'rotate') engine.onLogRotate();
+      else if (op === 'snapshot') {
+        out.push(['snapshot', engine.buildSnapshot()]);
+        await settle();
+      } else if (op === 'scope') engine.setRunScope({ playerId: a, allSeasons: b });
+      else if (op === 'exclude') engine.setExcluded(a, b);
+      else if (op === 'minDrop') engine.setMinDropFe(a);
+      else if (op === 'language') engine.setLanguage(a);
+      else if (op === 'resetSession') engine.resetSession();
+      else if (op === 'community') {
+        engine.setCommunityPrices(a);
+        await settle();
+        engine.community.stop();
+      } else if (op === 'queryRuns') out.push(['queryRuns', engine.queryRuns(a)]);
+      else if (op === 'queryPrices') out.push(['queryPrices', engine.queryPrices(a)]);
+      else if (op === 'csv') out.push(['csv', engine.exportRunsCsv()]);
+      else if (op === 'seen') out.push(['seen', engine.seenItemIds()]);
+      else if (op === 'stop') engine.stop();
+    }
+    process.stdout.write(JSON.stringify(out) + '\n');
     break;
   }
   case 'selfplay': {

@@ -261,6 +261,8 @@ pub struct TopDrop {
     /// Начало забега (ключ забега — started_at:area_id).
     pub run_started_at: i64,
     pub run_area_id: i64,
+    #[serde(skip)]
+    pub run: Run,
 }
 
 /// Самые дорогие находки по забегам; ФЕ не в счёт.
@@ -285,7 +287,7 @@ pub fn top_drops(runs: &[Run], pricing: RunPricing, limit: usize, seed: &[TopDro
             if top.len() == limit && total <= top[limit - 1].total_fe {
                 continue;
             }
-            top.push(TopDrop { config_base_id: id, qty, total_fe: total, at, run_started_at: run.started_at, run_area_id: run.area_id });
+            top.push(TopDrop { config_base_id: id, qty, total_fe: total, at, run_started_at: run.started_at, run_area_id: run.area_id, run: run.clone() });
             top.sort_by(|a, b| b.total_fe.partial_cmp(&a.total_fe).unwrap_or(std::cmp::Ordering::Equal));
             if top.len() > limit {
                 top.pop();
