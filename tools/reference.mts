@@ -42,6 +42,9 @@
 //                                     {heads, recs} → {runs: splitRuns(heads), findings, summary}
 //   analyze <лог> [current]         — трекер: разбор файла лога (core/pipeline.ts) в JSON;
 //                                     ключи от карт — по data/items.json эталона
+//   report <папка логов>          — трекер: ретро-скан папки (core/retroScan.ts) и вся аналитика
+//                                     над ним (analysis, history, bag, priceStore, mapNames, seasons,
+//                                     heroes, stats) в JSON; цены — свои пробивки, связанные — по items.json
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -577,6 +580,113 @@ switch (cmd) {
       lastTs: r.lastTs,
       position: r.position,
       segmenter: r.segmenter,
+    };
+    process.stdout.write(JSON.stringify(out) + '\n');
+    break;
+  }
+  case 'report': {
+    const { readFileSync } = await import('node:fs');
+    const { basename } = await import('node:path');
+    const { retroScan, runValue, runCost } = await imp('core/retroScan.ts');
+    const { isMapKeyType } = await imp('core/patterns.ts');
+    const A = await imp('core/analysis.ts');
+    const H = await imp('core/history.ts');
+    const { bagValue } = await imp('core/bag.ts');
+    const P = await imp('core/priceStore.ts');
+    const { MapNames } = await imp('core/mapNames.ts');
+    const { seasonName, seasonShort } = await imp('core/seasons.ts');
+    const { heroName } = await imp('core/heroes.ts');
+    const S = await imp('core/stats.ts');
+    const items = JSON.parse(readFileSync(`${tli}/data/items.json`, 'utf8')) as { id: number; typeCn?: string; name?: string; nameRu?: string }[];
+    const keys = new Set(items.filter((it) => isMapKeyType(it.typeCn)).map((it) => it.id));
+    const r = await retroScan(rest[0]!, undefined, { isMapKey: (id: number) => keys.has(id) });
+    const bound = items.filter((it) => P.isBoundName(it.name) || P.isBoundName(it.nameRu)).map((it) => it.id);
+    r.prices.registerBoundIds(bound);
+    const priceOf = (id: number) => r.prices.priceOf(id);
+    const catalogue = JSON.parse(readFileSync(`${tli}/data/maps.json`, 'utf8'));
+    const maps = new MapNames(catalogue);
+    const nameOf = (run: any) => {
+      const m = maps.lookup(run.asset, run.areaId);
+      return m ? (m.ru ?? m.en) : `${run.asset ?? '?'}#${run.areaId}`;
+    };
+    const runs = r.runs as any[];
+    const farming = runs.filter(A.isFarmingRun);
+    const rated = runs.filter(A.isRatedRun);
+    const nets = rated.map((run) => A.runNet(run, priceOf));
+    const rates = rated.map((run, i) => S.perHour(nets[i], A.activeDuration(run)));
+    const now = runs.reduce((m, run) => Math.max(m, A.runEnd(run)), 0);
+    // Сессии для сверки: по семь фарм-забегов, последняя открыта.
+    const sessions = [];
+    for (let i = 0; i < farming.length; i += 7) {
+      sessions.push({ startedAt: farming[i].startedAt, endedAt: i + 7 < farming.length ? farming[i + 7].startedAt : null });
+    }
+    const contents = new Map<number, number>();
+    for (const [, st] of r.slots) if (st.configBaseId !== null) contents.set(st.configBaseId, (contents.get(st.configBaseId) ?? 0) + st.qty);
+    const history = new Map<number, { t: number; fe: number }[]>();
+    for (const o of r.prices.observations()) {
+      const l = history.get(o.configBaseId) ?? [];
+      l.push({ t: o.observedAt, fe: o.fe });
+      history.set(o.configBaseId, l);
+    }
+    const choices = [];
+    for (const rec of r.prices.all()) {
+      for (const k of [-1, 0, 1]) {
+        const own = { fe: rec.fe, observedAt: rec.observedAt };
+        const community = { fe: rec.median, updatedAtMs: () => (k === 1 ? NaN : rec.observedAt + k * 1000) };
+        const t = rec.observedAt + P.OWN_PRICE_TTL_MS + k;
+        choices.push([P.choosePrice(own, community, t), P.choosePrice(own, null, t), P.choosePrice(null, community, t), P.choosePrice(own, { ...community, updatedAtMs: () => rec.observedAt + 5000 }, t)]);
+      }
+      choices.push([P.communityReference({ fe: rec.median, p10: rec.fe }, rec.configBaseId % 2 === 0), P.communityReference({ fe: rec.fe, p10: rec.median }, false)]);
+    }
+    const lookups = [];
+    const seen = new Set<string>();
+    for (const run of runs) {
+      const k = `${run.asset}#${run.areaId}`;
+      if (!seen.has(k)) { seen.add(k); lookups.push([run.asset, run.areaId, maps.lookup(run.asset, run.areaId)]); }
+    }
+    for (const p of Object.keys(catalogue.assets)) for (const id of [5354, 506, 1]) lookups.push([`X_${p}_Y`, id, maps.lookup(`X_${p}_Y`, id)]);
+    for (const p of Object.keys(catalogue.ambiguous)) for (const id of [5354, 506, 5355, 7]) lookups.push([p, id, maps.lookup(p, id)]);
+    for (const id of Object.keys(catalogue.levelIds)) lookups.push([null, Number(id), maps.lookup(null, Number(id))]);
+    const seasonIds = [null, 1, 1301, 1401, 1501, 1601, 1701, 1801, 1502, 99, 2001, ...r.seasonIds];
+    const heroIds = [null, 1700, 1800, ...r.players.map((p: any) => p.heroId ?? null)];
+    const sorted = [...rates].sort((a, b) => a - b);
+    const out = {
+      scan: {
+        runs,
+        prices: r.prices.all(),
+        observations: r.prices.observations(),
+        trade: { listings: r.trade.listings, recalls: r.trade.recalls, receipts: r.trade.receipts, purchases: r.trade.purchases },
+        filesScanned: r.filesScanned,
+        linesScanned: r.linesScanned,
+        seasonIds: [...r.seasonIds],
+        unknownProtos: [...r.unknownProtos],
+        failed: r.failed.map((f: any) => basename(f.path)),
+        slots: r.slots,
+        latestSeasonId: r.latestSeasonId,
+        players: r.players,
+        lastPlayerId: r.lastPlayerId,
+        currentLog: r.currentLog && { file: basename(r.currentLog.path), position: r.currentLog.position },
+        segmenter: r.segmenter,
+      },
+      bound,
+      perRun: runs.map((run) => [A.activeDuration(run), A.activeDuration(run, 60_000, now), A.runNet(run, priceOf), runValue(run, priceOf), runCost(run, priceOf), A.runFe(run), A.strategyKey(run), A.isFarmingRun(run), A.isPrisonRun(run), A.runKey(run), nameOf(run), H.dayStart(A.runEnd(run))]),
+      merged: A.mergeRuns(runs.slice(0, Math.ceil(runs.length / 2)), runs.slice(Math.floor(runs.length / 3))).map(A.runKey),
+      missing: A.missingPrices(runs, priceOf),
+      strategies: A.groupByStrategy(rated, priceOf),
+      maps: H.groupByMap(rated, nameOf, priceOf),
+      days: H.dailyTotals(farming, priceOf, 45, now),
+      sessions: H.sessionTotals(sessions, farming, priceOf),
+      sessions3: H.sessionTotals(sessions, farming, priceOf, 3),
+      norm: [A.rollingNorm(rates), A.rollingNorm(rates, 5)],
+      top: A.topDrops(rated, priceOf, 5).map((t: any) => ({ ...t, run: A.runKey(t.run) })),
+      bag: [bagValue(contents, priceOf), bagValue(contents, priceOf, 2)],
+      realization: r.trade.summarize(priceOf),
+      trends: [...history].map(([id, pts]) => [id, P.priceTrend(pts)]),
+      choices,
+      lookups,
+      seasons: seasonIds.map((id) => [seasonName(id), seasonShort(id)]),
+      heroes: heroIds.map((id) => heroName(id)),
+      stats: [S.median(rates), S.percentile(sorted, 0.1), S.percentile(sorted, 0.9), S.topShareOf(nets), S.summarize(rates, nets), S.summarize(nets)],
     };
     process.stdout.write(JSON.stringify(out) + '\n');
     break;

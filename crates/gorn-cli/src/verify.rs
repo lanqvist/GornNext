@@ -55,6 +55,10 @@ pub struct Options {
     pub logs: Option<String>,
     /// Синтетических логов трекера.
     pub synth: u32,
+    /// Ретро-скан и аналитика трекера: папка логов («game» — папка логов Steam).
+    pub report: Option<String>,
+    /// Синтетических папок логов для ретро-скана и аналитики.
+    pub report_synth: u32,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -113,6 +117,12 @@ pub fn run(o: &Options) -> Result<bool, String> {
     }
     if o.synth > 0 {
         ok &= check_synth(&rf, o.synth, o.jobs)?;
+    }
+    if let Some(dir) = &o.report {
+        ok &= check_report(&rf, dir)?;
+    }
+    if o.report_synth > 0 {
+        ok &= check_report_synth(&rf, o.report_synth, o.jobs)?;
     }
     if o.tune > 0 {
         ok &= check_tune(&rf, o.tune)?;
@@ -1034,4 +1044,110 @@ fn check_logs(rf: &Reference, spec: &str) -> Result<bool, String> {
         }
     }
     Ok(report("трекер: разбор логов, файлов", cnt, bad, &shown, t))
+}
+
+/// Одна папка логов: ретро-скан и аналитика эталона против своих (JSON); отличия — в out.
+fn compare_report(rf: &Reference, dir: &std::path::Path, out: &mut Vec<String>) -> Result<serde_json::Value, String> {
+    let raw = rf.output(&["report".to_string(), dir.to_string_lossy().to_string()])?;
+    let theirs: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mine = crate::report::build(dir)?;
+    json_diff(&theirs, &mine, "", out);
+    Ok(theirs)
+}
+
+fn report_line(v: &serde_json::Value) -> String {
+    let len = |p: &str| v.pointer(p).and_then(|a| a.as_array()).map(|a| a.len()).unwrap_or(0);
+    format!(
+        "файлов {}, забегов {}, цен {}, стратегий {}, карт {}, сессий {}, недостающих {}, находок {}, в сумке {}, биржа {}",
+        v["scan"]["filesScanned"], len("/scan/runs"), len("/scan/prices"), len("/strategies"), len("/maps"), len("/sessions"), len("/missing"),
+        len("/top"), len("/bag/0/top"), len("/scan/trade/listings") + len("/scan/trade/receipts") + len("/scan/trade/purchases") + len("/scan/trade/recalls")
+    )
+}
+
+/// Ретро-скан папки логов (по умолчанию — логов игры) и вся аналитика — как у эталона.
+fn check_report(rf: &Reference, spec: &str) -> Result<bool, String> {
+    let t = Clock::now();
+    let src = if spec == "game" { steam_log_dir().ok_or("папка логов игры не найдена")? } else { std::path::PathBuf::from(spec) };
+    // Игра может дописывать текущий лог: копия папки, чтобы обе стороны читали одно и то же.
+    let tmp = std::env::temp_dir().join(format!("gorn-report-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    for (f, _) in log_files(&src) {
+        let to = tmp.join(f.file_name().unwrap());
+        std::fs::copy(&f, &to).map_err(|e| e.to_string())?;
+        let mtime = std::fs::metadata(&f).and_then(|m| m.modified()).map_err(|e| e.to_string())?;
+        std::fs::File::options().write(true).open(&to).and_then(|h| h.set_modified(mtime)).map_err(|e| e.to_string())?;
+    }
+    let mut d = vec![];
+    let theirs = compare_report(rf, &tmp, &mut d);
+    let _ = std::fs::remove_dir_all(&tmp);
+    let theirs = theirs?;
+    println!("  {}: {}", src.display(), report_line(&theirs));
+    let shown = if d.is_empty() { vec![] } else { vec![format!("{}:
+    {}", src.display(), d.iter().take(40).cloned().collect::<Vec<_>>().join("
+    "))] };
+    Ok(report("трекер: ретро-скан и аналитика, папок", 1, (!d.is_empty()) as u64, &shown, t))
+}
+
+/// Синтетические папки: несколько логов (бэкапы и текущий), перекрытия забегов и биржи между файлами.
+fn check_report_synth(rf: &Reference, n: u32, jobs: u32) -> Result<bool, String> {
+    let t = Clock::now();
+    let (items, keys_v) = map_keys()?;
+    let parts = shards(0, n, jobs);
+    type Part = (u64, u64, Vec<String>);
+    let results: Vec<Result<Part, String>> = std::thread::scope(|sc| {
+        let hs: Vec<_> = parts
+            .iter()
+            .map(|&(a, k)| {
+                let (items, keys_v) = (&items, &keys_v);
+                sc.spawn(move || -> Result<Part, String> {
+                    let (mut cnt, mut bad, mut shown) = (0u64, 0u64, vec![]);
+                    for seed in a..a + k {
+                        let dir = std::env::temp_dir().join(format!("gorn-report-synth-{}-{seed}", std::process::id()));
+                        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                        let files = 1 + seed % 4;
+                        let base = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000);
+                        for i in 0..files {
+                            let name = if i + 1 == files && seed % 5 != 0 { "UE_game.log".to_string() } else { format!("UE_game-backup-2026.10.{:02}-10.00.00.log", 10 + i) };
+                            // Файлы парами: второй — оборванная копия первого (ротация при краше),
+                            // забеги и биржа перекрываются, у копий забегов разная полнота.
+                            let mut bytes = crate::genlog::generate(seed as u64 * 7 + i as u64 / 2, 1500, items, keys_v);
+                            if i % 2 == 1 {
+                                bytes.truncate(bytes.len() * (40 + (seed % 50) as usize) / 100);
+                            }
+                            let path = dir.join(&name);
+                            std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+                            let at = base + std::time::Duration::from_secs(3600 * i as u64);
+                            std::fs::File::options().write(true).open(&path).and_then(|h| h.set_modified(at)).map_err(|e| e.to_string())?;
+                        }
+                        let mut d = vec![];
+                        let r = compare_report(rf, &dir, &mut d);
+                        let _ = std::fs::remove_dir_all(&dir);
+                        let theirs = r?;
+                        if seed < 3 {
+                            println!("  папка {seed}: {}", report_line(&theirs));
+                        }
+                        cnt += 1;
+                        if !d.is_empty() {
+                            bad += 1;
+                            if shown.len() < SHOW {
+                                shown.push(format!("синтетическая папка {seed}:
+    {}", d.iter().take(30).cloned().collect::<Vec<_>>().join("
+    ")));
+                            }
+                        }
+                    }
+                    Ok((cnt, bad, shown))
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut cnt, mut bad, mut shown) = (0, 0, vec![]);
+    for r in results {
+        let (c, b, s) = r?;
+        cnt += c;
+        bad += b;
+        shown.extend(s);
+    }
+    Ok(report("трекер: ретро-скан и аналитика синтетических папок, папок", cnt, bad, &shown, t))
 }

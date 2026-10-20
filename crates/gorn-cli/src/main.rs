@@ -14,6 +14,7 @@ mod frames;
 mod genlog;
 mod reference;
 mod replay;
+mod report;
 mod solverbench;
 mod tune;
 mod verify;
@@ -119,6 +120,13 @@ fn main() -> ExitCode {
                 bench::selfplay(mode, num(&o, "from", 0)?, num(&o, "seeds", 200_000)?, num(&o, "threads", 1)? as usize);
                 Ok(true)
             }
+            "report" => {
+                let dir = o.get("_").cloned().or_else(|| gorn_core::locate::find_log_directory().map(|d| d.to_string_lossy().to_string()));
+                let dir = dir.ok_or("папка логов игры не найдена")?;
+                let v = report::build(std::path::Path::new(&dir))?;
+                println!("{}", if o.contains_key("json") { v.to_string() } else { serde_json::to_string_pretty(&v).unwrap() });
+                Ok(true)
+            }
             "verify" => {
                 let quick = o.contains_key("quick");
                 let seeds = num(&o, "seeds", if quick { 20_000 } else { 1_000_000 })?;
@@ -148,6 +156,8 @@ fn main() -> ExitCode {
                     audit_runs: num(&o, "audit-runs", 2)?,
                     logs: o.get("logs").cloned(),
                     synth: num(&o, "synth", 0)?,
+                    report: o.get("retro").cloned(),
+                    report_synth: num(&o, "retro-synth", 0)?,
                 })
             }
             "play" => {

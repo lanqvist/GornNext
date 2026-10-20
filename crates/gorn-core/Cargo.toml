@@ -9,4 +9,5 @@ license.workspace = true
 serde_json.workspace = true
 serde = { version = "1", features = ["derive"] }
 regex = "1"
-indexmap = "2"
+indexmap = { version = "2", features = ["serde"] }
+chrono = "0.4"

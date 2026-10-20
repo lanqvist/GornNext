@@ -49,6 +49,7 @@ pub struct Gen {
     ends: u8,
     items: Vec<i64>,
     keys: Vec<i64>,
+    pool: Vec<i64>,
 }
 
 impl Gen {
@@ -86,6 +87,9 @@ impl Gen {
             100300
         } else if self.r.chance(0.2) {
             *self.r.pick(&self.keys.clone())
+        } else if self.r.chance(0.6) {
+            // Узкий пул: пробивки цен попадают на выпавшее и лежащее в сумке.
+            *self.r.pick(&self.pool.clone())
         } else {
             *self.r.pick(&self.items.clone())
         }
@@ -235,7 +239,9 @@ pub fn generate(seed: u64, lines: usize, items: &[i64], keys: &[i64]) -> Vec<u8>
         ends: (seed % 3) as u8,
         items: items.to_vec(),
         keys: keys.to_vec(),
+        pool: vec![],
     };
+    g.pool = (0..12).map(|_| *g.r.pick(items)).chain(keys.iter().take(2).copied()).collect();
     if seed % 2 == 0 {
         g.out.push('\u{feff}');
     }
