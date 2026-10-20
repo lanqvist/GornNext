@@ -99,7 +99,7 @@ export function UpdateBanner() {
           <span className="muted small">
             {tr('Портативная версия не обновляется сама —', 'The portable version doesn’t self-update —')}{' '}
             <a
-              href="https://github.com/lanqvist/gorn-tli/releases/latest"
+              href="https://github.com/lanqvist/GornNext/releases/latest"
               target="_blank"
               rel="noreferrer"
             >

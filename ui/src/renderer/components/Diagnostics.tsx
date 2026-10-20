@@ -75,7 +75,7 @@ export function Diagnostics({ snapshot }: { snapshot: Snapshot }) {
             {unknownProtos.map(([p, n]) => `${p} ×${n}`).join(', ')}.{' '}
             {tr('Возможно, игра обновилась —', 'The game may have been updated —')}{' '}
             <a
-              href="https://github.com/lanqvist/gorn-tli/issues"
+              href="https://github.com/lanqvist/GornNext/issues"
               target="_blank"
               rel="noreferrer"
             >

@@ -13,6 +13,7 @@ mod overlay;
 mod settings;
 mod shots;
 mod tracker;
+mod updater;
 mod triggers;
 
 use std::path::PathBuf;
@@ -40,6 +41,7 @@ struct AppState {
     busy_hotkeys: Vec<String>,
     tracker: Tracker,
     shots_dir: PathBuf,
+    updater: updater::Updater,
     /// Выход по-настоящему: отличает «закрыть в трей» от завершения.
     quitting: Mutex<bool>,
 }
@@ -117,6 +119,17 @@ fn init_log(data_dir: &std::path::Path) {
         log(&format!("[паника] {info}"));
         prev(info);
     }));
+}
+
+/// Пауза в асинхронной задаче, не занимая поток пула.
+async fn tokio_sleep(secs: u64) {
+    let (tx, rx) = tauri::async_runtime::channel::<()>(1);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(secs));
+        let _ = tx.blocking_send(());
+    });
+    let mut rx = rx;
+    let _ = rx.recv().await;
 }
 
 /// Строка в журнал (и в консоль отладочной сборки).
@@ -474,8 +487,25 @@ async fn gorn(
             st.layers.panel_tab(a0.as_str().unwrap_or(""));
             Value::Null
         }
-        // Обновления — через плагин updater на следующем шаге.
-        "update:get" => Value::Null,
+        "update:get" => st.updater.state(),
+        "update:check" => {
+            let en = st.settings.lock().unwrap().str("uiLanguage") == Some("en");
+            st.updater.check(en).await;
+            Value::Null
+        }
+        "update:download" => {
+            let en = st.settings.lock().unwrap().str("uiLanguage") == Some("en");
+            st.updater.download(en).await;
+            Value::Null
+        }
+        "update:install" => {
+            // Дописать закрытое в базу до того, как установщик закроет приложение.
+            *st.quitting.lock().unwrap() = true;
+            st.layers.shutdown();
+            st.tracker.shutdown();
+            st.updater.install();
+            Value::Null
+        }
         _ => Value::Null,
     };
     Ok(v)
@@ -550,6 +580,7 @@ fn main() {
     }
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -816,7 +847,22 @@ fn main() {
             // Запись могли удалить руками, а установка — переехать: держим как в настройке.
             sync_autostart(app.handle(), settings_now.bool("autoStart"));
             drop(settings_now);
+            let updates = updater::Updater::new(app.handle().clone());
+            // Проверка обновлений — после разбора логов (за диск и сеть с ним не
+            // соревнуемся), дальше раз в 4 часа: трекер живёт сутками.
+            if smoke_setup.is_none() {
+                let u = updates.clone();
+                let en = settings.lock().unwrap().str("uiLanguage") == Some("en");
+                tauri::async_runtime::spawn(async move {
+                    tokio_sleep(8).await;
+                    loop {
+                        u.check(en).await;
+                        tokio_sleep(4 * 3600).await;
+                    }
+                });
+            }
             app.manage(AppState {
+                updater: updates,
                 tx: Mutex::new(tx),
                 settings,
                 layers: layers.clone(),
