@@ -46,6 +46,10 @@ pub enum LogEvent {
     LevelIds { ts: i64, line: i64, level_uid: i64, level_type: i64, level_id: i64 },
     /// Ответ биржи на пробивку цены.
     PriceObservation(PriceObservation),
+    /// Пробивка с фильтрами по аффиксам — цена конкретного ролла, а не базы.
+    /// Эталон её отбрасывает; движок кладёт её на последний выпавший экземпляр
+    /// базы (цена экземпляра), разбор лога и аналитика — не учитывают.
+    FilteredPrice(PriceObservation),
     /// Вход персонажем и его профиль.
     PlayerInfo(PlayerInfo),
 }
@@ -61,7 +65,7 @@ impl LogEvent {
             | LogEvent::EnterLevel { ts, .. }
             | LogEvent::LevelPath { ts, .. }
             | LogEvent::LevelIds { ts, .. } => *ts,
-            LogEvent::PriceObservation(p) => p.ts,
+            LogEvent::PriceObservation(p) | LogEvent::FilteredPrice(p) => p.ts,
             LogEvent::PlayerInfo(p) => p.ts,
         }
     }

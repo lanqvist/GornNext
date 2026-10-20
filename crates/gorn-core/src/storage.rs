@@ -635,6 +635,53 @@ impl Storage {
     }
 }
 
+/// Цена экземпляра снаряжения: пробивка с фильтрами по аффиксам, положенная
+/// на конкретную выпавшую вещь (забег — начало и зона). Таблица создаётся при
+/// первой записи: схема эталона её не знает.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InstancePrice {
+    pub run_started_at: i64,
+    pub area_id: i64,
+    pub config_base_id: ConfigBaseId,
+    pub fe: f64,
+    pub observed_at: i64,
+}
+
+impl Storage {
+    pub fn save_instance_price(&self, p: &InstancePrice) -> rusqlite::Result<()> {
+        self.db.execute_batch(
+            "CREATE TABLE IF NOT EXISTS instance_price (
+               run_started_at INTEGER NOT NULL,
+               area_id        INTEGER NOT NULL,
+               config_base_id INTEGER NOT NULL,
+               fe             REAL NOT NULL,
+               observed_at    INTEGER NOT NULL,
+               PRIMARY KEY (run_started_at, area_id, config_base_id)
+             )",
+        )?;
+        self.db.execute(
+            "INSERT OR REPLACE INTO instance_price VALUES (?, ?, ?, ?, ?)",
+            params![p.run_started_at, p.area_id, p.config_base_id, p.fe, p.observed_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_instance_prices(&self) -> rusqlite::Result<Vec<InstancePrice>> {
+        let exists: i64 =
+            self.db.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'instance_price'", [], |r| r.get(0))?;
+        if exists == 0 {
+            return Ok(vec![]);
+        }
+        let mut st = self.db.prepare("SELECT run_started_at, area_id, config_base_id, fe, observed_at FROM instance_price")?;
+        let v = st
+            .query_map([], |r| {
+                Ok(InstancePrice { run_started_at: r.get(0)?, area_id: r.get(1)?, config_base_id: r.get(2)?, fe: r.get(3)?, observed_at: r.get(4)? })
+            })?
+            .collect();
+        v
+    }
+}
+
 /// Копия базы целиком (`VACUUM INTO`): работает и с живой базой в режиме WAL,
 /// которую в этот момент держит другой процесс; источник не меняется.
 pub fn copy_database(src: &Path, dst: &Path) -> rusqlite::Result<()> {

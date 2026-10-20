@@ -64,8 +64,8 @@ impl BodyNode {
 #[derive(Default)]
 pub struct EventParser {
     pending: Option<PendingSocket>,
-    /// SynId → предмет, цену которого запрашивали.
-    price_requests: IndexMap<i64, i64>,
+    /// SynId → предмет, цену которого запрашивали, и были ли фильтры по аффиксам.
+    price_requests: IndexMap<i64, (i64, bool)>,
     line_no: i64,
 }
 
@@ -202,13 +202,19 @@ impl EventParser {
         if msg.direction == "SendMessage" {
             // `+filters+1+refer [112410]` — какой предмет пробиваем.
             let refer = find_value(&fields, "refer").map(|v| js_number(&v)).unwrap_or(f64::NAN);
-            if refer.is_finite() && refer > 0.0 && !is_filtered_search(&fields) {
-                self.price_requests.insert(msg.syn_id, refer as i64);
+            if refer.is_finite() && refer > 0.0 {
+                if is_filtered_search(&fields) {
+                    // Эталон пробивку с фильтрами не запоминает вовсе: ждущий под
+                    // тем же SynId запрос она не вытесняет.
+                    self.price_requests.entry(msg.syn_id).or_insert((refer as i64, true));
+                } else {
+                    self.price_requests.insert(msg.syn_id, (refer as i64, false));
+                }
             }
             return None;
         }
         // Ответ: цены активных лотов.
-        let referred = self.price_requests.shift_remove(&msg.syn_id)?;
+        let (referred, filtered) = self.price_requests.shift_remove(&msg.syn_id)?;
         let groups = fields.get("prices").and_then(BodyNode::as_map)?;
         let mut unit_prices: Vec<f64> = vec![];
         let mut currency = FE_ID;
@@ -245,7 +251,7 @@ impl EventParser {
         if unit_prices.is_empty() {
             return None;
         }
-        Some(LogEvent::PriceObservation(PriceObservation {
+        let obs = PriceObservation {
             kind: "priceObservation",
             ts: msg.ts,
             line,
@@ -253,7 +259,8 @@ impl EventParser {
             currency,
             unit_prices,
             syn_id: msg.syn_id,
-        }))
+        };
+        Some(if filtered { LogEvent::FilteredPrice(obs) } else { LogEvent::PriceObservation(obs) })
     }
 }
 

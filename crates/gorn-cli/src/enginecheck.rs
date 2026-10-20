@@ -153,6 +153,7 @@ pub fn run(script: &Value, data_dir: &Path) -> Result<Value, String> {
             sync_community: true,
             community_url: Some("http://127.0.0.1:9".into()),
             icon_base: None,
+            instance_prices: false,
         },
         Arc::new(move || clock_now.load(Ordering::SeqCst)),
     )

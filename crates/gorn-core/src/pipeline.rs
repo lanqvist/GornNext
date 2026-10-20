@@ -116,6 +116,11 @@ pub fn analyze_bytes(bytes: &[u8], opts: AnalyzeOptions) -> AnalysisResult {
             }
         }
         let Some(ev) = parser.parse(raw) else { continue };
+        // Пробивка с фильтрами по аффиксам — цена ролла, а не базы: для разбора
+        // файла её нет (как у эталона); цену экземпляра ставит движок.
+        if matches!(ev, LogEvent::FilteredPrice(_)) {
+            continue;
+        }
         diag.lines_matched += 1;
         let ts = ev.ts();
         if ts > 0 {
@@ -148,6 +153,7 @@ pub fn analyze_bytes(bytes: &[u8], opts: AnalyzeOptions) -> AnalysisResult {
             LogEvent::LevelIds { level_type, .. } => segmenter.note_level_type(level_type),
             LogEvent::EnterLevel { ts, area_id, .. } => segmenter.enter_level(ts, area_id),
             LogEvent::PriceObservation(p) => prices.push(p),
+            LogEvent::FilteredPrice(_) => {}
             LogEvent::PlayerInfo(p) => {
                 let merged = merge_player_info(players.get(&p.player_id), &p);
                 players.insert(p.player_id.clone(), merged);

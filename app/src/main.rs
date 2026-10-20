@@ -663,8 +663,16 @@ fn main() {
             });
             let settings_now = settings.lock().unwrap();
 
-            let items =
+            let mut items =
                 CatalogueItem::parse_list(include_str!("../../crates/gorn-core/data/items.json"))?;
+            // Базы снаряжения (tools/build-gear.mjs): названия и иконки вещей,
+            // которых нет в справочнике предметов.
+            let mut gear =
+                CatalogueItem::parse_list(include_str!("../../crates/gorn-core/data/gear.json"))?;
+            for g in &mut gear {
+                g.gear = true;
+            }
+            items.extend(gear);
             let maps =
                 serde_json::from_str(include_str!("../../crates/gorn-core/data/maps.json")).ok();
             icons::init(&data, old.exists().then_some(old.clone()), &items);
@@ -684,6 +692,8 @@ fn main() {
                         language: name_language(s["itemNames"].as_str()),
                         ui: ui_lang(s["uiLanguage"].as_str()),
                         icon_base: Some(icons::ICON_BASE.into()),
+                        // Пробивка снаряжения с фильтрами — цена выпавшего экземпляра.
+                        instance_prices: true,
                         ..Default::default()
                     },
                     items,

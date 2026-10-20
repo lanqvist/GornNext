@@ -323,6 +323,9 @@ pub struct CatalogueItem {
     pub name_ru: Option<String>,
     pub type_cn: Option<String>,
     pub icon: Option<String>,
+    /// База снаряжения из `gear.json`: название есть, но цена — как у
+    /// снаряжения вне справочника (нижняя цена сообщества: зависит от ролла).
+    pub gear: bool,
 }
 
 impl CatalogueItem {
@@ -337,6 +340,7 @@ impl CatalogueItem {
                     name_ru: it["nameRu"].as_str().map(str::to_string),
                     type_cn: it["typeCn"].as_str().map(str::to_string),
                     icon: it["icon"].as_str().map(str::to_string),
+                    gear: false,
                 })
             })
             .collect())
@@ -361,12 +365,17 @@ pub struct EngineOptions {
     pub community_url: Option<String>,
     /// Начало адреса иконки (`<начало><id>.webp`); None — `gorn-icon://item/`, как у эталона.
     pub icon_base: Option<String>,
+    /// Цена экземпляра: пробивка снаряжения с фильтрами по аффиксам ложится на
+    /// последний выпавший экземпляр этой базы. У эталона такой пробивки нет —
+    /// для сверки с ним выключено.
+    pub instance_prices: bool,
 }
 
 struct ItemInfo {
     name: String,
     name_ru: Option<String>,
     icon: Option<String>,
+    gear: bool,
 }
 
 struct PastSeason {
@@ -477,6 +486,9 @@ pub struct Engine {
     emit: Cell<bool>,
     last_idle_hint: Option<String>,
     icon_base: String,
+    use_instance_prices: bool,
+    /// Цены экземпляров: (начало забега, зона, база) → ФЕ.
+    instance_prices: HashMap<(i64, i64, ConfigBaseId), f64>,
 }
 
 impl Engine {
@@ -485,7 +497,11 @@ impl Engine {
         let mut map = IndexMap::new();
         let mut map_keys = HashSet::new();
         for it in items {
-            map.insert(it.id, ItemInfo { name: it.name.clone(), name_ru: it.name_ru.clone(), icon: it.icon.clone() });
+            // Справочник предметов главнее справочника снаряжения.
+            if it.gear && map.contains_key(&it.id) {
+                continue;
+            }
+            map.insert(it.id, ItemInfo { name: it.name.clone(), name_ru: it.name_ru.clone(), icon: it.icon.clone(), gear: it.gear });
             if is_map_key_type(it.type_cn.as_deref()) {
                 map_keys.insert(it.id);
             }
@@ -549,6 +565,8 @@ impl Engine {
             emit: Cell::new(false),
             last_idle_hint: None,
             icon_base: options.icon_base.unwrap_or_else(|| "gorn-icon://item/".into()),
+            use_instance_prices: options.instance_prices,
+            instance_prices: HashMap::new(),
         })
     }
 
@@ -693,6 +711,11 @@ impl Engine {
         self.storage.save_trade(&scan.trade.listings, &scan.trade.receipts, &scan.trade.recalls)?;
         self.mark_trade_persisted();
         self.storage.save_players(&scan.players)?;
+        if self.use_instance_prices {
+            for p in self.storage.load_instance_prices()? {
+                self.instance_prices.insert((p.run_started_at, p.area_id, p.config_base_id), p.fe);
+            }
+        }
         for p in self.storage.load_players()? {
             self.known_players.insert(p.player_id.clone(), p);
         }
@@ -781,6 +804,12 @@ impl Engine {
                 }
             }
             let Some(ev) = self.parser.parse(raw) else { continue };
+            // Пробивка с фильтрами — не событие для счётчиков (как у эталона),
+            // но цена экземпляра, если она включена.
+            if let LogEvent::FilteredPrice(p) = &ev {
+                self.on_filtered_price(p);
+                continue;
+            }
             self.diagnostics.lines_matched += 1;
             changed = true;
             self.last_activity_at = self.now();
@@ -819,6 +848,7 @@ impl Engine {
                     self.invalidate();
                     self.persist_finished();
                 }
+                LogEvent::FilteredPrice(_) => {}
                 LogEvent::PriceObservation(p) => {
                     let season = self.prices.season();
                     if let Some(record) = self.prices.observe(&p, season) {
@@ -930,7 +960,7 @@ impl Engine {
         let community = if self.community_enabled { feed.and_then(|f| f.price_of(id)) } else { None };
         let updated = community.as_ref().map(|c| c.updated_at.clone());
         let updated_ms = move || updated.as_deref().and_then(parse_iso_ms).map(|t| t as f64).unwrap_or(f64::NAN);
-        let community_ref = community.as_ref().map(|c| community_reference(c.fe, c.p10, self.items.contains_key(&id)));
+        let community_ref = community.as_ref().map(|c| community_reference(c.fe, c.p10, self.items.get(&id).is_some_and(|i| !i.gear)));
         let now = if past.is_some() { i64::MAX } else { self.now() };
         choose_price(own, community_ref.map(|fe| (fe, &updated_ms as &dyn Fn() -> f64)), now, OWN_PRICE_TTL_MS)
             .map(|(fe, s)| Picked { fe, source: s.into() })
@@ -942,6 +972,46 @@ impl Engine {
 
     fn price_source_of(&self, id: ConfigBaseId, season: Option<i64>) -> Option<ViewPriceSource> {
         self.pick_price(id, season).map(|p| p.source)
+    }
+
+    /// Цена этого экземпляра в этом забеге (пробивка с фильтрами), если есть.
+    /// Исключённый из учёта предмет стоит ноль и здесь.
+    fn instance_price(&self, run: &Run, id: ConfigBaseId) -> Option<f64> {
+        if self.instance_prices.is_empty() || self.excluded.contains(&id) {
+            return None;
+        }
+        self.instance_prices.get(&(run.started_at, run.area_id, id)).copied()
+    }
+
+    /// Пробивка снаряжения с фильтрами по аффиксам: цена ролла — последнему
+    /// выпавшему экземпляру этой базы (до пробивки), а не всей базе.
+    fn on_filtered_price(&mut self, obs: &PriceObservation) {
+        if !self.use_instance_prices || obs.currency != FE_ID {
+            return;
+        }
+        let fe = crate::prices::reference_price(&obs.unit_prices);
+        if fe <= 0.0 {
+            return;
+        }
+        let id = obs.config_base_id;
+        let mut best: Option<(i64, i64, i64)> = None; // (время дропа, начало забега, зона)
+        for run in self.segmenter.current().into_iter().chain(self.segmenter.closed()).chain(self.history.iter()) {
+            for d in &run.drops {
+                if d.config_base_id == id && d.ts <= obs.ts && best.is_none_or(|b| d.ts > b.0) {
+                    best = Some((d.ts, run.started_at, run.area_id));
+                }
+            }
+        }
+        let Some((_, started, area)) = best else { return };
+        self.instance_prices.insert((started, area, id), fe);
+        let _ = self.storage.save_instance_price(&crate::storage::InstancePrice {
+            run_started_at: started,
+            area_id: area,
+            config_base_id: id,
+            fe,
+            observed_at: obs.ts,
+        });
+        self.rebuild();
     }
 
     /// Таблица цен сезона; забеги без сезона — текущими ценами.
@@ -958,9 +1028,9 @@ impl Engine {
     /// Цены для видимых забегов: в обычном виде — одна таблица текущего сезона.
     fn run_pricing(&self) -> Box<dyn Fn(&Run, ConfigBaseId) -> Option<f64> + '_> {
         if self.player_filter.is_none() && !self.all_seasons {
-            return Box::new(|_, id| self.price_of(id));
+            return Box::new(|run, id| self.instance_price(run, id).or_else(|| self.price_of(id)));
         }
-        Box::new(|run, id| self.season_lookup(self.season_of(run))(id))
+        Box::new(|run, id| self.instance_price(run, id).or_else(|| self.season_lookup(self.season_of(run))(id)))
     }
 
     /// Закрытые забеги сразу уходят в базу: лог может ротироваться в любой момент.
@@ -1164,7 +1234,7 @@ impl Engine {
             chrono::Local.timestamp_millis_opt(ts).single().map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default()
         };
         let items = |deltas: &[ItemDelta], season: Option<i64>| {
-            self.item_views(deltas, season).iter().map(|v| format!("{} ×{}", v.name, v.qty)).collect::<Vec<_>>().join(", ")
+            self.item_views(deltas, season, None).iter().map(|v| format!("{} ×{}", v.name, v.qty)).collect::<Vec<_>>().join(", ")
         };
         let ui = self.ui;
         let header: Vec<String> = [
@@ -1322,7 +1392,7 @@ impl Engine {
         // Забег прошлого сезона — по ценам того сезона, и строки добычи тоже.
         let season = self.season_of(run);
         let price_of = self.season_lookup(season);
-        let pricing = |_: &Run, id: ConfigBaseId| price_of(id);
+        let pricing = |r: &Run, id: ConfigBaseId| self.instance_price(r, id).or_else(|| price_of(id));
         let value_fe = run_value(run, &pricing);
         let cost_fe = run_cost(run, &pricing);
         let net_fe = value_fe - cost_fe;
@@ -1339,15 +1409,16 @@ impl Engine {
             cost_fe,
             net_fe,
             per_hour: per_hour(net_fe, active as f64),
-            drops: self.item_views(&run.drops, season),
-            costs: self.item_views(&run.costs, season),
+            drops: self.item_views(&run.drops, season, Some(run)),
+            costs: self.item_views(&run.costs, season, Some(run)),
             prison: is_prison_run(run).then_some(true),
         }
     }
 
     /// Строки предметов: одинаковые сложены, дорогие сверху.
-    fn item_views(&self, deltas: &[ItemDelta], season: Option<i64>) -> Vec<DropView> {
+    fn item_views(&self, deltas: &[ItemDelta], season: Option<i64>, run: Option<&Run>) -> Vec<DropView> {
         let price_of = self.season_lookup(season);
+        let instance = |id: ConfigBaseId| run.and_then(|r| self.instance_price(r, id));
         let mut by_item: IndexMap<ConfigBaseId, i64> = IndexMap::new();
         for d in deltas {
             *by_item.entry(d.config_base_id).or_insert(0) += d.qty;
@@ -1355,7 +1426,8 @@ impl Engine {
         let mut v: Vec<DropView> = by_item
             .into_iter()
             .map(|(id, qty)| {
-                let unit = price_of(id);
+                let own = instance(id);
+                let unit = own.or_else(|| price_of(id));
                 DropView {
                     config_base_id: id,
                     name: self.display_name(id),
@@ -1363,7 +1435,7 @@ impl Engine {
                     qty,
                     unit_fe: unit,
                     total_fe: unit.map(|u| u * qty as f64),
-                    price_source: self.price_source_of(id, season),
+                    price_source: if own.is_some() { Some(ViewPriceSource::Own) } else { self.price_source_of(id, season) },
                 }
             })
             .collect();
