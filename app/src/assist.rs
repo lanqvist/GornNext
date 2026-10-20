@@ -99,6 +99,8 @@ pub struct Assist {
     shots: Option<Shots>,
     paths: Paths,
     treasure_seq: u64,
+    /// Доска закрыта (итог забега, финальная комната): пересъёмок не нужно.
+    board_closed: bool,
     pub log_found: bool,
 }
 
@@ -127,6 +129,7 @@ impl Assist {
             shots: save_shots.then(|| Shots::new(paths.shots.clone())),
             paths,
             treasure_seq: 0,
+            board_closed: false,
             log_found: false,
         };
         // Монитор игры и где была доска — с прошлого раза.
@@ -175,10 +178,14 @@ impl Assist {
             if let Some((at, id, sent)) = self.retry_at.clone() {
                 if now >= at {
                     self.retry_at = None;
-                    if self.next_id == id {
+                    if self.next_id == id && self.presence.inside {
                         let mut s = sent;
                         s.retry += 1;
                         self.capture_with(s.shot.clone(), s.manual, s.retry);
+                    } else if self.presence.inside {
+                        // Ход уже сделан — новый кадр в пути, «смотрю…» остаётся по нему.
+                    } else {
+                        self.layer.clear();
                     }
                 }
             }
@@ -238,7 +245,7 @@ impl Assist {
             if let Some(d) = self.game_display() {
                 // В тюрьме — поток экрана открыт заранее, к первому нужному кадру.
                 if let Err(e) = self.stream.ensure(d.hmonitor) {
-                    eprintln!("[тюрьма] {e}");
+                    crate::log(&format!("[тюрьма] {e}"));
                 }
                 // Игрок сходил: прежняя стрелка уже неверна — убрать сразу и показать «смотрю…».
                 if lines.iter().any(|l| player_action(l)) {
@@ -255,9 +262,19 @@ impl Assist {
         for s in ready {
             self.capture(s, false);
         }
+        // Доска закрыта (итог забега, финальная комната) — советовать нечего:
+        // пересъёмка и «смотрю…» по последнему ходу больше не нужны.
+        if lines.iter().any(|l| l.contains("S16BoardMain Destory") || l.contains("S16GamePlayCheckOut Run")) {
+            self.board_closed = true;
+            self.retry_at = None;
+            self.layer.clear();
+        } else if lines.iter().any(|l| l.contains("S16BoardMain Run")) {
+            self.board_closed = false;
+        }
         if change == Some(PresenceChange::Leave) {
             // Вышли из тюрьмы: захват не нужен, ждущие кадры — тоже.
-            eprintln!("[тюрьма] вышли из тюрьмы — поток экрана закрыт");
+            crate::log("[тюрьма] вышли из тюрьмы — поток экрана закрыт");
+            self.retry_at = None;
             self.triggers.cancel();
             self.queue.retain(|q| q.1);
             self.stream.stop();
@@ -316,7 +333,7 @@ impl Assist {
         // Окно стрелок видно — экран пересобирается и поток получает свежие кадры.
         self.layer.thinking(&display);
         if let Err(e) = self.stream.ensure(display.hmonitor) {
-            eprintln!("[тюрьма] {e}");
+            crate::log(&format!("[тюрьма] {e}"));
             self.layer.clear();
             return;
         }
@@ -360,10 +377,10 @@ impl Assist {
         let frame = match frame {
             Ok(f) => f,
             Err(m) => {
-                eprintln!(
+                crate::log(&format!(
                     "[тюрьма] кадр не получен за {} мс ({m:?})",
                     t0.elapsed().as_millis()
-                );
+                ));
                 if seq == self.treasure_seq {
                     self.layer.clear();
                 }
@@ -373,12 +390,15 @@ impl Assist {
         // Поток застыл: тот же кадр, что и прошлый, хотя открылось новое окно — переоткрыть.
         let hash = frame_hash(frame.width, frame.height, &frame.data);
         if self.last_posted.as_ref() == Some(&hash) && (manual || screen_changed(&shot.lines)) {
-            eprintln!("[тюрьма] поток застыл: тот же кадр, что и прошлый — поток заново");
+            crate::log(&format!("[тюрьма] поток застыл: тот же кадр, что и прошлый — поток заново"));
             self.stream.stop();
         }
         // Пока снимали, открылось окно подарков: доску учесть, совет — по подаркам.
         let late = seq != self.treasure_seq;
         if (late && shot.kind != ShotKind::Board) || (!manual && !self.presence.inside) {
+            if !late {
+                self.layer.clear();
+            }
             return;
         }
         self.last_posted = Some(hash);
@@ -464,14 +484,14 @@ impl Assist {
                 .unwrap_or((display.h) as usize),
             budget_ms: SOLVE_BUDGET_MS,
         };
-        eprintln!(
+        crate::log(&format!(
             "[тюрьма] кадр {id} ({kind}{})",
             if as_treasure {
                 ", к подаркам"
             } else {
                 ""
             }
-        );
+        ));
         let jobs = self.ensure_worker();
         let _ = jobs.send(Job { shot: msg, frame });
     }
@@ -594,6 +614,8 @@ impl Assist {
                     && !s.shot.treasure_closed
                     && matches!(s.shot.kind, ShotKind::Board | ShotKind::Instruments)
                     && id == self.next_id
+                    && self.presence.inside
+                    && !self.board_closed
                 {
                     if let Some(d) = self.display {
                         self.layer.thinking(&d);
