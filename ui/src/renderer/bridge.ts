@@ -12,6 +12,11 @@ interface TauriGlobal {
   core: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
   event: { listen: (event: string, cb: (e: { payload: unknown }) => void) => Promise<() => void> };
   window: { getCurrentWindow: () => { startDragging: () => Promise<void> } };
+  webviewWindow: {
+    getCurrentWebviewWindow: () => {
+      listen: (event: string, cb: (e: { payload: unknown }) => void) => Promise<() => void>;
+    };
+  };
 }
 
 const tauri = (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__;
@@ -23,11 +28,14 @@ if (tauri) {
   const send = (channel: string, ...args: unknown[]): void => {
     call(channel, ...args).catch(() => {});
   };
+  const self = tauri.webviewWindow.getCurrentWebviewWindow();
   /** Подписка; отписка — синхронно, даже пока слушатель ещё регистрируется. */
   const on = <T>(event: string, cb: (payload: T) => void): (() => void) => {
     let off: (() => void) | null = null;
     let cancelled = false;
-    void tauri.event.listen(event, (e) => cb(e.payload as T)).then((un) => {
+    // Слушатель окна, а не глобальный: срез, адресованный другому окну (урезанный —
+    // слою плашек), иначе приходил бы и сюда и ронял страницу.
+    void self.listen(event, (e) => cb(e.payload as T)).then((un) => {
       if (cancelled) un();
       else off = un;
     });

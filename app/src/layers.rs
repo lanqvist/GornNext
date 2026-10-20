@@ -297,14 +297,14 @@ impl Layers {
         // Главное окно: свёрнутому или спрятанному — не слать, догонит при показе.
         match self.win("main") {
             Some(w) if w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false) => {
-                let _ = w.emit("snapshot", snap);
+                let _ = w.emit_to(w.label(), "snapshot", snap);
                 *self.main_stale.lock().unwrap() = false;
             }
             _ => *self.main_stale.lock().unwrap() = true,
         }
         if self.overlay.lock().unwrap().open {
             if let Some(w) = self.win("overlay") {
-                let _ = w.emit("snapshot", snap);
+                let _ = w.emit_to(w.label(), "snapshot", snap);
             }
         }
         // Плашкам — урезанный срез и только если для них что-то изменилось.
@@ -316,14 +316,14 @@ impl Layers {
                     t.last_key = Some(key);
                     let slim = json!({ "current": snap["current"], "recent": snap["recent"], "norm": snap["norm"], "jackpotAutoFe": snap["jackpotAutoFe"] });
                     if let Some(w) = self.win("toasts") {
-                        let _ = w.emit("snapshot", slim);
+                        let _ = w.emit_to(w.label(), "snapshot", slim);
                     }
                 }
             }
         }
         match self.win("panel") {
             Some(w) if w.is_visible().unwrap_or(false) => {
-                let _ = w.emit("snapshot", snap);
+                let _ = w.emit_to(w.label(), "snapshot", snap);
                 self.panel.lock().unwrap().stale = false;
             }
             _ => self.panel.lock().unwrap().stale = true,
@@ -335,7 +335,7 @@ impl Layers {
         let mut stale = self.main_stale.lock().unwrap();
         if *stale {
             if let Some(w) = self.win("main") {
-                let _ = w.emit("snapshot", &*self.latest.lock().unwrap());
+                let _ = w.emit_to(w.label(), "snapshot", &*self.latest.lock().unwrap());
             }
             *stale = false;
         }
@@ -451,7 +451,7 @@ impl Layers {
             let w2 = win.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(700));
-                let _ = w2.emit("snapshot", snap);
+                let _ = w2.emit_to(w2.label(), "snapshot", snap);
             });
         }
     }
@@ -481,7 +481,7 @@ impl Layers {
         self.patch_overlay(json!({ "locked": locked }));
         if let Some(w) = self.win("overlay") {
             let _ = w.set_ignore_cursor_events(locked);
-            let _ = w.emit("overlay:locked", locked);
+            let _ = w.emit_to(w.label(), "overlay:locked", locked);
         }
     }
 
@@ -497,7 +497,7 @@ impl Layers {
         let p = self.patch_overlay(json!({ "mode": mode }));
         self.resize_width(mode_width(mode) * p["fontScale"].as_f64().unwrap_or(1.0));
         if let Some(w) = self.win("overlay") {
-            let _ = w.emit("overlay:mode", mode);
+            let _ = w.emit_to(w.label(), "overlay:mode", mode);
         }
     }
 
@@ -585,18 +585,18 @@ impl Layers {
         }
         let payload = prefs_payload(&p);
         if let Some(w) = self.win("overlay") {
-            let _ = w.emit("overlay:prefs", payload.clone());
+            let _ = w.emit_to(w.label(), "overlay:prefs", payload.clone());
         }
         // Слой плашек живёт своим окном: появляется и исчезает вслед за настройками.
         self.sync_toasts();
         if let Some(w) = self.win("toasts") {
-            let _ = w.emit("overlay:prefs", payload);
+            let _ = w.emit_to(w.label(), "overlay:prefs", payload);
         }
     }
 
     fn emit_main(&self, ev: &str, v: Value) {
         if let Some(w) = self.win("main") {
-            let _ = w.emit(ev, v);
+            let _ = w.emit_to(w.label(), ev, v);
         }
     }
 
@@ -792,12 +792,12 @@ impl Layers {
             h,
         );
         // Сначала содержимое, потом показ: иначе мелькает пустая подложка.
-        let _ = win.emit("panel:open", json!({ "tab": tab, "scale": font }));
+        let _ = win.emit_to(win.label(), "panel:open", json!({ "tab": tab, "scale": font }));
         let _ = win.show();
         let _ = win.set_focus();
         let stale = std::mem::replace(&mut self.panel.lock().unwrap().stale, false);
         if stale {
-            let _ = win.emit("snapshot", &*self.latest.lock().unwrap());
+            let _ = win.emit_to(win.label(), "snapshot", &*self.latest.lock().unwrap());
         }
         self.panel.lock().unwrap().shown_tab = tab;
     }
@@ -819,7 +819,7 @@ impl Layers {
         if !w.is_visible().unwrap_or(false) {
             return;
         }
-        let _ = w.emit("panel:hidden", ());
+        let _ = w.emit_to(w.label(), "panel:hidden", ());
         let _ = w.hide();
         self.panel.lock().unwrap().shown_tab = None;
     }

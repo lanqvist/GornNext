@@ -202,7 +202,7 @@ impl ArrowLayer {
 
     fn send(&mut self, payload: Value) {
         if let Some(win) = &self.window {
-            let _ = win.emit("prison:hint", payload);
+            let _ = win.emit_to(win.label(), "prison:hint", payload);
         }
     }
 
@@ -295,7 +295,7 @@ impl ArrowLayer {
     pub fn settle(&mut self, live: bool) {
         if self.ready && self.visible {
             if let Some(win) = &self.window {
-                let _ = win.emit("prison:settled", live);
+                let _ = win.emit_to(win.label(), "prison:settled", live);
             }
         }
     }
