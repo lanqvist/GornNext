@@ -9,6 +9,7 @@
 
 mod audit;
 mod bench;
+mod dbcheck;
 mod debugtrace;
 mod frames;
 mod genlog;
@@ -158,6 +159,9 @@ fn main() -> ExitCode {
                     synth: num(&o, "synth", 0)?,
                     report: o.get("retro").cloned(),
                     report_synth: num(&o, "retro-synth", 0)?,
+                    db: o.get("db").cloned(),
+                    db_synth: num(&o, "db-synth", 0)?,
+                    db_file: o.get("db-file").cloned(),
                 })
             }
             "play" => {

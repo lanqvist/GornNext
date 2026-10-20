@@ -59,6 +59,12 @@ pub struct Options {
     pub report: Option<String>,
     /// Синтетических папок логов для ретро-скана и аналитики.
     pub report_synth: u32,
+    /// Хранилище: папка логов для сценария записи («game» — папка логов Steam).
+    pub db: Option<String>,
+    /// Синтетических папок (и старых баз для миграций) для хранилища.
+    pub db_synth: u32,
+    /// Готовая база (например, gorn.db трекера): читается с копий, оригинал не трогается.
+    pub db_file: Option<String>,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -123,6 +129,15 @@ pub fn run(o: &Options) -> Result<bool, String> {
     }
     if o.report_synth > 0 {
         ok &= check_report_synth(&rf, o.report_synth, o.jobs)?;
+    }
+    if let Some(dir) = &o.db {
+        ok &= check_db(&rf, dir)?;
+    }
+    if o.db_synth > 0 {
+        ok &= check_db_synth(&rf, o.db_synth, o.jobs)?;
+    }
+    if let Some(f) = &o.db_file {
+        ok &= check_db_file(&rf, f)?;
     }
     if o.tune > 0 {
         ok &= check_tune(&rf, o.tune)?;
@@ -1150,4 +1165,199 @@ fn check_report_synth(rf: &Reference, n: u32, jobs: u32) -> Result<bool, String>
         shown.extend(s);
     }
     Ok(report("трекер: ретро-скан и аналитика синтетических папок, папок", cnt, bad, &shown, t))
+}
+
+fn remove_db(p: &std::path::Path) {
+    for suffix in ["", "-wal", "-shm", "-journal"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", p.display()));
+    }
+}
+
+/// Хранилище на одной папке логов: сценарий записи у эталона и у себя, затем
+/// перекрёстное чтение баз друг друга. Отличия — в out с префиксом шага.
+fn compare_db(rf: &Reference, logs: &std::path::Path, tag: &str, out: &mut Vec<String>) -> Result<serde_json::Value, String> {
+    let theirs_db = std::env::temp_dir().join(format!("gorn-db-{}-{tag}-ref.db", std::process::id()));
+    let mine_db = std::env::temp_dir().join(format!("gorn-db-{}-{tag}-own.db", std::process::id()));
+    remove_db(&theirs_db);
+    remove_db(&mine_db);
+    let result = (|| {
+        let raw = rf.output(&["db-write".into(), logs.to_string_lossy().to_string(), theirs_db.to_string_lossy().to_string()])?;
+        let theirs: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| format!("db-write: {e}"))?;
+        let mine = crate::dbcheck::write(logs, &mine_db)?;
+        let mut d = vec![];
+        json_diff(&theirs, &mine, "запись", &mut d);
+        let season = theirs["season"].as_i64();
+        let mut args = vec!["db-read".to_string(), mine_db.to_string_lossy().to_string()];
+        if let Some(s) = season {
+            args.push(s.to_string());
+        }
+        let raw = rf.output(&args)?;
+        let their_read: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| format!("db-read: {e}"))?;
+        json_diff(&theirs, &their_read, "эталон читает свою базу", &mut d);
+        let my_read = crate::dbcheck::read(&theirs_db, season)?;
+        json_diff(&theirs, &my_read, "своя читает базу эталона", &mut d);
+        out.extend(d);
+        Ok(theirs)
+    })();
+    remove_db(&theirs_db);
+    remove_db(&mine_db);
+    result
+}
+
+/// Старая база (user_version = 0): миграции и ремонт сезонов — как у эталона.
+fn compare_old_db(rf: &Reference, seed: u64, out: &mut Vec<String>) -> Result<(), String> {
+    let a = std::env::temp_dir().join(format!("gorn-olddb-{}-{seed}-ref.db", std::process::id()));
+    let b = std::env::temp_dir().join(format!("gorn-olddb-{}-{seed}-own.db", std::process::id()));
+    let result = (|| {
+        crate::dbcheck::old_fixture(&a, seed)?;
+        std::fs::copy(&a, &b).map_err(|e| e.to_string())?;
+        let raw = rf.output(&["db-read".into(), a.to_string_lossy().to_string(), "1601".into()])?;
+        let theirs: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| format!("db-read: {e}"))?;
+        let mine = crate::dbcheck::read(&b, Some(1601))?;
+        json_diff(&theirs, &mine, "миграция", out);
+        Ok(())
+    })();
+    remove_db(&a);
+    remove_db(&b);
+    result
+}
+
+fn db_line(v: &serde_json::Value) -> String {
+    format!(
+        "забегов {}, строк дропа {}, цен {}, лотов {}, выплат {}, сессий {}",
+        v["counts"]["runs"],
+        v["counts"]["drops"],
+        v["counts"]["priceRows"],
+        v["counts"]["listings"],
+        v["counts"]["receipts"],
+        v["sessions"].as_array().map(|a| a.len()).unwrap_or(0)
+    )
+}
+
+/// Хранилище на папке логов (по умолчанию — логов игры, копией).
+fn check_db(rf: &Reference, spec: &str) -> Result<bool, String> {
+    let t = Clock::now();
+    let src = if spec == "game" { steam_log_dir().ok_or("папка логов игры не найдена")? } else { std::path::PathBuf::from(spec) };
+    let tmp = std::env::temp_dir().join(format!("gorn-dblogs-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    for (f, _) in log_files(&src) {
+        let to = tmp.join(f.file_name().unwrap());
+        std::fs::copy(&f, &to).map_err(|e| e.to_string())?;
+        let mtime = std::fs::metadata(&f).and_then(|m| m.modified()).map_err(|e| e.to_string())?;
+        std::fs::File::options().write(true).open(&to).and_then(|h| h.set_modified(mtime)).map_err(|e| e.to_string())?;
+    }
+    let mut d = vec![];
+    let r = compare_db(rf, &tmp, "game", &mut d);
+    let _ = std::fs::remove_dir_all(&tmp);
+    println!("  {}: {}", src.display(), db_line(&r?));
+    let shown = if d.is_empty() { vec![] } else { vec![d.iter().take(40).cloned().collect::<Vec<_>>().join("\n    ")] };
+    Ok(report("трекер: хранилище на логах, папок", 1, (!d.is_empty()) as u64, &shown, t))
+}
+
+/// Хранилище на синтетических папках и старых базах.
+fn check_db_synth(rf: &Reference, n: u32, jobs: u32) -> Result<bool, String> {
+    let t = Clock::now();
+    let (items, keys_v) = map_keys()?;
+    let parts = shards(0, n, jobs);
+    type Part = (u64, u64, Vec<String>);
+    let results: Vec<Result<Part, String>> = std::thread::scope(|sc| {
+        let hs: Vec<_> = parts
+            .iter()
+            .map(|&(a, k)| {
+                let (items, keys_v) = (&items, &keys_v);
+                sc.spawn(move || -> Result<Part, String> {
+                    let (mut cnt, mut bad, mut shown) = (0u64, 0u64, vec![]);
+                    for seed in a..a + k {
+                        let dir = std::env::temp_dir().join(format!("gorn-db-synth-{}-{seed}", std::process::id()));
+                        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                        let files = 1 + seed % 3;
+                        let base = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000);
+                        for i in 0..files {
+                            let name = if i + 1 == files {
+                                "UE_game.log".to_string()
+                            } else {
+                                format!("UE_game-backup-2026.10.{:02}-10.00.00.log", 10 + i)
+                            };
+                            let mut bytes = crate::genlog::generate(seed as u64 * 5 + i as u64 / 2, 1500, items, keys_v);
+                            if i % 2 == 1 {
+                                bytes.truncate(bytes.len() * (40 + (seed % 50) as usize) / 100);
+                            }
+                            let path = dir.join(&name);
+                            std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+                            let at = base + std::time::Duration::from_secs(3600 * i as u64);
+                            std::fs::File::options().write(true).open(&path).and_then(|h| h.set_modified(at)).map_err(|e| e.to_string())?;
+                        }
+                        let mut d = vec![];
+                        let r = compare_db(rf, &dir, &seed.to_string(), &mut d);
+                        let _ = std::fs::remove_dir_all(&dir);
+                        let theirs = r?;
+                        if seed < 3 {
+                            println!("  папка {seed}: {}", db_line(&theirs));
+                        }
+                        compare_old_db(rf, seed as u64, &mut d)?;
+                        cnt += 1;
+                        if !d.is_empty() {
+                            bad += 1;
+                            if shown.len() < SHOW {
+                                shown.push(format!("синтетическая папка {seed}:\n    {}", d.iter().take(30).cloned().collect::<Vec<_>>().join("\n    ")));
+                            }
+                        }
+                    }
+                    Ok((cnt, bad, shown))
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut cnt, mut bad, mut shown) = (0, 0, vec![]);
+    for r in results {
+        let (c, b, s) = r?;
+        cnt += c;
+        bad += b;
+        shown.extend(s);
+    }
+    Ok(report("трекер: хранилище (запись, перекрёстное чтение, миграции) синтетических папок, папок", cnt, bad, &shown, t))
+}
+
+/// Готовая база: две копии (с журналом WAL), эталон и своя открывают каждая свою —
+/// миграции, ремонт сезонов и все выборки должны совпасть. Оригинал не трогается.
+fn check_db_file(rf: &Reference, src: &str) -> Result<bool, String> {
+    let t = Clock::now();
+    let src = std::path::PathBuf::from(src);
+    let copy = |tag: &str| -> Result<std::path::PathBuf, String> {
+        let to = std::env::temp_dir().join(format!("gorn-dbfile-{}-{tag}.db", std::process::id()));
+        remove_db(&to);
+        for suffix in ["", "-wal"] {
+            let from = format!("{}{suffix}", src.display());
+            if std::path::Path::new(&from).exists() {
+                std::fs::copy(&from, format!("{}{suffix}", to.display())).map_err(|e| format!("{from}: {e}"))?;
+            }
+        }
+        Ok(to)
+    };
+    let (a, b) = (copy("ref")?, copy("own")?);
+    let result = (|| {
+        let mut season = None;
+        let mut d = vec![];
+        let mut theirs = serde_json::Value::Null;
+        // Сначала без сезона, затем — в сезоне последнего профиля.
+        for pass in 0..2 {
+            let mut args = vec!["db-read".to_string(), a.to_string_lossy().to_string()];
+            if let Some(s) = season {
+                args.push(format!("{s}"));
+            }
+            let raw = rf.output(&args)?;
+            theirs = serde_json::from_slice(&raw).map_err(|e| format!("db-read: {e}"))?;
+            let mine = crate::dbcheck::read(&b, season)?;
+            json_diff(&theirs, &mine, if pass == 0 { "без сезона" } else { "в сезоне" }, &mut d);
+            season = theirs["players"].get(0).and_then(|p| p["seasonId"].as_f64()).map(|s| s as i64);
+        }
+        Ok::<_, String>((theirs, d))
+    })();
+    remove_db(&a);
+    remove_db(&b);
+    let (theirs, d) = result?;
+    println!("  {}: {}", src.display(), db_line(&theirs));
+    let shown = if d.is_empty() { vec![] } else { vec![d.iter().take(40).cloned().collect::<Vec<_>>().join("\n    ")] };
+    Ok(report("трекер: хранилище, готовая база", 1, (!d.is_empty()) as u64, &shown, t))
 }

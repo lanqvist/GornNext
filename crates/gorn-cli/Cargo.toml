@@ -9,6 +9,7 @@ license.workspace = true
 gorn-prison.workspace = true
 gorn-core.workspace = true
 indexmap = "2"
+rusqlite = "0.32"
 rayon.workspace = true
 serde_json.workspace = true
 png = "0.17"

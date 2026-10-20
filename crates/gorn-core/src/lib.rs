@@ -17,6 +17,7 @@ pub mod prices;
 pub mod retroscan;
 pub mod segmenter;
 pub mod stats;
+pub mod storage;
 pub mod trade;
 pub mod types;
 

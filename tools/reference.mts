@@ -45,6 +45,10 @@
 //   report <папка логов>          — трекер: ретро-скан папки (core/retroScan.ts) и вся аналитика
 //                                     над ним (analysis, history, bag, priceStore, mapNames, seasons,
 //                                     heroes, stats) в JSON; цены — свои пробивки, связанные — по items.json
+//   db-write <папка логов> <база>  — хранилище (storage/db.ts): ретро-скан папки и сценарий записи
+//                                     (склейка, усечённые копии, повторы, сессии), затем дамп базы
+//   db-read <база> [сезон]           — открыть базу (миграции, ремонт сезонов) и дамп: таблицы с
+//                                     типами значений, load*, история цен, счётчики, сессии
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -689,6 +693,83 @@ switch (cmd) {
       stats: [S.median(rates), S.percentile(sorted, 0.1), S.percentile(sorted, 0.9), S.topShareOf(nets), S.summarize(rates, nets), S.summarize(nets)],
     };
     process.stdout.write(JSON.stringify(out) + '\n');
+    break;
+  }
+  case 'db-write':
+  case 'db-read': {
+    const { readFileSync } = await import('node:fs');
+    const { Storage } = await imp('storage/db.ts');
+    // Выборки без ORDER BY упорядочены планом запроса — сверяем без порядка.
+    const byKeys = (...ks: string[]) => (a: any, b: any) => {
+      for (const k of ks) if (a[k] !== b[k]) return (a[k] ?? -1) - (b[k] ?? -1);
+      return 0;
+    };
+    const byPrice = byKeys('configBaseId', 'observedAt', 'seasonId', 'fe');
+    const byItem = byKeys('ts', 'configBaseId', 'qty');
+    const dump = (s: any, season: number | null) => {
+      const db = s.db;
+      const tables = (db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name <> 'sqlite_sequence' ORDER BY name").all() as any[]).map((t) => {
+        const cols = (db.prepare(`PRAGMA table_info(${t.name})`).all() as any[]).map((c) => c.name);
+        const sel = cols.flatMap((c: string) => [c, `typeof(${c})`]).join(', ');
+        const rows = db.prepare(`SELECT ${sel} FROM ${t.name} ORDER BY ${cols.join(', ')}`).all() as any[];
+        return [t.name, t.sql, rows.map((r) => Object.values(r))];
+      });
+      const prices = s.loadPrices(null).sort(byPrice);
+      const trade = s.loadTrade();
+      return {
+        season,
+        userVersion: (db.prepare('PRAGMA user_version').get() as any).user_version,
+        tables,
+        runs: s.loadRuns(),
+        players: s.loadPlayers(),
+        trade: { listings: trade.listings.sort(byItem), receipts: trade.receipts.sort(byKeys('ts', 'fe')), recalls: trade.recalls.sort(byItem) },
+        prices,
+        pricesSeason: s.loadPrices(season ?? 0).sort(byPrice),
+        history: prices.slice(0, 6).map((p: any) => [s.priceHistory(p.configBaseId), s.priceHistory(p.configBaseId, 3, p.seasonId)]),
+        counts: s.counts(),
+        realizedFe: s.realizedFe(),
+        sessions: s.listSessions(),
+        previous: s.previousSession(),
+        active: s.activeSessionStart(),
+      };
+    };
+    if (cmd === 'db-read') {
+      const s = new Storage(rest[0]!);
+      process.stdout.write(JSON.stringify(dump(s, rest[1] === undefined ? null : Number(rest[1]))) + '\n');
+      s.close();
+      break;
+    }
+    // Сценарий записи (так же в gorn-cli: db_scenario): ретро-скан папки и запись
+    // пачками — склейка, усечённые копии, повторы, сессии.
+    const { retroScan } = await imp('core/retroScan.ts');
+    const { isMapKeyType } = await imp('core/patterns.ts');
+    const items = JSON.parse(readFileSync(`${tli}/data/items.json`, 'utf8')) as { id: number; typeCn?: string }[];
+    const keys = new Set(items.filter((it) => isMapKeyType(it.typeCn)).map((it) => it.id));
+    const r = await retroScan(rest[0]!, undefined, { isMapKey: (id: number) => keys.has(id) });
+    const s = new Storage(rest[1]!);
+    const runs = r.runs as any[];
+    const season = r.latestSeasonId;
+    s.activeSessionStart();
+    if (runs.length > 1 && runs[1].startedAt > runs[0].startedAt) {
+      s.saveRuns([{ ...runs[0], endedAt: runs[1].startedAt + 1, durationMs: 1e9 }], null);
+    }
+    s.saveRuns(runs.slice(0, Math.ceil(runs.length / 2)), season);
+    s.savePlayers(r.players);
+    s.savePrices(r.prices.observations());
+    s.saveTrade(r.trade.listings, r.trade.receipts, r.trade.recalls);
+    s.saveRuns(runs.filter((_, i) => i % 3 === 0).map((x) => ({ ...x, durationMs: x.durationMs === null ? null : Math.floor(x.durationMs / 2), drops: x.drops.slice(0, Math.floor(x.drops.length / 2)) })), null);
+    if (runs.length > 0) s.resetSession(runs[0].endedAt ?? runs[0].startedAt);
+    s.saveRuns(runs, season);
+    s.saveRuns(runs.filter((_, i) => i % 4 === 1).map((x) => ({ ...x, seasonId: null, playerId: null, asset: null })), 1601);
+    s.saveTrade(r.trade.listings, r.trade.receipts.slice(0, 3), r.trade.recalls);
+    // Одинаковые выплаты и отзывы в одну миллисекунду — разные события.
+    s.saveTrade([], [...r.trade.receipts.slice(-1), ...r.trade.receipts.slice(-1), ...r.trade.receipts.slice(-1)], [...r.trade.recalls.slice(0, 1), ...r.trade.recalls.slice(0, 1)]);
+    s.savePrices(r.prices.all().map((p: any) => ({ ...p, seasonId: null })));
+    if (runs.length > 0) s.resetSession(runs[runs.length - 1].startedAt);
+    s.close();
+    const again = new Storage(rest[1]!);
+    process.stdout.write(JSON.stringify(dump(again, season)) + '\n');
+    again.close();
     break;
   }
   case 'selfplay': {
