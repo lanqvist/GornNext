@@ -73,7 +73,10 @@ impl Tracker {
             log_dir: Arc::new(Mutex::new(cfg.log_dir.clone())),
         };
         let me = t.clone();
-        std::thread::Builder::new().name("горн-трекер".into()).spawn(move || me.run(app, cfg, rx)).expect("поток трекера");
+        std::thread::Builder::new()
+            .name("горн-трекер".into())
+            .spawn(move || me.run(app, cfg, rx))
+            .expect("поток трекера");
         // Пульс: в карте таймер идёт без новых строк лога.
         let tick = tx.clone();
         std::thread::spawn(move || loop {
@@ -87,7 +90,10 @@ impl Tracker {
     }
 
     /// Выполнить над движком и дождаться результата.
-    pub fn call<T: Send + 'static>(&self, f: impl FnOnce(&mut Engine) -> T + Send + 'static) -> Option<T> {
+    pub fn call<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Engine) -> T + Send + 'static,
+    ) -> Option<T> {
         let (rtx, rrx) = channel();
         self.tx
             .send(Msg::Job(Box::new(move |e| {
@@ -117,7 +123,12 @@ impl Tracker {
     }
 
     fn run(self, app: AppHandle, cfg: Config, rx: Receiver<Msg>) {
-        let mut engine = match Engine::new(&cfg.data_dir, &cfg.items, cfg.options.clone(), Arc::new(|| chrono::Utc::now().timestamp_millis())) {
+        let mut engine = match Engine::new(
+            &cfg.data_dir,
+            &cfg.items,
+            cfg.options.clone(),
+            Arc::new(|| chrono::Utc::now().timestamp_millis()),
+        ) {
             Ok(e) => e,
             Err(err) => {
                 eprintln!("[трекер] база не открылась: {err}");
@@ -160,7 +171,13 @@ impl Tracker {
                     match engine.start(dir.as_deref(), Some(&mut progress)) {
                         Ok(Some((path, position))) => {
                             let tx = self.tx.clone();
-                            let t = Tailer::new(&path, TailerOptions { from_start: false, initial_position: position });
+                            let t = Tailer::new(
+                                &path,
+                                TailerOptions {
+                                    from_start: false,
+                                    initial_position: position,
+                                },
+                            );
                             if let Some(old) = tailer.take() {
                                 old.stop();
                             }
@@ -179,7 +196,10 @@ impl Tracker {
                         Ok(None) => {}
                         Err((snap, why)) => {
                             eprintln!("[трекер] старт: {why}");
-                            self.publish(&sink, serde_json::to_value(&*snap).unwrap_or(Value::Null));
+                            self.publish(
+                                &sink,
+                                serde_json::to_value(&*snap).unwrap_or(Value::Null),
+                            );
                         }
                     }
                 }

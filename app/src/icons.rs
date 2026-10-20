@@ -26,7 +26,10 @@ static CACHE: OnceLock<Cache> = OnceLock::new();
 pub fn init(data_dir: &Path, old_dir: Option<PathBuf>, items: &[gorn_core::engine::CatalogueItem]) {
     let dir = data_dir.join("icons");
     let _ = std::fs::create_dir_all(&dir);
-    let sources = items.iter().filter_map(|it| it.icon.clone().map(|u| (it.id, u))).collect();
+    let sources = items
+        .iter()
+        .filter_map(|it| it.icon.clone().map(|u| (it.id, u)))
+        .collect();
     let _ = CACHE.set(Cache {
         dir,
         old_dir: old_dir.map(|d| d.join("icons")),
@@ -59,7 +62,12 @@ pub fn get(id: i64) -> Option<Vec<u8>> {
     if let Some(d) = read_cached(&file) {
         return Some(d);
     }
-    if let Some(d) = c.old_dir.as_ref().and_then(|o| std::fs::read(o.join(format!("{id}.webp"))).ok()).filter(|d| is_webp(d)) {
+    if let Some(d) = c
+        .old_dir
+        .as_ref()
+        .and_then(|o| std::fs::read(o.join(format!("{id}.webp"))).ok())
+        .filter(|d| is_webp(d))
+    {
         let _ = write_atomic(&file, &d);
         return Some(d);
     }
@@ -117,13 +125,19 @@ fn write_atomic(file: &Path, data: &[u8]) -> std::io::Result<()> {
 /// Подкачать иконки, которых ещё нет на диске; сколько загружено.
 pub fn prefetch(ids: &[i64]) -> usize {
     let Some(c) = CACHE.get() else { return 0 };
-    let todo: Vec<i64> = ids.iter().copied().filter(|id| c.sources.contains_key(id) && !c.dir.join(format!("{id}.webp")).exists()).collect();
+    let todo: Vec<i64> = ids
+        .iter()
+        .copied()
+        .filter(|id| c.sources.contains_key(id) && !c.dir.join(format!("{id}.webp")).exists())
+        .collect();
     let next = Mutex::new(todo.into_iter());
     let count = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|s| {
         for _ in 0..2 {
             s.spawn(|| loop {
-                let Some(id) = next.lock().unwrap().next() else { break };
+                let Some(id) = next.lock().unwrap().next() else {
+                    break;
+                };
                 if get(id).is_some() {
                     count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
@@ -136,5 +150,8 @@ pub fn prefetch(ids: &[i64]) -> usize {
 /// Предмет из адреса: `/item/100300.webp` (Tauri) или `/100300.webp` (адрес эталона).
 pub fn id_from_path(path: &str) -> Option<i64> {
     let name = path.rsplit('/').next()?;
-    name.strip_suffix(".webp")?.parse().ok().filter(|&id| id > 0)
+    name.strip_suffix(".webp")?
+        .parse()
+        .ok()
+        .filter(|&id| id > 0)
 }

@@ -31,7 +31,11 @@ struct Rule {
 fn rules() -> &'static [Rule] {
     static R: OnceLock<Vec<Rule>> = OnceLock::new();
     R.get_or_init(|| {
-        let r = |kind, re: &str, settle_ms| Rule { kind, re: Regex::new(&format!("(?i){re}")).unwrap(), settle_ms };
+        let r = |kind, re: &str, settle_ms| Rule {
+            kind,
+            re: Regex::new(&format!("(?i){re}")).unwrap(),
+            settle_ms,
+        };
         use RuleKind::*;
         use ShotKind::*;
         vec![
@@ -42,7 +46,11 @@ fn rules() -> &'static [Rule] {
             r(Shot(Instruments), r"S16BoardRelicPop Run", 900.0),
             r(Shot(Instruments), r"Btn_S16Board_RelicPop_Reroll", 900.0),
             // День начался: баннер закрылся, игра пишет номер дня (на итогах — max=0).
-            r(Shot(Board), r"\[S16LastDay\] check cur=\d+ max=[1-9]", 500.0),
+            r(
+                Shot(Board),
+                r"\[S16LastDay\] check cur=\d+ max=[1-9]",
+                500.0,
+            ),
             r(Shot(Board), r"UI_S16_Card_Up", 400.0),
             r(Shot(Board), r"Btn_S16Board_ActionCell", 600.0),
             // Выбрана дверь: надзиратель идёт.
@@ -83,10 +91,15 @@ fn re(s: &'static str) -> &'static Regex {
 
 /// Метка времени строки лога в мс (как UTC), или None.
 pub fn stamp_ms(line: &str) -> Option<i64> {
-    let m = re(r"^\[(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2}):(\d{3})\]").captures(line)?;
+    let m =
+        re(r"^\[(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2}):(\d{3})\]").captures(line)?;
     let n = |i: usize| m[i].parse::<i64>().unwrap();
     let (y, mo, d) = (n(1), n(2), n(3));
-    let (yy, mm) = if mo <= 2 { (y - 1, mo + 9) } else { (y, mo - 3) };
+    let (yy, mm) = if mo <= 2 {
+        (y - 1, mo + 9)
+    } else {
+        (y, mo - 3)
+    };
     let era = yy.div_euclid(400);
     let yoe = yy - era * 400;
     let doy = (153 * mm + 2) / 5 + d - 1;
@@ -138,7 +151,10 @@ pub struct PrisonTriggers {
 
 impl PrisonTriggers {
     pub fn new() -> Self {
-        PrisonTriggers { pace: 1.0, ..Default::default() }
+        PrisonTriggers {
+            pace: 1.0,
+            ..Default::default()
+        }
     }
 
     /// День забега по последней строке «check cur=N max=M».
@@ -197,10 +213,14 @@ impl PrisonTriggers {
         if re(r"Btn_S16Board_(?:RouteCell|ActionCell|Cell)\b").is_match(line) {
             self.last_board_click = at;
         }
-        if re(r"(?i)Btn_S16Board_(?:RouteCell|EventPop_Confirm)\b|S16BoardNewDayPop Run").is_match(line) {
+        if re(r"(?i)Btn_S16Board_(?:RouteCell|EventPop_Confirm)\b|S16BoardNewDayPop Run")
+            .is_match(line)
+        {
             self.last_route = at;
         }
-        let Some(rule) = rules().iter().find(|r| r.re.is_match(line)) else { return };
+        let Some(rule) = rules().iter().find(|r| r.re.is_match(line)) else {
+            return;
+        };
         let kind = match rule.kind {
             RuleKind::Skip => {
                 self.cancel();
@@ -213,12 +233,22 @@ impl PrisonTriggers {
             RuleKind::Shot(k) => k,
         };
         // Доска после закрытия сокровищницы — свой кадр: ждущая сокровищница уходит сразу.
-        if self.burst.as_ref().is_some_and(|b| b.kind == ShotKind::Treasure) && kind == ShotKind::Board {
+        if self
+            .burst
+            .as_ref()
+            .is_some_and(|b| b.kind == ShotKind::Treasure)
+            && kind == ShotKind::Board
+        {
             if let Some(s) = self.fire() {
                 out.push(s);
             }
         }
-        let b = self.burst.get_or_insert(Burst { kind, settle: 0.0, lines: vec![], due: now });
+        let b = self.burst.get_or_insert(Burst {
+            kind,
+            settle: 0.0,
+            lines: vec![],
+            due: now,
+        });
         if rank(kind) > rank(b.kind) {
             b.kind = kind;
         }
@@ -232,12 +262,20 @@ impl PrisonTriggers {
     fn fire(&mut self) -> Option<PrisonShot> {
         let b = self.burst.take()?;
         let fresh = b.lines.iter().any(|l| re(r"check cur=0\b").is_match(l));
-        let find = |r: &'static str| b.lines.iter().find(|l| re(r).is_match(l)).and_then(|l| stamp_ms(l));
+        let find = |r: &'static str| {
+            b.lines
+                .iter()
+                .find(|l| re(r).is_match(l))
+                .and_then(|l| stamp_ms(l))
+        };
         let mut after = Cause::None;
         if b.kind == ShotKind::Treasure || (b.kind == ShotKind::Instruments && !fresh) {
             let pop = find(r"(?i)S16Board(?:Colored|Relic)Pop Run").unwrap_or(0);
             // Утро: окно открылось после баннера нового дня, а на доске с тех пор ничего не нажимали.
-            let morning = pop != 0 && self.day_start != 0 && pop >= self.day_start && self.day_start > self.last_board_click;
+            let morning = pop != 0
+                && self.day_start != 0
+                && pop >= self.day_start
+                && self.day_start > self.last_board_click;
             if morning {
                 after = Cause::Morning;
             } else if b.kind == ShotKind::Treasure
@@ -247,15 +285,24 @@ impl PrisonTriggers {
                 && pop - self.last_action <= 6000
                 && self.last_route < self.last_action
             {
-                after = if self.last_eat >= self.last_action - 500 { Cause::Consume } else { Cause::Swap };
+                after = if self.last_eat >= self.last_action - 500 {
+                    Cause::Consume
+                } else {
+                    Cause::Swap
+                };
             }
         }
         let shut = find(r"(?i)ColoredPop Destory");
         let treasure_view = match shut {
-            Some(s) if s != 0 => !(self.last_gift != 0 && s >= self.last_gift && s - self.last_gift < 3000),
+            Some(s) if s != 0 => {
+                !(self.last_gift != 0 && s >= self.last_gift && s - self.last_gift < 3000)
+            }
             _ => false,
         };
-        let rerolled = b.kind == ShotKind::Instruments && b.lines.iter().any(|l| re(r"(?i)Btn_S16Board_RelicPop_Reroll").is_match(l));
+        let rerolled = b.kind == ShotKind::Instruments
+            && b.lines
+                .iter()
+                .any(|l| re(r"(?i)Btn_S16Board_RelicPop_Reroll").is_match(l));
         // Озвучка темы идёт сразу за окном (через десятки мс).
         let mut theme = None;
         if b.kind == ShotKind::Theme {
@@ -317,7 +364,9 @@ impl PrisonPresence {
 
 /// В пачке строк лога открылось новое окно (или начался день): экран точно сменился.
 pub fn screen_changed(lines: &[String]) -> bool {
-    lines.iter().any(|l| re(r"S16Board\w*Pop Run|check cur=\d+").is_match(l))
+    lines
+        .iter()
+        .any(|l| re(r"S16Board\w*Pop Run|check cur=\d+").is_match(l))
 }
 
 /// Ход игрока в логе: старая подсказка больше не про этот экран.
@@ -356,7 +405,11 @@ mod tests {
         let mut t = PrisonTriggers::new();
         let now = Instant::now();
         let mut out = vec![];
-        t.feed(&[l("LogTemp: normal-click Btn_S16Board_RouteCell_3 S16")], now, &mut out);
+        t.feed(
+            &[l("LogTemp: normal-click Btn_S16Board_RouteCell_3 S16")],
+            now,
+            &mut out,
+        );
         assert!(out.is_empty());
         assert!(t.poll(now).is_none());
         let s = t.poll(now + Duration::from_millis(900)).expect("кадр");
@@ -366,7 +419,13 @@ mod tests {
     #[test]
     fn presence() {
         let mut p = PrisonPresence::default();
-        assert_eq!(p.feed(&[l("PageStack@ CurRunView = 4150_S16BoardMainCtrl")]), Some(PresenceChange::Enter));
-        assert_eq!(p.feed(&[l("PageStack@ CurRunView = 1_FightCtrl")]), Some(PresenceChange::Leave));
+        assert_eq!(
+            p.feed(&[l("PageStack@ CurRunView = 4150_S16BoardMainCtrl")]),
+            Some(PresenceChange::Enter)
+        );
+        assert_eq!(
+            p.feed(&[l("PageStack@ CurRunView = 1_FightCtrl")]),
+            Some(PresenceChange::Leave)
+        );
     }
 }

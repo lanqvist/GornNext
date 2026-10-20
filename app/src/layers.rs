@@ -10,11 +10,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Map, Value};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
+};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
-use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    MONITOR_DEFAULTTOPRIMARY,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_TOOLWINDOW,
+    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_HIDE,
+    SW_SHOWNOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 use crate::settings::{Settings, OVERLAY_MODES};
@@ -61,11 +68,27 @@ fn area_at(p: Option<(i32, i32)>) -> Area {
             Some((x, y)) => MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST),
             None => MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY),
         };
-        let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
         let _ = GetMonitorInfoW(hm, &mut mi);
-        let RECT { left, top, right, bottom } = mi.rcWork;
-        let scale = crate::overlay::display_of(hm).map(|d| d.scale).unwrap_or(1.0);
-        Area { x: left, y: top, w: right - left, h: bottom - top, scale }
+        let RECT {
+            left,
+            top,
+            right,
+            bottom,
+        } = mi.rcWork;
+        let scale = crate::overlay::display_of(hm)
+            .map(|d| d.scale)
+            .unwrap_or(1.0);
+        Area {
+            x: left,
+            y: top,
+            w: right - left,
+            h: bottom - top,
+            scale,
+        }
     }
 }
 
@@ -130,13 +153,25 @@ fn saved_placement(p: &Value) -> Option<(i32, i32)> {
 
 /// Прямоугольник в пределах рабочей области.
 fn keep_on(area: &Area, x: i32, y: i32, w: i32, h: i32) -> (i32, i32) {
-    (x.clamp(area.x, (area.x + area.w - w).max(area.x)), y.clamp(area.y, (area.y + area.h - h).max(area.y)))
+    (
+        x.clamp(area.x, (area.x + area.w - w).max(area.x)),
+        y.clamp(area.y, (area.y + area.h - h).max(area.y)),
+    )
 }
 
 /// Настройки для окон оверлея и плашек: только то, что влияет на отрисовку и звук.
 pub fn prefs_payload(o: &Value) -> Value {
     let mut m = Map::new();
-    for k in ["popups", "sound", "volume", "divineFe", "jackpotFe", "exaltedFe", "fontScale", "goalFe"] {
+    for k in [
+        "popups",
+        "sound",
+        "volume",
+        "divineFe",
+        "jackpotFe",
+        "exaltedFe",
+        "fontScale",
+        "goalFe",
+    ] {
         m.insert(k.into(), o[k].clone());
     }
     Value::Object(m)
@@ -150,17 +185,42 @@ fn toast_key(s: &Value) -> String {
                 .as_array()
                 .map(|a| {
                     a.iter()
-                        .map(|d| json!([d["configBaseId"], d["qty"], d["unitFe"], d["totalFe"], d["priceSource"], d["name"]]))
+                        .map(|d| {
+                            json!([
+                                d["configBaseId"],
+                                d["qty"],
+                                d["unitFe"],
+                                d["totalFe"],
+                                d["priceSource"],
+                                d["name"]
+                            ])
+                        })
                         .collect()
                 })
                 .unwrap_or_default(),
         )
     };
     let cur = &s["current"];
-    let cur_key = if cur.is_null() { Value::Null } else { json!([cur["startedAt"], cur["netFe"], cur["prison"], drops(cur)]) };
+    let cur_key = if cur.is_null() {
+        Value::Null
+    } else {
+        json!([cur["startedAt"], cur["netFe"], cur["prison"], drops(cur)])
+    };
     let recent: Vec<Value> = s["recent"]
         .as_array()
-        .map(|a| a.iter().map(|r| json!([r["startedAt"], r["netFe"], r["perHour"], r["durationMs"], drops(r)])).collect())
+        .map(|a| {
+            a.iter()
+                .map(|r| {
+                    json!([
+                        r["startedAt"],
+                        r["netFe"],
+                        r["perHour"],
+                        r["durationMs"],
+                        drops(r)
+                    ])
+                })
+                .collect()
+        })
         .unwrap_or_default();
     json!([s["norm"], s["jackpotAutoFe"], cur_key, recent]).to_string()
 }
@@ -295,33 +355,46 @@ impl Layers {
             return;
         }
         // Первое включение — открепленным: иначе игрок не узнал бы ни про перетаскивание, ни про режимы.
-        if !self.overlay_prefs()["introShown"].as_bool().unwrap_or(false) {
+        if !self.overlay_prefs()["introShown"]
+            .as_bool()
+            .unwrap_or(false)
+        {
             self.patch_overlay(json!({ "locked": false, "introShown": true }));
         }
         let p = self.overlay_prefs();
         let saved = saved_placement(&p);
         let area = area_at(saved);
         let scale = area.scale;
-        let w = (mode_width(p["mode"].as_str().unwrap_or("compact")) * p["fontScale"].as_f64().unwrap_or(1.0) * scale).round() as i32;
+        let w = (mode_width(p["mode"].as_str().unwrap_or("compact"))
+            * p["fontScale"].as_f64().unwrap_or(1.0)
+            * scale)
+            .round() as i32;
         let h = (INITIAL_HEIGHT * scale) as i32;
         let (x, y) = match saved {
             // По умолчанию — правый верхний угол, там меньше всего игрового HUD.
-            None => (area.x + area.w - w - (24.0 * scale) as i32, area.y + (24.0 * scale) as i32),
+            None => (
+                area.x + area.w - w - (24.0 * scale) as i32,
+                area.y + (24.0 * scale) as i32,
+            ),
             Some((x, y)) => keep_on(&area, x, y, w, h),
         };
-        let win = match WebviewWindowBuilder::new(&self.app, "overlay", WebviewUrl::App("overlay.html".into()))
-            .title("Горн — оверлей")
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .focused(false)
-            .focusable(false)
-            .visible(false)
-            .additional_browser_args(BROWSER_ARGS)
-            .build()
+        let win = match WebviewWindowBuilder::new(
+            &self.app,
+            "overlay",
+            WebviewUrl::App("overlay.html".into()),
+        )
+        .title("Горн — оверлей")
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .focused(false)
+        .focusable(false)
+        .visible(false)
+        .additional_browser_args(BROWSER_ARGS)
+        .build()
         {
             Ok(w) => w,
             Err(e) => {
@@ -332,7 +405,9 @@ impl Layers {
         tool_window(&win);
         place(&win, x, y, w, h);
         let _ = win.set_ignore_cursor_events(p["locked"].as_bool().unwrap_or(true));
-        crate::log(&format!("[оверлей] открыт: {x},{y} {w}x{h}, масштаб {scale}"));
+        crate::log(&format!(
+            "[оверлей] открыт: {x},{y} {w}x{h}, масштаб {scale}"
+        ));
         let me = self.clone();
         win.on_window_event(move |ev| match ev {
             tauri::WindowEvent::Moved(pos) => {
@@ -358,7 +433,10 @@ impl Layers {
             // Размер ещё раз — после того, как окно обжилось на своём мониторе.
             if let Ok(size) = shown.inner_size() {
                 if size.width as i32 != w {
-                    crate::log(&format!("[оверлей] ширина {} вместо {w} — поправлена", size.width));
+                    crate::log(&format!(
+                        "[оверлей] ширина {} вместо {w} — поправлена",
+                        size.width
+                    ));
                     place(&shown, x, y, w, size.height as i32);
                 }
             }
@@ -424,7 +502,10 @@ impl Layers {
     }
 
     pub fn cycle_mode(&self) {
-        let cur = self.overlay_prefs()["mode"].as_str().unwrap_or("compact").to_string();
+        let cur = self.overlay_prefs()["mode"]
+            .as_str()
+            .unwrap_or("compact")
+            .to_string();
         let i = OVERLAY_MODES.iter().position(|m| *m == cur).unwrap_or(0);
         self.set_mode(OVERLAY_MODES[(i + 1) % OVERLAY_MODES.len()]);
     }
@@ -440,7 +521,9 @@ impl Layers {
     /// Ширина в CSS-пикселях → окно, с оглядкой на край экрана.
     fn resize_width(&self, css_w: f64) {
         let Some(w) = self.win("overlay") else { return };
-        let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size()) else { return };
+        let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size()) else {
+            return;
+        };
         let area = area_at(Some((pos.x, pos.y)));
         let nw = (css_w * area.scale).round() as i32;
         let (x, y) = keep_on(&area, pos.x, pos.y, nw, size.height as i32);
@@ -450,20 +533,27 @@ impl Layers {
     /// Окно ровно по содержимому: лишняя прозрачная площадь дорога композитору.
     pub fn set_overlay_content(&self, height: f64, width: Option<f64>) {
         let Some(w) = self.win("overlay") else { return };
-        let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size()) else { return };
+        let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size()) else {
+            return;
+        };
         let area = area_at(Some((pos.x, pos.y)));
         let strip = self.overlay_prefs()["mode"].as_str() == Some("strip");
         let min_h = if strip { 24.0 } else { INITIAL_HEIGHT };
         let th = (height.ceil().clamp(min_h, MAX_HEIGHT) * area.scale).round() as i32;
         let tw = match width {
-            Some(cw) if strip && cw > 0.0 => (cw.ceil().clamp(STRIP_MIN, STRIP_MAX) * area.scale).round() as i32,
+            Some(cw) if strip && cw > 0.0 => {
+                (cw.ceil().clamp(STRIP_MIN, STRIP_MAX) * area.scale).round() as i32
+            }
             _ => size.width as i32,
         };
         if (size.height as i32 - th).abs() < 2 && (size.width as i32 - tw).abs() < 2 {
             return;
         }
         let (x, y) = keep_on(&area, pos.x, pos.y, tw, th);
-        crate::log(&format!("[оверлей] размер {}x{} -> {tw}x{th}", size.width, size.height));
+        crate::log(&format!(
+            "[оверлей] размер {}x{} -> {tw}x{th}",
+            size.width, size.height
+        ));
         place(&w, x, y, tw, th);
     }
 
@@ -488,7 +578,10 @@ impl Layers {
         let scale_changed = clean.contains_key("fontScale");
         let p = self.settings.lock().unwrap().patch_overlay(&clean);
         if scale_changed {
-            self.resize_width(mode_width(p["mode"].as_str().unwrap_or("compact")) * p["fontScale"].as_f64().unwrap_or(1.0));
+            self.resize_width(
+                mode_width(p["mode"].as_str().unwrap_or("compact"))
+                    * p["fontScale"].as_f64().unwrap_or(1.0),
+            );
         }
         let payload = prefs_payload(&p);
         if let Some(w) = self.win("overlay") {
@@ -530,19 +623,23 @@ impl Layers {
         let h = (TOAST_INITIAL * area.scale).round() as i32;
         // Кромка чуть выше середины: стек растёт вверх, не доставая до полосы босса.
         let anchor = (area.y as f64 + area.h as f64 * 0.36).round() as i32;
-        let win = match WebviewWindowBuilder::new(&self.app, "toasts", WebviewUrl::App("toasts.html".into()))
-            .title("Горн — всплывающий доход")
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .focused(false)
-            .focusable(false)
-            .visible(false)
-            .additional_browser_args(BROWSER_ARGS)
-            .build()
+        let win = match WebviewWindowBuilder::new(
+            &self.app,
+            "toasts",
+            WebviewUrl::App("toasts.html".into()),
+        )
+        .title("Горн — всплывающий доход")
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .focused(false)
+        .focusable(false)
+        .visible(false)
+        .additional_browser_args(BROWSER_ARGS)
+        .build()
         {
             Ok(w) => w,
             Err(e) => {
@@ -555,7 +652,11 @@ impl Layers {
         let _ = win.set_ignore_cursor_events(true);
         let left = area.x + (area.w - w) / 2;
         place(&win, left, anchor - h, w, h);
-        crate::log(&format!("[плашки] слой: {left},{} {w}x{h}, масштаб {}", anchor - h, area.scale));
+        crate::log(&format!(
+            "[плашки] слой: {left},{} {w}x{h}, масштаб {}",
+            anchor - h,
+            area.scale
+        ));
         let mut t = self.toasts.lock().unwrap();
         t.open = true;
         t.anchor_bottom = anchor;
@@ -611,7 +712,9 @@ impl Layers {
             (t.anchor_bottom, t.scale, t.left, t.width)
         };
         let Some(w) = self.win("toasts") else { return };
-        let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size()) else { return };
+        let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size()) else {
+            return;
+        };
         let th = (height.ceil().clamp(TOAST_INITIAL, TOAST_MAX) * scale).round() as i32;
         if (size.height as i32 - th).abs() < 2 && size.width as i32 == width && pos.x == left {
             return;
@@ -631,18 +734,19 @@ impl Layers {
             return Some(w);
         }
         self.panel.lock().unwrap().ready = false;
-        let win = WebviewWindowBuilder::new(&self.app, "panel", WebviewUrl::App("panel.html".into()))
-            .title("Горн — пульт")
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .background_color(tauri::window::Color(0x14, 0x12, 0x17, 0xff))
-            .visible(false)
-            .additional_browser_args(BROWSER_ARGS)
-            .build()
-            .map_err(|e| eprintln!("[пульт] окно: {e}"))
-            .ok()?;
+        let win =
+            WebviewWindowBuilder::new(&self.app, "panel", WebviewUrl::App("panel.html".into()))
+                .title("Горн — пульт")
+                .decorations(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .background_color(tauri::window::Color(0x14, 0x12, 0x17, 0xff))
+                .visible(false)
+                .additional_browser_args(BROWSER_ARGS)
+                .build()
+                .map_err(|e| eprintln!("[пульт] окно: {e}"))
+                .ok()?;
         let me = self.clone();
         win.on_window_event(move |ev| {
             // Клик в игру — пульт уходит, как окно цены в APT.
@@ -655,7 +759,9 @@ impl Layers {
 
     /// Открыть на вкладке; та же вкладка уже открыта — закрыть.
     pub fn toggle_panel(self: &Arc<Self>, tab: Option<&str>) {
-        let visible = self.win("panel").is_some_and(|w| w.is_visible().unwrap_or(false));
+        let visible = self
+            .win("panel")
+            .is_some_and(|w| w.is_visible().unwrap_or(false));
         let shown = self.panel.lock().unwrap().shown_tab.clone();
         if visible && (tab.is_none() || tab.map(str::to_string) == shown) {
             self.hide_panel();
@@ -665,7 +771,9 @@ impl Layers {
     }
 
     fn open_panel(self: &Arc<Self>, tab: Option<String>) {
-        let Some(win) = self.ensure_panel() else { return };
+        let Some(win) = self.ensure_panel() else {
+            return;
+        };
         if !self.panel.lock().unwrap().ready {
             self.panel.lock().unwrap().pending = Some(tab);
             return;
@@ -676,7 +784,13 @@ impl Layers {
         let h = (PANEL_HEIGHT * font * area.scale).round() as i32;
         // Справа по центру: слева и в центре — персонаж и бой, сверху справа — миникарта.
         let margin = (24.0 * area.scale).max(area.w as f64 * 0.06) as i32;
-        place(&win, area.x + area.w - w - margin, area.y + (area.h - h) / 2, w, h);
+        place(
+            &win,
+            area.x + area.w - w - margin,
+            area.y + (area.h - h) / 2,
+            w,
+            h,
+        );
         // Сначала содержимое, потом показ: иначе мелькает пустая подложка.
         let _ = win.emit("panel:open", json!({ "tab": tab, "scale": font }));
         let _ = win.show();

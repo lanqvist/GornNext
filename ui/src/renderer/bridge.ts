@@ -122,6 +122,13 @@ if (tauri) {
   };
   window.gorn = gorn;
 
+  // Ошибки страницы — в журнал приложения (gorn.log): инструментов
+  // разработчика у релизной сборки нет.
+  const report = (what: string) => send('log', what.slice(0, 2000));
+  window.addEventListener('error', (e) => report(`ошибка: ${e.message} (${e.filename}:${e.lineno})`));
+  window.addEventListener('unhandledrejection', (e) => report(`отказ промиса: ${String((e.reason as Error)?.stack ?? e.reason)}`));
+  report(`страница загружена: ${location.pathname}`);
+
   // Перетаскивание окна за области `-webkit-app-region: drag` (полоска оверлея):
   // в Electron это делает сам Chromium, WebView2 в Tauri — нет.
   const region = (el: Element): string => {

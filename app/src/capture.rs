@@ -14,8 +14,8 @@ use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
 use windows_capture::monitor::Monitor;
 use windows_capture::settings::{
-    ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings, MinimumUpdateIntervalSettings,
-    SecondaryWindowSettings, Settings,
+    ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
+    MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
 };
 
 /// Ширина кадра для распознавания не больше этой (4K уменьшается вдвое).
@@ -59,10 +59,17 @@ impl GraphicsCaptureApiHandler for Handler {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        Ok(Handler { shared: ctx.flags, scratch: vec![] })
+        Ok(Handler {
+            shared: ctx.flags,
+            scratch: vec![],
+        })
     }
 
-    fn on_frame_arrived(&mut self, frame: &mut Frame, _c: InternalCaptureControl) -> Result<(), Self::Error> {
+    fn on_frame_arrived(
+        &mut self,
+        frame: &mut Frame,
+        _c: InternalCaptureControl,
+    ) -> Result<(), Self::Error> {
         let now = Instant::now();
         let fb = frame.buffer()?;
         let (w, h) = (fb.width() as usize, fb.height() as usize);
@@ -82,7 +89,12 @@ impl GraphicsCaptureApiHandler for Handler {
             let mut s = self.shared.lock().unwrap();
             s.frames += 1;
             let changed = if s.sig.len() == sig.len() {
-                let diff: u64 = s.sig.iter().zip(&sig).map(|(a, b)| (*a as i32 - *b as i32).unsigned_abs() as u64).sum();
+                let diff: u64 = s
+                    .sig
+                    .iter()
+                    .zip(&sig)
+                    .map(|(a, b)| (*a as i32 - *b as i32).unsigned_abs() as u64)
+                    .sum();
                 diff as f64 / sig.len() as f64 > CHANGE
             } else {
                 true
@@ -92,7 +104,10 @@ impl GraphicsCaptureApiHandler for Handler {
             }
             s.sig = sig;
             let boosted = s.boost_until.is_some_and(|b| now < b);
-            (boosted || s.latest.is_none() || s.frames % IDLE_EVERY == 0, changed)
+            (
+                boosted || s.latest.is_none() || s.frames % IDLE_EVERY == 0,
+                changed,
+            )
         };
         let _ = changed;
         if convert {
@@ -142,7 +157,11 @@ fn downscale_bgra(raw: &[u8], w: usize, h: usize) -> Image {
             }
         }
     }
-    Image { width: ow, height: oh, data }
+    Image {
+        width: ow,
+        height: oh,
+        data,
+    }
 }
 
 /// Почему grab не дал кадра.
@@ -165,14 +184,22 @@ pub struct ScreenStream {
 
 impl Default for ScreenStream {
     fn default() -> Self {
-        ScreenStream { shared: Arc::default(), control: None, monitor: None, opened_at: Instant::now() }
+        ScreenStream {
+            shared: Arc::default(),
+            control: None,
+            monitor: None,
+            opened_at: Instant::now(),
+        }
     }
 }
 
 impl ScreenStream {
     /// Открыть поток монитора (HMONITOR), если ещё не открыт на нём.
     pub fn ensure(&mut self, hmonitor: isize) -> Result<(), String> {
-        if self.control.is_some() && self.monitor == Some(hmonitor) && !self.shared.lock().unwrap().closed {
+        if self.control.is_some()
+            && self.monitor == Some(hmonitor)
+            && !self.shared.lock().unwrap().closed
+        {
             return Ok(());
         }
         self.stop();
@@ -187,7 +214,8 @@ impl ScreenStream {
             ColorFormat::Bgra8,
             shared.clone(),
         );
-        let control = Handler::start_free_threaded(settings).map_err(|e| format!("захват экрана: {e}"))?;
+        let control =
+            Handler::start_free_threaded(settings).map_err(|e| format!("захват экрана: {e}"))?;
         self.shared = shared;
         self.control = Some(control);
         self.monitor = Some(hmonitor);
@@ -210,7 +238,12 @@ impl ScreenStream {
     /// Кадр после запроса, на котором экран уже stable не менялся; не дольше
     /// max (тогда — последний свежий). Новых кадров нет — годится последний,
     /// если он не старше ok_age. Иначе — Miss.
-    pub fn grab(&self, stable: Duration, mut max: Duration, ok_age: Duration) -> Result<Arc<Image>, Miss> {
+    pub fn grab(
+        &self,
+        stable: Duration,
+        mut max: Duration,
+        ok_age: Duration,
+    ) -> Result<Arc<Image>, Miss> {
         self.boost();
         // Только что открытому потоку — время на первый кадр.
         if self.opened_at.elapsed() < Duration::from_millis(2500) {
@@ -235,7 +268,9 @@ impl ScreenStream {
             std::thread::sleep(Duration::from_millis(20));
         }
         let s = self.shared.lock().unwrap();
-        let Some(img) = s.latest.clone() else { return Err(Miss::Silent) };
+        let Some(img) = s.latest.clone() else {
+            return Err(Miss::Silent);
+        };
         let at = s.latest_at.unwrap();
         if at < asked && asked - at > ok_age {
             return Err(Miss::Stale);

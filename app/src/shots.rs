@@ -21,14 +21,26 @@ pub struct Shots {
 
 impl Shots {
     pub fn new(root: PathBuf) -> Self {
-        Shots { root, saving: BTreeMap::new() }
+        Shots {
+            root,
+            saving: BTreeMap::new(),
+        }
     }
 
     /// Запомнить кадр: описание — сразу (следующий кадр может прервать расчёт),
     /// картинка — в фоне. Возвращает путь без расширения.
-    pub fn note(&mut self, id: u64, kind: &str, shot: &PrisonShot, frame: Option<Arc<Image>>) -> PathBuf {
+    pub fn note(
+        &mut self,
+        id: u64,
+        kind: &str,
+        shot: &PrisonShot,
+        frame: Option<Arc<Image>>,
+    ) -> PathBuf {
         let now = chrono::Local::now();
-        let base = self.root.join(now.format("%Y-%m-%d").to_string()).join(format!("{}-{kind}", now.format("%H%M%S-%3f")));
+        let base = self
+            .root
+            .join(now.format("%Y-%m-%d").to_string())
+            .join(format!("{}-{kind}", now.format("%H%M%S-%3f")));
         let info = json!({
             "kind": kind,
             "fresh": shot.fresh,
@@ -61,7 +73,9 @@ impl Shots {
 
     /// Ответ советника — в описание кадра; итоговый ответ записывает файл.
     pub fn reply(&mut self, id: u64, reply: Value, done: bool) {
-        let Some((_, info)) = self.saving.get_mut(&id) else { return };
+        let Some((_, info)) = self.saving.get_mut(&id) else {
+            return;
+        };
         if let Some(h) = info["hints"].as_array_mut() {
             h.push(reply);
         }
@@ -76,7 +90,10 @@ fn write_info(base: &Path, info: &Value) {
     if let Some(dir) = base.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Err(e) = std::fs::write(base.with_extension("json"), serde_json::to_string_pretty(info).unwrap()) {
+    if let Err(e) = std::fs::write(
+        base.with_extension("json"),
+        serde_json::to_string_pretty(info).unwrap(),
+    ) {
         eprintln!("[тюрьма] описание кадра не сохранено: {e}");
     }
 }
@@ -86,7 +103,11 @@ fn write_png(path: &Path, img: &Image) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let f = std::fs::File::create(path).map_err(|e| e.to_string())?;
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(f), img.width as u32, img.height as u32);
+    let mut enc = png::Encoder::new(
+        std::io::BufWriter::new(f),
+        img.width as u32,
+        img.height as u32,
+    );
     enc.set_color(png::ColorType::Rgba);
     enc.set_depth(png::BitDepth::Eight);
     enc.set_compression(png::Compression::Fast);
@@ -117,7 +138,10 @@ fn outcome(info: &Value) -> Outcome {
         return Outcome::Manual;
     }
     let hints = info["hints"].as_array().cloned().unwrap_or_default();
-    if hints.iter().any(|h| h["type"] == "hint" && h["text"].as_str().is_some_and(|t| t.contains("не узнал"))) {
+    if hints
+        .iter()
+        .any(|h| h["type"] == "hint" && h["text"].as_str().is_some_and(|t| t.contains("не узнал")))
+    {
         return Outcome::Miss;
     }
     let has = |t: &str| hints.iter().any(|h| h["type"] == t);
@@ -133,7 +157,9 @@ pub fn prune(root: &Path) {
     let now = SystemTime::now();
     let mut kept: Vec<(SystemTime, PathBuf, u64)> = vec![];
     let mut dropped = 0usize;
-    let Ok(days) = std::fs::read_dir(root) else { return };
+    let Ok(days) = std::fs::read_dir(root) else {
+        return;
+    };
     for day in days.flatten().filter(|d| d.path().is_dir()) {
         let mut bases: Vec<PathBuf> = std::fs::read_dir(day.path())
             .map(|rd| {
@@ -150,9 +176,17 @@ pub fn prune(root: &Path) {
             let (png, js) = (base.with_extension("png"), base.with_extension("json"));
             let pm = std::fs::metadata(&png).ok();
             let jm = std::fs::metadata(&js).ok();
-            let at = jm.as_ref().or(pm.as_ref()).and_then(|m| m.modified().ok()).unwrap_or(now);
+            let at = jm
+                .as_ref()
+                .or(pm.as_ref())
+                .and_then(|m| m.modified().ok())
+                .unwrap_or(now);
             let age = now.duration_since(at).unwrap_or_default();
-            let oc = std::fs::read_to_string(&js).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).map(|v| outcome(&v)).unwrap_or(Outcome::Miss);
+            let oc = std::fs::read_to_string(&js)
+                .ok()
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                .map(|v| outcome(&v))
+                .unwrap_or(Outcome::Miss);
             if age > JSON_AGE {
                 let _ = std::fs::remove_file(&png);
                 let _ = std::fs::remove_file(&js);
@@ -160,7 +194,11 @@ pub fn prune(root: &Path) {
                 continue;
             }
             if let Some(pm) = pm {
-                let limit = if oc == Outcome::Hint { HINT_PNG } else { MISS_PNG };
+                let limit = if oc == Outcome::Hint {
+                    HINT_PNG
+                } else {
+                    MISS_PNG
+                };
                 if age > limit {
                     let _ = std::fs::remove_file(&png);
                     dropped += 1;

@@ -61,8 +61,12 @@ impl Settings {
     pub fn load(data_dir: &Path, locale: Option<&str>) -> Self {
         let path = data_dir.join("settings.json");
         let fresh = defaults(language_for_locale(locale));
-        let raw: Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
-        let data = if raw["version"].as_i64() == Some(SCHEMA_VERSION) && raw["settings"].is_object() {
+        let raw: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or(Value::Null);
+        let data = if raw["version"].as_i64() == Some(SCHEMA_VERSION) && raw["settings"].is_object()
+        {
             normalize(&raw["settings"], &fresh)
         } else {
             // Файл первых версий Горна Next: только флаги тюрьмы.
@@ -99,7 +103,10 @@ impl Settings {
     }
 
     pub fn excluded(&self) -> Vec<i64> {
-        self.data["excludedItems"].as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default()
+        self.data["excludedItems"]
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_i64).collect())
+            .unwrap_or_default()
     }
 
     pub fn set_excluded(&mut self, id: i64, excluded: bool) -> Vec<i64> {
@@ -131,7 +138,12 @@ impl Settings {
         }
         let tmp = self.path.with_extension("json.tmp");
         let body = json!({ "version": SCHEMA_VERSION, "settings": self.data });
-        if std::fs::write(&tmp, serde_json::to_string_pretty(&body).unwrap_or_default()).is_ok() {
+        if std::fs::write(
+            &tmp,
+            serde_json::to_string_pretty(&body).unwrap_or_default(),
+        )
+        .is_ok()
+        {
             let _ = std::fs::rename(&tmp, &self.path);
         }
     }
@@ -156,7 +168,10 @@ fn normalize(s: &Value, fresh: &Value) -> Value {
         }
     }
     d["allSeasons"] = json!(s["allSeasons"].as_bool() == Some(true));
-    let excluded: Vec<i64> = s["excludedItems"].as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
+    let excluded: Vec<i64> = s["excludedItems"]
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_i64).collect())
+        .unwrap_or_default();
     d["excludedItems"] = json!(excluded);
     if !s["minDropFe"].as_f64().is_some_and(|v| v >= 0.0) {
         d["minDropFe"] = json!(0);
@@ -166,7 +181,11 @@ fn normalize(s: &Value, fresh: &Value) -> Value {
             o.insert(k.clone(), v.clone());
         }
         // Незнакомый режим (из более новой версии) — компактный.
-        if !src.get("mode").and_then(Value::as_str).is_some_and(|m| OVERLAY_MODES.contains(&m)) {
+        if !src
+            .get("mode")
+            .and_then(Value::as_str)
+            .is_some_and(|m| OVERLAY_MODES.contains(&m))
+        {
             o.insert("mode".into(), json!("compact"));
         }
     }
@@ -192,22 +211,35 @@ pub fn import_from_electron(data_dir: &Path, old_dir: &Path) -> Vec<String> {
         }
     }
     // Настройки трекера: свои флаги тюрьмы остаются своими.
-    let old: Value = std::fs::read_to_string(old_dir.join("settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let old: Value = std::fs::read_to_string(old_dir.join("settings.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null);
     if old["version"].as_i64() == Some(SCHEMA_VERSION) {
-        let ours: Value =
-            std::fs::read_to_string(data_dir.join("settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+        let ours: Value = std::fs::read_to_string(data_dir.join("settings.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or(Value::Null);
         let mut merged = old.clone();
         for k in ["prisonHints", "prisonSaveShots"] {
             merged["settings"][k] = ours[k].as_bool().map(Value::Bool).unwrap_or(json!(true));
         }
-        if std::fs::write(data_dir.join("settings.json"), serde_json::to_string_pretty(&merged).unwrap_or_default()).is_ok() {
+        if std::fs::write(
+            data_dir.join("settings.json"),
+            serde_json::to_string_pretty(&merged).unwrap_or_default(),
+        )
+        .is_ok()
+        {
             done.push("settings.json".into());
         }
     }
     if let Ok(rd) = std::fs::read_dir(old_dir) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if name.starts_with("community-prices") && name.ends_with(".json") && std::fs::copy(e.path(), data_dir.join(&name)).is_ok() {
+            if name.starts_with("community-prices")
+                && name.ends_with(".json")
+                && std::fs::copy(e.path(), data_dir.join(&name)).is_ok()
+            {
                 done.push(name);
             }
         }

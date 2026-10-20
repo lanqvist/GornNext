@@ -24,7 +24,10 @@ use tauri::AppHandle;
 use crate::capture::{Image, Miss, ScreenStream};
 use crate::overlay::{display_at, display_under_cursor, ArrowLayer, Display};
 use crate::shots::Shots;
-use crate::triggers::{frame_hash, player_action, screen_changed, stamp_ms, PresenceChange, PrisonPresence, PrisonShot, PrisonTriggers};
+use crate::triggers::{
+    frame_hash, player_action, screen_changed, stamp_ms, PresenceChange, PrisonPresence,
+    PrisonShot, PrisonTriggers,
+};
 
 /// Экран должен столько не меняться, чтобы его снять.
 const STABLE: Duration = Duration::from_millis(300);
@@ -125,15 +128,29 @@ impl Assist {
             log_found: false,
         };
         // Монитор игры и где была доска — с прошлого раза.
-        if let Some(v) = std::fs::read_to_string(&a.paths.display).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
+        if let Some(v) = std::fs::read_to_string(&a.paths.display)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        {
             if let (Some(x), Some(y)) = (v["x"].as_i64(), v["y"].as_i64()) {
                 a.game_display = display_at(x as i32, y as i32);
             }
             let n = &v["near"];
-            if let (Some(s), Some(tx), Some(ty), Some(w), Some(h)) =
-                (n["s"].as_f64(), n["tx"].as_f64(), n["ty"].as_f64(), n["width"].as_u64(), n["height"].as_u64())
-            {
-                a.near = Some(Geometry { width: w as usize, height: h as usize, s, tx, ty, score: n["score"].as_f64().unwrap_or(0.0) });
+            if let (Some(s), Some(tx), Some(ty), Some(w), Some(h)) = (
+                n["s"].as_f64(),
+                n["tx"].as_f64(),
+                n["ty"].as_f64(),
+                n["width"].as_u64(),
+                n["height"].as_u64(),
+            ) {
+                a.near = Some(Geometry {
+                    width: w as usize,
+                    height: h as usize,
+                    s,
+                    tx,
+                    ty,
+                    score: n["score"].as_f64().unwrap_or(0.0),
+                });
             }
         }
         a
@@ -189,7 +206,9 @@ impl Assist {
             Event::Reply(r) => self.on_reply(r),
             Event::OverlayReady => self.layer.on_ready(),
             Event::SetEnabled(on) => self.set_enabled(on),
-            Event::SetSaveShots(on) => self.shots = on.then(|| Shots::new(self.paths.shots.clone())),
+            Event::SetSaveShots(on) => {
+                self.shots = on.then(|| Shots::new(self.paths.shots.clone()))
+            }
         }
     }
 
@@ -276,7 +295,13 @@ impl Assist {
         if !self.enabled || (!manual && !self.presence.inside) {
             return;
         }
-        let Some(display) = (if manual { display_under_cursor() } else { self.game_display() }) else { return };
+        let Some(display) = (if manual {
+            display_under_cursor()
+        } else {
+            self.game_display()
+        }) else {
+            return;
+        };
         if shot.kind == ShotKind::Treasure && !manual {
             // Окно подарков: рамка ставится по месту карточки — без снимка.
             self.treasure_seq += 1;
@@ -300,29 +325,43 @@ impl Assist {
         } else {
             match line_at {
                 // Метки лога игры — в UTC.
-                Some(at) => Duration::from_millis((chrono::Utc::now().timestamp_millis() - at - STATIC_AFTER_LINE_MS).max(0) as u64),
+                Some(at) => Duration::from_millis(
+                    (chrono::Utc::now().timestamp_millis() - at - STATIC_AFTER_LINE_MS).max(0)
+                        as u64,
+                ),
                 None => Duration::ZERO,
             }
         };
-        let (stable, max) = if manual { (Duration::ZERO, Duration::from_millis(600)) } else { (STABLE, STABLE_MAX) };
+        let (stable, max) = if manual {
+            (Duration::ZERO, Duration::from_millis(600))
+        } else {
+            (STABLE, STABLE_MAX)
+        };
         let mut frame = self.stream.grab(stable, max, ok_age);
         if matches!(frame, Err(Miss::Silent)) {
             // Поток молчит — открыть заново и спросить ещё раз.
             self.stream.stop();
             if self.stream.ensure(display.hmonitor).is_ok() {
-                frame = self.stream.grab(Duration::ZERO, Duration::from_millis(1200), ok_age);
+                frame = self
+                    .stream
+                    .grab(Duration::ZERO, Duration::from_millis(1200), ok_age);
             }
         }
         let mut i = 0;
         while matches!(frame, Err(Miss::Stale)) && i < NUDGES {
             self.layer.nudge(&display);
-            frame = self.stream.grab(Duration::ZERO, Duration::from_millis(900), ok_age);
+            frame = self
+                .stream
+                .grab(Duration::ZERO, Duration::from_millis(900), ok_age);
             i += 1;
         }
         let frame = match frame {
             Ok(f) => f,
             Err(m) => {
-                eprintln!("[тюрьма] кадр не получен за {} мс ({m:?})", t0.elapsed().as_millis());
+                eprintln!(
+                    "[тюрьма] кадр не получен за {} мс ({m:?})",
+                    t0.elapsed().as_millis()
+                );
                 if seq == self.treasure_seq {
                     self.layer.clear();
                 }
@@ -348,21 +387,56 @@ impl Assist {
         self.post_frame(s, manual, frame, display, retry, late);
     }
 
-    fn post(&mut self, shot: PrisonShot, manual: bool, frame: Option<Arc<Image>>, display: Display, retry: u32) {
+    fn post(
+        &mut self,
+        shot: PrisonShot,
+        manual: bool,
+        frame: Option<Arc<Image>>,
+        display: Display,
+        retry: u32,
+    ) {
         self.post_inner(shot, manual, frame, display, retry, false);
     }
 
-    fn post_frame(&mut self, shot: PrisonShot, manual: bool, frame: Arc<Image>, display: Display, retry: u32, as_treasure: bool) {
+    fn post_frame(
+        &mut self,
+        shot: PrisonShot,
+        manual: bool,
+        frame: Arc<Image>,
+        display: Display,
+        retry: u32,
+        as_treasure: bool,
+    ) {
         self.post_inner(shot, manual, Some(frame), display, retry, as_treasure);
     }
 
-    fn post_inner(&mut self, shot: PrisonShot, manual: bool, frame: Option<Arc<Image>>, display: Display, retry: u32, as_treasure: bool) {
+    fn post_inner(
+        &mut self,
+        shot: PrisonShot,
+        manual: bool,
+        frame: Option<Arc<Image>>,
+        display: Display,
+        retry: u32,
+        as_treasure: bool,
+    ) {
         self.next_id += 1;
         let id = self.next_id;
         self.latest.store(id, Ordering::Relaxed);
         self.sent.retain(|s| s.0 + 20 >= id);
-        self.sent.push((id, Sent { shot: shot.clone(), manual, retry }, display));
-        let kind = if manual { "manual" } else { kind_name(shot.kind) };
+        self.sent.push((
+            id,
+            Sent {
+                shot: shot.clone(),
+                manual,
+                retry,
+            },
+            display,
+        ));
+        let kind = if manual {
+            "manual"
+        } else {
+            kind_name(shot.kind)
+        };
         if let Some(s) = self.shots.as_mut() {
             s.note(id, kind, &shot, frame.clone());
         }
@@ -378,11 +452,24 @@ impl Assist {
             theme: shot.theme,
             day: shot.day,
             as_treasure,
-            width: frame.as_ref().map(|f| f.width).unwrap_or((display.w) as usize),
-            height: frame.as_ref().map(|f| f.height).unwrap_or((display.h) as usize),
+            width: frame
+                .as_ref()
+                .map(|f| f.width)
+                .unwrap_or((display.w) as usize),
+            height: frame
+                .as_ref()
+                .map(|f| f.height)
+                .unwrap_or((display.h) as usize),
             budget_ms: SOLVE_BUDGET_MS,
         };
-        eprintln!("[тюрьма] кадр {id} ({kind}{})", if as_treasure { ", к подаркам" } else { "" });
+        eprintln!(
+            "[тюрьма] кадр {id} ({kind}{})",
+            if as_treasure {
+                ", к подаркам"
+            } else {
+                ""
+            }
+        );
         let jobs = self.ensure_worker();
         let _ = jobs.send(Job { shot: msg, frame });
     }
@@ -395,7 +482,9 @@ impl Assist {
         let (jtx, jrx) = std::sync::mpsc::channel::<Job>();
         let tx = self.tx.clone();
         let latest = self.latest.clone();
-        let state = std::fs::read_to_string(&self.paths.state).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
+        let state = std::fs::read_to_string(&self.paths.state)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok());
         let near = self.near;
         std::thread::Builder::new()
             .name("горн-советник".into())
@@ -403,7 +492,11 @@ impl Assist {
                 below_normal();
                 let mut adv = OwnAdvisor::new();
                 adv.init(state.as_ref(), near);
-                let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).saturating_sub(2).clamp(1, MAX_SOLVE_THREADS);
+                let threads = std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4)
+                    .saturating_sub(2)
+                    .clamp(1, MAX_SOLVE_THREADS);
                 if threads > 1 {
                     adv.pool = rayon::ThreadPoolBuilder::new()
                         .num_threads(threads)
@@ -418,7 +511,11 @@ impl Assist {
                     let _ = tx2.send(Event::Reply(r.clone()));
                 }));
                 for job in jrx {
-                    let frame = job.frame.as_ref().map(|f| Frame { width: f.width, height: f.height, data: &f.data });
+                    let frame = job.frame.as_ref().map(|f| Frame {
+                        width: f.width,
+                        height: f.height,
+                        data: &f.data,
+                    });
                     adv.handle(&job.shot, frame.as_ref());
                     adv.replies.clear();
                 }
@@ -463,7 +560,15 @@ impl Assist {
         if id == self.next_id {
             if let Some(d) = self.display {
                 match &r {
-                    Reply::Hint { text, marks, w, h, live, phase, .. } => {
+                    Reply::Hint {
+                        text,
+                        marks,
+                        w,
+                        h,
+                        live,
+                        phase,
+                        ..
+                    } => {
                         self.layer.show(&d, text, marks, *w, *h, *live, phase);
                         self.stale_at = Some(Instant::now() + STALE);
                     }
@@ -485,7 +590,11 @@ impl Assist {
                     if let Some(d) = self.display {
                         self.layer.thinking(&d);
                     }
-                    self.retry_at = Some((Instant::now() + Duration::from_millis(RETRY_MS * (s.retry as u64 + 1)), id, s.clone()));
+                    self.retry_at = Some((
+                        Instant::now() + Duration::from_millis(RETRY_MS * (s.retry as u64 + 1)),
+                        id,
+                        s.clone(),
+                    ));
                 }
             }
         }
@@ -530,7 +639,9 @@ fn write_atomic(path: &std::path::Path, text: &str) {
 
 /// Приоритет потока ниже обычного: игра не должна проседать.
 fn below_normal() {
-    use windows::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
+    use windows::Win32::System::Threading::{
+        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL,
+    };
     unsafe {
         let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
     }
