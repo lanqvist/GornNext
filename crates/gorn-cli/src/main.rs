@@ -7,6 +7,7 @@
 //!
 //! --threads: 1 — один поток (по умолчанию для selfplay), 0 — все ядра.
 
+mod audit;
 mod bench;
 mod debugtrace;
 mod frames;
@@ -38,10 +39,13 @@ gorn-cli tune --report [--runs 20000] [--threads T=0]
 gorn-cli replay ПАПКА [--budget 1000] [--from ЧЧММСС] [--to ЧЧММСС] [--rounds R] [--diffs файл.md] [--json]
     свой путь подсказок на сохранённых кадрах против прежнего, как prison-replay.ts;
     --rounds — решатель без срока (детерминированно), --json — строка на кадр
+gorn-cli audit [--new] [--days 2] [--budget 600] [--quiet 10] [--run ЧЧММСС] [--shots ПАПКА] [--out ПАПКА] [--no-keep]
+    аудит забегов по кадрам Горна, как prison-audit.ts: отчёты в gorn-prison-data/audits
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
                 [--rng N=100000] [--solve N=580] [--solve-rounds R=400] [--solve-pool T=4]
                 [--play N=32] [--play-rounds R=300] [--tune N=20000]
                 [--frames ПАПКА|data] [--frames-max N]
+                [--audit ПАПКА|data] [--audit-runs N=2]
                 [--replay ПАПКА|data] [--replay-rounds R=64] [--replay-from ЧЧММСС] [--replay-to ЧЧММСС]
                 [--from K=0] [--jobs J=ядра] [--quick] [--tli ../gorn-tli]
     сверка с эталоном: веса, ГСЧ, забеги по хешу и целиком, решатель";
@@ -60,7 +64,7 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
             i += 1;
             continue;
         };
-        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json");
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -139,6 +143,8 @@ fn main() -> ExitCode {
                     replay_rounds: num(&o, "replay-rounds", 64)?,
                     replay_from: o.get("replay-from").cloned().unwrap_or_else(|| "000000".into()),
                     replay_to: o.get("replay-to").cloned().unwrap_or_else(|| "999999".into()),
+                    audit: o.get("audit").cloned(),
+                    audit_runs: num(&o, "audit-runs", 2)?,
                 })
             }
             "play" => {
@@ -229,6 +235,20 @@ fn main() -> ExitCode {
                     return Err("debug-trace <state.json> <seed> <rounds>".into());
                 }
                 debugtrace::run(a[0], a[1].parse().map_err(|_| "seed")?, a[2].parse().map_err(|_| "rounds")?)?;
+                Ok(true)
+            }
+            "audit" => {
+                let data = frames::data_dir();
+                audit::run(&audit::AuditOpts {
+                    only_new: o.contains_key("new"),
+                    days: num(&o, "days", 2)? as usize,
+                    budget: num(&o, "budget", 600)? as f64,
+                    quiet_min: num(&o, "quiet", 10)? as f64,
+                    only_run: o.get("run").cloned(),
+                    shots: o.get("shots").map(std::path::PathBuf::from).unwrap_or_else(audit::default_shots),
+                    out: o.get("out").map(std::path::PathBuf::from).unwrap_or_else(|| data.join("audits")),
+                    keep: !o.contains_key("no-keep"),
+                })?;
                 Ok(true)
             }
             "help" | "--help" | "-h" => {

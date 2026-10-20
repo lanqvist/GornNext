@@ -48,6 +48,9 @@ pub struct Options {
     pub replay_rounds: u32,
     pub replay_from: String,
     pub replay_to: String,
+    /// Ядро аудита: папка дней кадров («data» — runs папки данных) и сколько забегов на день.
+    pub audit: Option<String>,
+    pub audit_runs: u32,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -90,6 +93,16 @@ pub fn run(o: &Options) -> Result<bool, String> {
             days.push(root);
         }
         ok &= check_replay(&rf, &days, o.replay_rounds, &o.replay_from, &o.replay_to)?;
+    }
+    if let Some(dir) = &o.audit {
+        let root = if dir == "data" { crate::frames::data_dir().join("runs") } else { std::path::PathBuf::from(dir) };
+        let mut days: Vec<std::path::PathBuf> =
+            std::fs::read_dir(&root).map_err(|e| format!("{}: {e}", root.display()))?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        days.sort();
+        if days.is_empty() {
+            days.push(root);
+        }
+        ok &= check_audit(&rf, &days, o.audit_runs)?;
     }
     if o.tune > 0 {
         ok &= check_tune(&rf, o.tune)?;
@@ -809,4 +822,40 @@ fn check_replay(rf: &Reference, days: &[std::path::PathBuf], rounds: u32, from: 
         shown.extend(s);
     }
     Ok(report(&format!("советник на кадрах ({rounds} раундов), кадров"), cnt, bad, &shown, t))
+}
+
+/// Ядро аудита (разбивка на забеги, находки, сводка) на записях наших повторов — как у эталона.
+fn check_audit(rf: &Reference, days: &[std::path::PathBuf], runs_per_day: u32) -> Result<bool, String> {
+    use crate::audit::{core_json, heads_json, heads_of, recs_json, replay, split_runs};
+    let t = Clock::now();
+    let data = crate::frames::data_dir();
+    let (mut cnt, mut bad, mut shown) = (0u64, 0u64, vec![]);
+    for day in days {
+        let (files, heads) = heads_of(day)?;
+        let runs = split_runs(&heads);
+        let picked: Vec<_> = runs.iter().filter(|r| r.2).take(runs_per_day as usize).collect();
+        // Пустые записи — только разбивка дня на забеги.
+        let mut inputs = vec![(heads_json(&heads), serde_json::Value::Array(vec![]), core_json(&heads, &[]), "разбивка".to_string())];
+        for &&(from, to, _) in &picked {
+            let (recs, _) = replay(day, &data, &files[from..=to], 600.0, Some(48))?;
+            inputs.push((heads_json(&[]), recs_json(&recs), core_json(&[], &recs), files[from].clone()));
+        }
+        for (h, r, mine, what) in inputs {
+            let tmp = std::env::temp_dir().join(format!("gorn-audit-{}.json", std::process::id()));
+            std::fs::write(&tmp, serde_json::json!({ "heads": h, "recs": r }).to_string()).map_err(|e| e.to_string())?;
+            let out = String::from_utf8(rf.output(&["audit-core".into(), tmp.to_string_lossy().to_string()])?).map_err(|e| e.to_string())?;
+            let _ = std::fs::remove_file(&tmp);
+            let theirs: serde_json::Value = serde_json::from_str(out.trim()).map_err(|e| e.to_string())?;
+            let mut d = vec![];
+            json_diff(&theirs, &mine, "", &mut d);
+            cnt += 1;
+            if !d.is_empty() {
+                bad += 1;
+                if shown.len() < SHOW {
+                    shown.push(format!("{} {what}:\n    {}", day.display(), d.join("\n    ")));
+                }
+            }
+        }
+    }
+    Ok(report("ядро аудита (разбивка дней, находки и сводка забегов), проверок", cnt, bad, &shown, t))
 }

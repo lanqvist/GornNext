@@ -38,6 +38,8 @@
 //                                   — свой путь подсказок (OwnAdvisor) на сохранённых кадрах, как
 //                                     prison-replay.ts, но без срока: решатель до остановки или
 //                                     rounds раундов. Строка на кадр — JSON {file, replies, memory, options}
+//   audit-core <вход.json>          — ядро аудита (prison-audit-core.ts) на готовых данных:
+//                                     {heads, recs} → {runs: splitRuns(heads), findings, summary}
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -541,6 +543,14 @@ switch (cmd) {
       await advisor.handle(msg, frame);
       await out(f);
     }
+    await flushLines();
+    break;
+  }
+  case 'audit-core': {
+    const { readFileSync } = await import('node:fs');
+    const core = await imp('cli/prison-audit-core.ts');
+    const input = JSON.parse(readFileSync(rest[0]!, 'utf8'));
+    await line(JSON.stringify({ runs: core.splitRuns(input.heads), findings: core.findings(input.recs), summary: core.summary(input.recs) }));
     await flushLines();
     break;
   }
