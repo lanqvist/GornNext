@@ -4,6 +4,7 @@
 //! логи дают тот же разбор, что у эталона (`gorn-cli verify --logs`).
 
 pub mod analysis;
+pub mod community;
 pub mod bag;
 pub mod history;
 pub mod inventory;
@@ -18,6 +19,7 @@ pub mod retroscan;
 pub mod segmenter;
 pub mod stats;
 pub mod storage;
+pub mod tailer;
 pub mod trade;
 pub mod types;
 

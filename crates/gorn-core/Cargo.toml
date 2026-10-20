@@ -12,3 +12,4 @@ regex = "1"
 indexmap = { version = "2", features = ["serde"] }
 chrono = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
+ureq = "2"

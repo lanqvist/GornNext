@@ -65,6 +65,10 @@ pub struct Options {
     pub db_synth: u32,
     /// Готовая база (например, gorn.db трекера): читается с копий, оригинал не трогается.
     pub db_file: Option<String>,
+    /// Сценариев дочитывания лога.
+    pub tail: u32,
+    /// Цены сообщества: 0 — нет, 1 — кэши на диске, 2 — ещё и обновление из сети.
+    pub community: u32,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -138,6 +142,12 @@ pub fn run(o: &Options) -> Result<bool, String> {
     }
     if let Some(f) = &o.db_file {
         ok &= check_db_file(&rf, f)?;
+    }
+    if o.tail > 0 {
+        ok &= check_tail(&rf, o.tail, o.jobs)?;
+    }
+    if o.community > 0 {
+        ok &= check_community(&rf, o.community > 1)?;
     }
     if o.tune > 0 {
         ok &= check_tune(&rf, o.tune)?;
@@ -1360,4 +1370,149 @@ fn check_db_file(rf: &Reference, src: &str) -> Result<bool, String> {
     println!("  {}: {}", src.display(), db_line(&theirs));
     let shown = if d.is_empty() { vec![] } else { vec![d.iter().take(40).cloned().collect::<Vec<_>>().join("\n    ")] };
     Ok(report("трекер: хранилище, готовая база", 1, (!d.is_empty()) as u64, &shown, t))
+}
+
+/// Дочитывание: сценарии записи порциями (посреди строки и символа), ротации,
+/// старта с конца, с начала, с позиции и до появления файла — события как у эталона.
+fn check_tail(rf: &Reference, n: u32, jobs: u32) -> Result<bool, String> {
+    let t = Clock::now();
+    let (items, keys_v) = map_keys()?;
+    let parts = shards(0, n, jobs);
+    type Part = (u64, u64, Vec<String>, usize);
+    let results: Vec<Result<Part, String>> = std::thread::scope(|sc| {
+        let hs: Vec<_> = parts
+            .iter()
+            .map(|&(a, k)| {
+                let (items, keys_v) = (&items, &keys_v);
+                sc.spawn(move || -> Result<Part, String> {
+                    let (mut cnt, mut bad, mut shown, mut lines) = (0u64, 0u64, vec![], 0usize);
+                    for seed in a..a + k {
+                        let tmp = std::env::temp_dir();
+                        let id = format!("{}-{seed}", std::process::id());
+                        let steps_file = tmp.join(format!("gorn-tail-{id}.json"));
+                        let (theirs_log, mine_log) = (tmp.join(format!("gorn-tail-{id}-ref.log")), tmp.join(format!("gorn-tail-{id}-own.log")));
+                        let steps = crate::tailcheck::script(seed as u64, items, keys_v);
+                        std::fs::write(&steps_file, steps.to_string()).map_err(|e| e.to_string())?;
+                        let raw = rf.output(&["tail".into(), steps_file.to_string_lossy().to_string(), theirs_log.to_string_lossy().to_string()]);
+                        let mine = crate::tailcheck::run(&steps, &mine_log);
+                        for f in [&steps_file, &theirs_log, &mine_log] {
+                            let _ = std::fs::remove_file(f);
+                        }
+                        let theirs: serde_json::Value = serde_json::from_slice(&raw?).map_err(|e| format!("tail: {e}"))?;
+                        let mine = mine?;
+                        lines += theirs.as_array().map(|a| a.iter().filter_map(|e| e[1].as_array()).map(|l| l.len()).sum::<usize>()).unwrap_or(0);
+                        let mut d = vec![];
+                        json_diff(&theirs, &mine, "", &mut d);
+                        cnt += 1;
+                        if !d.is_empty() {
+                            bad += 1;
+                            if shown.len() < SHOW {
+                                shown.push(format!("сценарий {seed}:\n    {}", d.iter().take(20).cloned().collect::<Vec<_>>().join("\n    ")));
+                            }
+                        }
+                    }
+                    Ok((cnt, bad, shown, lines))
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut cnt, mut bad, mut shown, mut lines) = (0, 0, vec![], 0);
+    for r in results {
+        let (c, b, s, l) = r?;
+        cnt += c;
+        bad += b;
+        shown.extend(s);
+        lines += l;
+    }
+    println!("  строк выдано: {lines}");
+    Ok(report("трекер: дочитывание лога, сценариев", cnt, bad, &shown, t))
+}
+
+/// Лента в папке: кэш сезона и, с fetch, обновление из сети — тот же JSON, что у эталона.
+fn community_dump(dir: &std::path::Path, file: &str, season: i64, fetch: bool) -> serde_json::Value {
+    let feed = gorn_core::community::CommunityPriceFeed::new(dir, file);
+    feed.switch_season(season);
+    feed.load_cache(season);
+    let loaded = serde_json::json!({ "size": feed.size(), "cursor": feed.cursor(), "fetchedAt": feed.fetched_at_ms() });
+    let changed = fetch.then(|| feed.refresh());
+    let mut all = feed.all();
+    all.sort_by_key(|p| p.config_base_id);
+    serde_json::json!({ "loaded": loaded, "changed": changed, "stale": feed.stale(), "cursor": feed.cursor(), "all": all })
+}
+
+/// Цены сообщества: кэши трекера (на копиях), с сетью — дельта от кэша, полная
+/// выборка и чтение эталоном кэша, записанного своей лентой.
+fn check_community(rf: &Reference, network: bool) -> Result<bool, String> {
+    let t = Clock::now();
+    let src = std::path::PathBuf::from(std::env::var("APPDATA").map_err(|e| e.to_string())?).join("gorn-tli");
+    let mut files: Vec<String> = std::fs::read_dir(&src)
+        .map_err(|e| format!("{}: {e}", src.display()))?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.starts_with("community-prices") && n.ends_with(".json"))
+        .collect();
+    files.sort();
+    let (mut cnt, mut bad, mut shown) = (0u64, 0u64, vec![]);
+    let mut check = |what: String, theirs: &serde_json::Value, mine: &serde_json::Value, skip: &[&str]| {
+        let mut d = vec![];
+        let strip = |v: &serde_json::Value| {
+            let mut v = v.clone();
+            for k in skip {
+                v["loaded"].as_object_mut().map(|o| o.remove(*k));
+                v.as_object_mut().map(|o| o.remove(*k));
+            }
+            v
+        };
+        json_diff(&strip(theirs), &strip(mine), "", &mut d);
+        println!("  {what}: цен {}", theirs["all"].as_array().map(|a| a.len()).unwrap_or(0));
+        cnt += 1;
+        if !d.is_empty() {
+            bad += 1;
+            if shown.len() < SHOW {
+                shown.push(format!("{what}:\n    {}", d.iter().take(20).cloned().collect::<Vec<_>>().join("\n    ")));
+            }
+        }
+    };
+    let tmp = |tag: &str| std::env::temp_dir().join(format!("gorn-community-{}-{tag}", std::process::id()));
+    for name in &files {
+        let text = std::fs::read_to_string(src.join(name)).map_err(|e| e.to_string())?;
+        let season = serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|v| v["seasonId"].as_i64()).unwrap_or(0);
+        for fetch in if network { vec![false, true] } else { vec![false] } {
+            let (a, b) = (tmp("ref"), tmp("own"));
+            for d in [&a, &b] {
+                std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+                std::fs::write(d.join(name), &text).map_err(|e| e.to_string())?;
+            }
+            let mut args = vec!["community".to_string(), a.to_string_lossy().to_string(), name.clone(), season.to_string()];
+            if fetch {
+                args.push("fetch".into());
+            }
+            let theirs: serde_json::Value = serde_json::from_slice(&rf.output(&args)?).map_err(|e| e.to_string())?;
+            let mine = community_dump(&b, name, season, fetch);
+            check(format!("{name}{}", if fetch { ", дельта из сети" } else { "" }), &theirs, &mine, &[]);
+            let _ = std::fs::remove_dir_all(&a);
+            let _ = std::fs::remove_dir_all(&b);
+        }
+    }
+    if network {
+        // Полная выборка с пустого места, затем эталон читает кэш своей ленты.
+        let season = 1601;
+        let (a, b) = (tmp("full-ref"), tmp("full-own"));
+        for d in [&a, &b] {
+            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        }
+        let file = "community-prices.json".to_string();
+        let theirs: serde_json::Value = serde_json::from_slice(&rf.output(&["community".into(), a.to_string_lossy().to_string(), file.clone(), season.to_string(), "fetch".into()])?)
+            .map_err(|e| e.to_string())?;
+        let mine = community_dump(&b, &file, season, true);
+        check(format!("полная выборка сезона {season}"), &theirs, &mine, &[]);
+        let their_read: serde_json::Value =
+            serde_json::from_slice(&rf.output(&["community".into(), b.to_string_lossy().to_string(), file.clone(), season.to_string()])?).map_err(|e| e.to_string())?;
+        let my_read = community_dump(&b, &file, season, false);
+        check("эталон читает кэш своей ленты".into(), &their_read, &my_read, &["fetchedAt"]);
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+    }
+    Ok(report("трекер: цены сообщества, проверок", cnt, bad, &shown, t))
 }

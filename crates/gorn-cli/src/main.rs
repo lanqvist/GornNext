@@ -17,6 +17,7 @@ mod reference;
 mod replay;
 mod report;
 mod solverbench;
+mod tailcheck;
 mod tune;
 mod verify;
 
@@ -162,6 +163,8 @@ fn main() -> ExitCode {
                     db: o.get("db").cloned(),
                     db_synth: num(&o, "db-synth", 0)?,
                     db_file: o.get("db-file").cloned(),
+                    tail: num(&o, "tail", 0)?,
+                    community: num(&o, "community", 0)?,
                 })
             }
             "play" => {

@@ -49,6 +49,11 @@
 //                                     (склейка, усечённые копии, повторы, сессии), затем дамп базы
 //   db-read <база> [сезон]           — открыть базу (миграции, ремонт сезонов) и дамп: таблицы с
 //                                     типами значений, load*, история цен, счётчики, сессии
+//   tail <шаги.json> <файл>         — дочитывание (main/tailer.ts) по шагам: запись, ротация, старт,
+//                                     проход; события [lines|rotate|error|pos] в JSON
+//   community <папка> <файл> <сезон> [fetch]
+//                                   — лента цен сообщества (main/communityPrices.ts): кэш сезона,
+//                                     с fetch — обновление из сети; цены по id в JSON
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -770,6 +775,56 @@ switch (cmd) {
     const again = new Storage(rest[1]!);
     process.stdout.write(JSON.stringify(dump(again, season)) + '\n');
     again.close();
+    break;
+  }
+  case 'tail': {
+    // Дочитывание (main/tailer.ts) по шагам сценария, без таймеров: проходы
+    // вызываются явно после каждой записи. Шаги — JSON-файл: [op, …].
+    const { readFileSync, writeFileSync, appendFileSync, rmSync, existsSync } = await import('node:fs');
+    const { LogTailer } = await imp('main/tailer.ts');
+    const steps = JSON.parse(readFileSync(rest[0]!, 'utf8')) as any[];
+    const file = rest[1]!;
+    const events: unknown[] = [];
+    let t: any = null;
+    for (const [op, arg] of steps) {
+      if (op === 'append') appendFileSync(file, Buffer.from(arg, 'hex'));
+      else if (op === 'truncate') writeFileSync(file, Buffer.from(arg, 'hex'));
+      else if (op === 'remove') {
+        if (existsSync(file)) rmSync(file);
+      } else if (op === 'start') {
+        t = new LogTailer(file, {
+          ...(arg.fromStart ? { fromStart: true } : {}),
+          ...(arg.initialPosition !== undefined ? { initialPosition: arg.initialPosition } : {}),
+          onLines: (lines: string[]) => events.push(['lines', lines]),
+          onRotate: () => events.push(['rotate']),
+          onError: (e: Error) => events.push(['error']),
+        });
+        t.start();
+        clearInterval(t.timer);
+        t.watcher?.close();
+        t.watcher = null;
+        events.push(['pos', t.currentPosition]);
+      } else if (op === 'pump') {
+        await t.pump();
+        events.push(['pos', t.currentPosition]);
+      }
+    }
+    process.stdout.write(JSON.stringify(events) + '\n');
+    break;
+  }
+  case 'community': {
+    // Лента цен сообщества (main/communityPrices.ts): кэш <папка>/<файл> сезона,
+    // с fetch — ещё и обновление из сети (полное или дельта от курсора кэша).
+    const { CommunityPriceFeed } = await imp('main/communityPrices.ts');
+    const feed: any = new CommunityPriceFeed(rest[0]!, rest[1]!);
+    const season = Number(rest[2]);
+    feed.switchSeason(season);
+    feed.loadCache(season);
+    const loaded = { size: feed.size, cursor: feed.cursor, fetchedAt: feed.fetchedAtMs };
+    let changed: number | null = null;
+    if (rest[3] === 'fetch') changed = await feed.refresh();
+    const all = feed.all().sort((a: any, b: any) => a.configBaseId - b.configBaseId);
+    process.stdout.write(JSON.stringify({ loaded, changed, stale: feed.stale, cursor: feed.cursor, all }) + '\n');
     break;
   }
   case 'selfplay': {
