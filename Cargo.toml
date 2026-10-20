@@ -4,7 +4,7 @@ members = ["crates/gorn-prison", "crates/gorn-core", "crates/gorn-cli", "app"]
 
 [workspace.package]
 edition = "2021"
-version = "0.1.2"
+version = "0.1.3"
 license = "MIT"
 
 [workspace.dependencies]
