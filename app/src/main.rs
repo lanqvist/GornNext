@@ -135,7 +135,7 @@ fn create_main_window(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     Ok(())
 }
 
-fn arg<'a>(args: &'a [Value], i: usize) -> &'a Value {
+fn arg(args: &[Value], i: usize) -> &Value {
     args.get(i).unwrap_or(&Value::Null)
 }
 
@@ -274,6 +274,7 @@ async fn gorn(app: AppHandle, channel: String, args: Vec<Value>) -> Result<Value
         "app:setAutoStart" => {
             let on = a0.as_bool().unwrap_or(false);
             st.settings.lock().unwrap().set("autoStart", json!(on));
+            sync_autostart(&app, on);
             json!(on)
         }
         "app:chooseLogDir" => {
@@ -354,6 +355,17 @@ async fn gorn(app: AppHandle, channel: String, args: Vec<Value>) -> Result<Value
     Ok(v)
 }
 
+/// Запуск вместе с Windows. В отладочной сборке не регистрируется: в автозагрузку
+/// попал бы exe из target/debug.
+fn sync_autostart(app: &AppHandle, on: bool) {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    use tauri_plugin_autostart::ManagerExt;
+    let al = app.autolaunch();
+    let _ = if on { al.enable() } else { al.disable() };
+}
+
 /// Новая папка логов: пока игра не найдена — сразу в работу, иначе — после перезапуска.
 fn apply_log_dir(tr: &Tracker, dir: Option<PathBuf>, shown: Option<String>) -> Value {
     let booted = tr.call(|e| e.is_booted()).unwrap_or(true);
@@ -396,6 +408,7 @@ fn main() {
     let handled = bindings.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, sc, ev| {
@@ -582,6 +595,8 @@ fn main() {
                 }
             }
             let overlay_on = settings_now.overlay()["enabled"].as_bool().unwrap_or(false);
+            // Запись могли удалить руками, а установка — переехать: держим как в настройке.
+            sync_autostart(app.handle(), settings_now.bool("autoStart"));
             drop(settings_now);
             app.manage(AppState {
                 tx: Mutex::new(tx),
