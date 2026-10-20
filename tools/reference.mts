@@ -5,7 +5,7 @@
 //   (или: npx --prefix ../gorn-tli tsx tools/reference.mts ../gorn-tli <команда> …)
 //
 // Команды (вывод — в stdout):
-//   weights                         — DEFAULT_WEIGHTS: по строке «индекс hex-биты-f64»
+//   weights [hand]                  — DEFAULT_WEIGHTS (или ручные HAND): по строке «индекс hex-биты-f64»
 //   rng <from> <n> <count>          — ГСЧ: на сид строка чисел (next, bits30, float, int, chance, stream)
 //   runs <instant|random> <from> <n> hash
 //                                   — забеги: на сид строка «сид ходов счёт h1 h2»; h1/h2 —
@@ -25,6 +25,10 @@
 //                                     сид 777000+g, тема g % 5, цель случайная; ход решателя —
 //                                     solve({seed: g·1000+ход, maxRounds: rounds}).step(∞), где
 //                                     ходов > 1. Строка: «g мгновенная решатель h1 h2» (хеш ходов решателя)
+//   scores <random|greedy|policy> <seed> <n>
+//                                   — забеги prison-tune (сценарий «все темы по кругу», кости
+//                                     imul(seed ^ i, 0x9e3779b1) ^ i): «n среднее h1 h2» по счётам
+//                                     (policy — настроенные веса, остальные — ручные)
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -51,6 +55,8 @@ const st = await imp('core/prison/engine/state.ts');
 const { instantCode, policyPlayout } = await imp('core/prison/policy/instant.ts');
 const { DEFAULT_WEIGHTS } = await imp('core/prison/policy/weights.ts');
 const solver = await imp('core/prison/solver/solve.ts');
+const { greedyPlayout } = await imp('core/prison/policy/greedy.ts');
+const { HAND, fromJson } = await imp('core/prison/policy/weights.ts');
 
 const p = model.DEFAULT_PARAMS;
 const SIZE: number = st.SIZE;
@@ -235,10 +241,11 @@ async function rng(from: number, n: number, count: number): Promise<void> {
 
 // ── веса ────────────────────────────────────────────────────────────────────
 
-async function weights(): Promise<void> {
+async function weights(which: string): Promise<void> {
   const dv = new DataView(new ArrayBuffer(8));
-  for (let i = 0; i < DEFAULT_WEIGHTS.length; i++) {
-    dv.setFloat64(0, DEFAULT_WEIGHTS[i]!);
+  const W = which === 'hand' ? fromJson(HAND) : DEFAULT_WEIGHTS;
+  for (let i = 0; i < W.length; i++) {
+    dv.setFloat64(0, W[i]!);
     await line(`${i} ${dv.getBigUint64(0).toString(16)}`);
   }
   await flushLines();
@@ -370,7 +377,7 @@ async function bench(selfplaySeeds: number): Promise<void> {
 const num = (i: number, d?: number) => (rest[i] === undefined ? d! : Number(rest[i]));
 switch (cmd) {
   case 'weights':
-    await weights();
+    await weights(rest[0] ?? 'default');
     break;
   case 'rng':
     await rng(num(0), num(1), num(2, 16));
@@ -409,6 +416,24 @@ switch (cmd) {
       }
       await line(`${g} ${scores[0]} ${scores[1]} ${h1 >>> 0} ${h2 >>> 0}`);
     }
+    await flushLines();
+    break;
+  }
+  case 'scores': {
+    const kind = rest[0], seed = num(1), n = num(2);
+    const w = kind === 'policy' ? DEFAULT_WEIGHTS : fromJson(HAND);
+    const s = new st.State();
+    const r = new Rng(1);
+    hReset();
+    let total = 0;
+    for (let i = 0; i < n; i++) {
+      r.seed(Math.imul(seed ^ i, 0x9e3779b1) ^ i);
+      actions.startRun(s, r, p, { start: model.START_EVENT_IDS[i % 5], startPick: true });
+      const x = kind === 'random' ? actions.randomPlayout(s, r, p, buf) : kind === 'greedy' ? greedyPlayout(s, r, p) : policyPlayout(s, r, p, w);
+      hPush(x);
+      total += x;
+    }
+    await line(`${n} ${total / n} ${h1 >>> 0} ${h2 >>> 0}`);
     await flushLines();
     break;
   }

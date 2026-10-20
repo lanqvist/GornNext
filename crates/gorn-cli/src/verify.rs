@@ -38,6 +38,8 @@ pub struct Options {
     /// Забегов самоигры с решателем без срока и потолок раундов.
     pub play: u32,
     pub play_rounds: u32,
+    /// Забегов настройки (prison-tune) на каждый вид стратегии.
+    pub tune: u32,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -47,7 +49,8 @@ pub fn run(o: &Options) -> Result<bool, String> {
     let rf = Reference::locate(o.tli.as_deref())?;
     println!("эталон: {}", rf.tli.display());
     let mut ok = true;
-    ok &= check_weights(&rf)?;
+    ok &= check_weights(&rf, "default")?;
+    ok &= check_weights(&rf, "hand")?;
     if o.rng > 0 {
         ok &= check_rng(&rf, o.from, o.rng, o.jobs)?;
     }
@@ -60,6 +63,9 @@ pub fn run(o: &Options) -> Result<bool, String> {
         if n > 0 {
             ok &= check_full(&rf, mode, o.from, n, o.jobs)?;
         }
+    }
+    if o.tune > 0 {
+        ok &= check_tune(&rf, o.tune)?;
     }
     if o.play > 0 {
         ok &= check_play(&rf, o.play, o.play_rounds, o.jobs)?;
@@ -93,10 +99,11 @@ fn report(what: &str, n: u64, bad: u64, shown: &[String], t: Clock) -> bool {
 
 // ── веса ────────────────────────────────────────────────────────────────────
 
-fn check_weights(rf: &Reference) -> Result<bool, String> {
+fn check_weights(rf: &Reference, which: &str) -> Result<bool, String> {
     let t = Clock::now();
-    let out = String::from_utf8(rf.output(&["weights".into()])?).map_err(|e| e.to_string())?;
-    let w = default_weights();
+    let out = String::from_utf8(rf.output(&["weights".into(), which.into()])?).map_err(|e| e.to_string())?;
+    let hand = gorn_prison::policy::weights::hand_weights();
+    let w = if which == "hand" { &hand } else { default_weights() };
     let mut bad = 0;
     let mut shown = vec![];
     let mut n = 0;
@@ -114,7 +121,7 @@ fn check_weights(rf: &Reference) -> Result<bool, String> {
         bad += 1;
         shown.push(format!("весов: TS {n}, Rust {}", w.len()));
     }
-    Ok(report("веса", n as u64, bad, &shown, t))
+    Ok(report(&format!("веса ({which})"), n as u64, bad, &shown, t))
 }
 
 // ── ГСЧ ─────────────────────────────────────────────────────────────────────
@@ -545,4 +552,41 @@ fn check_play(rf: &Reference, n: u32, rounds: u32, jobs: u32) -> Result<bool, St
         shown.extend(s);
     }
     Ok(report(&format!("самоигра с решателем ({rounds} раундов), забегов"), cnt, bad, &shown, t))
+}
+
+/// Забеги настройки (сценарий «все темы по кругу»): счёт каждого — как у эталона.
+fn check_tune(rf: &Reference, n: u32) -> Result<bool, String> {
+    use crate::tune::{scores, Kind, MIX};
+    use gorn_prison::policy::weights::hand_weights;
+    let t = Clock::now();
+    let seed = 0x51ed;
+    let (mut bad, mut shown, mut cnt) = (0u64, vec![], 0u64);
+    for (name, kind) in [("random", Kind::Random), ("greedy", Kind::Greedy), ("policy", Kind::Policy)] {
+        let out = String::from_utf8(rf.output(&["scores".into(), name.into(), seed.to_string(), n.to_string()])?)
+            .map_err(|e| e.to_string())?;
+        let w = if kind == Kind::Policy { *default_weights() } else { hand_weights() };
+        // один поток: короткая сверка не должна занимать все ядра
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().map_err(|e| e.to_string())?;
+        let xs = pool.install(|| scores(kind, &w, &MIX, seed, n));
+        let mut h = gorn_prison::StreamHash::new();
+        for &x in &xs {
+            h.push(x as i32);
+        }
+        let mine = format!("{n} {} {} {}", xs.iter().sum::<f64>() / n as f64, h.h1, h.h2);
+        let ts = out.trim();
+        cnt += n as u64;
+        // среднее печатают по-разному (JS и Rust); сверяем число и хеш
+        let a: Vec<&str> = ts.split_whitespace().collect();
+        let b: Vec<&str> = mine.split_whitespace().collect();
+        let same = a.len() == 4
+            && a[0] == b[0]
+            && a[2] == b[2]
+            && a[3] == b[3]
+            && a[1].parse::<f64>().ok().map(f64::to_bits) == b[1].parse::<f64>().ok().map(f64::to_bits);
+        if !same {
+            bad += 1;
+            shown.push(format!("настройка {name}: TS «{ts}», Rust «{mine}»"));
+        }
+    }
+    Ok(report("забеги настройки (random, greedy, policy), забегов", cnt, bad, &shown, t))
 }

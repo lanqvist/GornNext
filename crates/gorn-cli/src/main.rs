@@ -10,6 +10,7 @@
 mod bench;
 mod reference;
 mod solverbench;
+mod tune;
 mod verify;
 
 use std::collections::HashMap;
@@ -28,9 +29,12 @@ gorn-cli play [--seeds N=800] [--from K=0] [--mode new|flat|old|fixed] [--rounds
 gorn-cli solve-bench [--games 12] [--every 2] [--positions N] [--min 256] [--max R] [--cap 300]
               [--threads S=1] [--rate [--stride 5]] [--regret [--ref файл] [--ref-rounds 20000] [--ref-threads 14]]
     советы на позициях самоигры, как prison-solve-bench; 580 позиций аудита: --games 18 --positions 580
+gorn-cli tune [--runs 6000] [--passes 4] [--from hand] [--out weights-tuned.json] [--threads T=0]
+gorn-cli tune --report [--runs 20000] [--threads T=0]
+    настройка весов мгновенной стратегии самоигрой, как prison-tune.ts
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
                 [--rng N=100000] [--solve N=580] [--solve-rounds R=400] [--solve-pool T=4]
-                [--play N=32] [--play-rounds R=300]
+                [--play N=32] [--play-rounds R=300] [--tune N=20000]
                 [--from K=0] [--jobs J=ядра] [--quick] [--tli ../gorn-tli]
     сверка с эталоном: веса, ГСЧ, забеги по хешу и целиком, решатель";
 
@@ -40,7 +44,7 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
     while i < args.len() {
         let a = &args[i];
         let key = a.strip_prefix("--").ok_or_else(|| format!("непонятный аргумент {a}"))?;
-        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet");
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -112,6 +116,7 @@ fn main() -> ExitCode {
                     solve_pool: num(&o, "solve-pool", 4)?,
                     play: num(&o, "play", if quick { 2 } else { 32 })?,
                     play_rounds: num(&o, "play-rounds", 300)?,
+                    tune: num(&o, "tune", if quick { 2000 } else { 20_000 })?,
                 })
             }
             "play" => {
@@ -157,6 +162,24 @@ fn main() -> ExitCode {
                     },
                 })?;
                 Ok(true)
+            }
+            "tune" => {
+                let threads = num(&o, "threads", 0)? as usize;
+                let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().map_err(|e| e.to_string())?;
+                pool.install(|| {
+                    if o.contains_key("report") {
+                        tune::report(num(&o, "runs", 20_000)?);
+                        Ok(true)
+                    } else {
+                        tune::tune(
+                            num(&o, "runs", 6000)?,
+                            num(&o, "passes", 4)?,
+                            o.get("from").map(String::as_str) == Some("hand"),
+                            o.get("out").map(String::as_str).unwrap_or("weights-tuned.json"),
+                        )?;
+                        Ok(true)
+                    }
+                })
             }
             "help" | "--help" | "-h" => {
                 println!("{USAGE}");
