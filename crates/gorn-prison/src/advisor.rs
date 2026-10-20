@@ -179,6 +179,11 @@ pub struct OwnAdvisor {
     pub replies: Vec<Reply>,
     /// Позиция и зерно последнего поиска (для разбора расхождений).
     pub last_search: Option<(State, u32, StopRule)>,
+    /// Ответы сразу, по мере готовности (поток подсказок); иначе — только в replies.
+    pub sink: Option<Box<dyn FnMut(&Reply) + Send>>,
+    /// Номер последнего кадра снаружи: сменился — расчёт по этому кадру бросить
+    /// (`current !== msg.id` эталона). None — не бросать.
+    pub latest: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
 }
 
 impl Default for OwnAdvisor {
@@ -203,6 +208,8 @@ impl OwnAdvisor {
             pool: None,
             replies: vec![],
             last_search: None,
+            sink: None,
+            latest: None,
         }
     }
 
@@ -211,8 +218,20 @@ impl OwnAdvisor {
         self.geo = near;
     }
 
+    fn reply(&mut self, r: Reply) {
+        if let Some(sink) = self.sink.as_mut() {
+            sink(&r);
+        }
+        self.replies.push(r);
+    }
+
+    /// Кадр уже не последний: ответы по нему не нужны.
+    fn stale(&self, id: u64) -> bool {
+        self.latest.as_ref().is_some_and(|l| l.load(std::sync::atomic::Ordering::Relaxed) != id)
+    }
+
     fn save_state(&mut self) {
-        self.replies.push(Reply::State(self.adapter.mem.to_json()));
+        self.reply(Reply::State(self.adapter.mem.to_json()));
     }
 
     /// Кадр: frame — RGBA (None — окно подарков без снимка). Ответы — в self.replies.
@@ -271,7 +290,7 @@ impl OwnAdvisor {
             } else {
                 self.adapter.treasure(false, msg.after);
                 self.save_state();
-                self.replies.push(Reply::Hint {
+                self.reply(Reply::Hint {
                     id: msg.id,
                     phase: "final",
                     w,
@@ -286,10 +305,10 @@ impl OwnAdvisor {
             // Окно темы забега: тема — по номеру озвучки из лога.
             self.adapter.theme(msg.theme);
             self.save_state();
-            self.replies.push(Reply::Clear { id: msg.id });
+            self.reply(Reply::Clear { id: msg.id });
             return;
         } else if (kind == ShotKind::Objective && !matches!(seen, Some(ScreenView::Pick(_)))) || seen.is_none() {
-            self.replies.push(Reply::Clear { id: msg.id });
+            self.reply(Reply::Clear { id: msg.id });
             return;
         } else if matches!(seen, Some(ScreenView::Board(_))) && kind != ShotKind::Instruments {
             let Some(ScreenView::Board(b)) = seen else { unreachable!() };
@@ -300,7 +319,7 @@ impl OwnAdvisor {
                     self.board_behind_treasure = true;
                     self.save_state();
                 }
-                self.replies.push(Reply::Clear { id: msg.id });
+                self.reply(Reply::Clear { id: msg.id });
                 return;
             }
             self.adapter.board(&b);
@@ -316,7 +335,7 @@ impl OwnAdvisor {
             // Неузнанная карта не глушит совет по двум остальным и по «Обновить».
             let known = p.cards.iter().filter(|c| c.is_some()).count();
             if known < 2 {
-                self.replies.push(Reply::Hint { id: msg.id, phase: "final", w, h, text: PICK_UNKNOWN.into(), marks: vec![], live: false });
+                self.reply(Reply::Hint { id: msg.id, phase: "final", w, h, text: PICK_UNKNOWN.into(), marks: vec![], live: false });
                 return;
             }
             // Хоткей на стартовом выборе (день 0 по логу) — тоже начало забега.
@@ -333,7 +352,7 @@ impl OwnAdvisor {
             pick_view = p;
             ctx_pick = Some(&pick_view);
         } else {
-            self.replies.push(Reply::Clear { id: msg.id });
+            self.reply(Reply::Clear { id: msg.id });
             return;
         }
         // Новый забег с выбора орудий сбрасывает память — день из лога ещё раз.
@@ -355,9 +374,9 @@ impl OwnAdvisor {
             Position::No { fallback, .. } => {
                 if let Some(c) = fallback {
                     let hn = hint(c, &ctx);
-                    self.replies.push(Reply::Hint { id: msg.id, phase: "final", w, h, text: hn.text, marks: hn.marks, live: false });
+                    self.reply(Reply::Hint { id: msg.id, phase: "final", w, h, text: hn.text, marks: hn.marks, live: false });
                 } else {
-                    self.replies.push(Reply::Clear { id: msg.id });
+                    self.reply(Reply::Clear { id: msg.id });
                 }
             }
             Position::Ok { state, mut allowed } => {
@@ -401,7 +420,7 @@ impl OwnAdvisor {
                 };
                 self.geo = Some(ng);
                 if moved {
-                    self.replies.push(Reply::Near(ng));
+                    self.reply(Reply::Near(ng));
                 }
             }
         }
@@ -447,11 +466,15 @@ impl OwnAdvisor {
         let search = self.cache.solve(state, opts, p, wts);
         let mut res = search.step(quick.min(50.0), pool.as_ref());
         while !res.done && ms() < quick {
+            if self.latest.as_ref().is_some_and(|l| l.load(std::sync::atomic::Ordering::Relaxed) != msg.id) {
+                self.pool = pool;
+                return;
+            }
             res = search.step(50.0, pool.as_ref());
         }
         let Some(leader) = self.pick_best(&res, allowed) else {
             self.pool = pool;
-            self.replies.push(Reply::Clear { id: msg.id });
+            self.reply(Reply::Clear { id: msg.id });
             return;
         };
         let search = self.cache.solve(state, opts, p, wts);
@@ -471,9 +494,16 @@ impl OwnAdvisor {
         let until = quick.max(if tool_pick { PICK_BUDGET_MS.max(msg.budget_ms) } else { msg.budget_ms });
         let search = self.cache.solve(state, opts, p, wts);
         while !res.done && ms() < until {
+            if self.latest.as_ref().is_some_and(|l| l.load(std::sync::atomic::Ordering::Relaxed) != msg.id) {
+                self.pool = pool;
+                return;
+            }
             res = search.step(100.0, pool.as_ref());
         }
         self.pool = pool;
+        if self.stale(msg.id) {
+            return;
+        }
         let best = self.pick_best(&res, allowed);
         let search = self.cache.solve(state, opts, p, wts);
         match best {
@@ -481,7 +511,7 @@ impl OwnAdvisor {
                 self.hold(&key, state, b, step, warden, day);
                 self.show(msg, b, "final", true, "уточнено", ctx, instant_code, &instant_text, w, h);
             }
-            _ => self.replies.push(Reply::Settled { id: msg.id, live: true }),
+            _ => self.reply(Reply::Settled { id: msg.id, live: true }),
         }
     }
 
@@ -515,7 +545,7 @@ impl OwnAdvisor {
         let parts: Vec<&str> = [ctx.reason.as_str(), reason.as_str(), note].into_iter().filter(|s| !s.is_empty()).collect();
         let ctx2 = HintContext { reason: parts.join(" · "), ..ctx.clone() };
         let hn = hint(c, &ctx2);
-        self.replies.push(Reply::Hint { id: msg.id, phase, w, h, text: hn.text, marks: hn.marks, live });
+        self.reply(Reply::Hint { id: msg.id, phase, w, h, text: hn.text, marks: hn.marks, live });
     }
 }
 

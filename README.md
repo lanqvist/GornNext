@@ -29,6 +29,25 @@ target/release/gorn-cli selfplay --seeds 200000 --threads 0
 target/release/gorn-cli bench --ts        # замеры Rust, затем те же в TS
 ```
 
+## Подсказки в тюрьме (приложение на Tauri 2)
+
+`app/` — `gorn.exe`: живёт в трее, читает лог игры, снимает экран
+(Windows.Graphics.Capture) и рисует стрелки поверх игры; советник — на Rust
+(`gorn-prison`), на отдельном потоке с пониженным приоритетом.
+
+```
+cargo build --release -p gorn-app
+target/release/gorn.exe
+```
+
+- В Горне на Electron выключить «Подсказки в тюрьме»: иначе стрелки двойные
+  и Ctrl+Alt+P занят.
+- Ctrl+Alt+P — подсказка по экрану сейчас (или пункт в трее).
+- Кадры сохраняются в «Изображения/Горн Next — тюрьма» (тот же формат,
+  что у Горна): разбор — `gorn-cli audit --shots "<эта папка>"`,
+  `gorn-cli replay "<папка дня>"`. Выключается в трее.
+- Память забега и монитор игры — в `%APPDATA%\com.gorn.next`.
+
 `verify` и `bench --ts` ищут эталон в `../gorn-tli` (или `--tli ПУТЬ`),
 нужны node и `npm install` в эталоне.
 
