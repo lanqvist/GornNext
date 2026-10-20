@@ -90,7 +90,7 @@ impl ArrowLayer {
         if let Some(w) = &self.window {
             return Some(w.clone());
         }
-        let win = WebviewWindowBuilder::new(&self.app, "overlay", WebviewUrl::App("overlay.html".into()))
+        let win = WebviewWindowBuilder::new(&self.app, "arrows", WebviewUrl::App("arrows.html".into()))
             .title("Горн — подсказки в тюрьме")
             .transparent(true)
             .decorations(false)

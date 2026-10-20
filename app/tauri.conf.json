@@ -4,13 +4,13 @@
   "identifier": "com.gorn.next",
   "version": "0.1.0",
   "build": {
-    "frontendDist": "ui"
+    "frontendDist": "dist"
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; img-src 'self' data: http://gorn-icon.localhost gorn-icon: https://cdn.tlidb.com; connect-src 'self' ipc: http://ipc.localhost http://gorn-icon.localhost gorn-icon:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {

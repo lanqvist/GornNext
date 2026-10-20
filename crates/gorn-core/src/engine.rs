@@ -359,6 +359,8 @@ pub struct EngineOptions {
     pub sync_community: bool,
     /// Адрес сервера цен сообщества (проверки); None — настоящий.
     pub community_url: Option<String>,
+    /// Начало адреса иконки (`<начало><id>.webp`); None — `gorn-icon://item/`, как у эталона.
+    pub icon_base: Option<String>,
 }
 
 struct ItemInfo {
@@ -474,6 +476,7 @@ pub struct Engine {
     /// Пора отправить срез (там, где эталон шлёт событие 'snapshot').
     emit: Cell<bool>,
     last_idle_hint: Option<String>,
+    icon_base: String,
 }
 
 impl Engine {
@@ -545,6 +548,7 @@ impl Engine {
             community_url: options.community_url,
             emit: Cell::new(false),
             last_idle_hint: None,
+            icon_base: options.icon_base.unwrap_or_else(|| "gorn-icon://item/".into()),
         })
     }
 
@@ -613,7 +617,7 @@ impl Engine {
     }
 
     fn icon(&self, id: ConfigBaseId) -> Option<String> {
-        self.items.get(&id).and_then(|i| i.icon.as_ref()).map(|_| icon_url(id))
+        self.items.get(&id).and_then(|i| i.icon.as_ref()).map(|_| format!("{}{id}.webp", self.icon_base))
     }
 
     pub fn is_booted(&self) -> bool {

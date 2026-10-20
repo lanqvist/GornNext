@@ -1,0 +1,116 @@
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+
+.prison-marks {
+  position: fixed;
+  inset: 0;
+}
+
+.prison-arrow,
+.prison-arrow-shadow {
+  stroke-linecap: round;
+  fill: none;
+}
+
+.prison-arrow {
+  stroke: #46ff9a;
+  stroke-width: 6;
+  animation: prison-pulse 1.2s ease-in-out 3;
+}
+
+.prison-arrow-shadow {
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 11;
+}
+
+.prison-head {
+  fill: #46ff9a;
+}
+
+.prison-ring {
+  fill: rgba(70, 255, 154, 0.12);
+  stroke: #46ff9a;
+  stroke-width: 5;
+  animation: prison-pulse 1.2s ease-in-out 3;
+}
+
+.prison-box {
+  fill: rgba(255, 210, 60, 0.1);
+  stroke: #ffd23c;
+  stroke-width: 5;
+  animation: prison-pulse 1.2s ease-in-out 3;
+}
+
+.prison-label {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(10, 12, 14, 0.82);
+  border: 1px solid rgba(70, 255, 154, 0.6);
+  color: #eafff2;
+  font-size: 20px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000;
+}
+
+.prison-label small {
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+/*
+ * Три вспышки на новый ход — и стрелка стоит. Бесконечная пульсация
+ * перерисовывала прозрачное окно во весь 4K-монитор 60 раз в секунду:
+ * ~17% ядра у GPU-процесса Горна, пока стрелка видна (замер 19.10).
+ */
+@keyframes prison-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.prison-thinking {
+  flex-direction: row;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 500;
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #d8dde2;
+  transform: translate(-50%, 0);
+}
+
+.prison-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(70, 255, 154, 0.25);
+  border-top-color: #46ff9a;
+  animation: prison-spin 0.8s linear infinite;
+}
+
+@keyframes prison-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

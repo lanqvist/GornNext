@@ -1,0 +1,613 @@
+/*
+ * Оверлей поверх игры — «Сводка»: узкая колонка в духе Details!.
+ *
+ * Иерархия: шапка (где игрок) → одна главная цифра → строки с иконкой
+ * слева и числом по правому краю → находки полосами → цель.
+ *
+ * Читаемость поверх произвольной картинки держится на трёх вещах:
+ * плотная тёмная подложка, тёмный ореол у текста (обводка из теней,
+ * а не одна размытая тень) и кегль не мельче 12px — тонкий мелкий
+ * текст поверх ярких эффектов боя не читается ни при каком контрасте.
+ * backdrop-filter здесь бесполезен: он размывает содержимое страницы,
+ * а не то, что за окном приложения, то есть игру он не размоет никогда.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  /* Высота по содержимому: окно подгоняется под неё через ResizeObserver. */
+  height: auto;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+  font: 13px/1.35 'Segoe UI', system-ui, sans-serif;
+  color: #f6f1ea;
+  text-shadow:
+    0 0 1px rgb(0 0 0 / 95%),
+    0 1px 2px rgb(0 0 0 / 90%),
+    0 0 6px rgb(0 0 0 / 50%);
+}
+
+.ov {
+  padding: 9px 11px 10px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(20 18 22 / 90%), rgb(12 11 14 / 88%));
+  border: 1px solid rgb(255 255 255 / 10%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: opacity 180ms ease;
+}
+
+/* Разблокированный оверлей: видно, что его можно взять и передвинуть. */
+.ov-free {
+  border-color: rgb(255 157 60 / 60%);
+}
+
+/* Автоуклонение: курсор над закреплённой панелью — панель уходит с дороги. */
+.ov-dodge {
+  opacity: 0.15;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ov,
+  .ov-goal-bar i {
+    transition: none;
+  }
+}
+
+/* Иконки — один размер с текстом строки, чуть ниже базовой линии. */
+.ico {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  vertical-align: -0.14em;
+}
+
+/* ── полоска настройки ───────────────────────────────────────── */
+
+.ov-grip {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -3px -5px 0;
+  padding: 3px 4px 3px 8px;
+  border-radius: 7px;
+  background: rgb(255 157 60 / 14%);
+  color: #ffb866;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: move;
+}
+
+.ov-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ov-actions {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 1px;
+}
+
+.ov-actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: #ddd5ca;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.ov-actions button:hover {
+  background: rgb(255 255 255 / 14%);
+  color: #fff;
+}
+
+/* Выключенная кнопка в полоске управления (всплывашки/звук). */
+.ov-actions .ov-off {
+  opacity: 0.4;
+}
+
+/* Шпаргалка в откреплённом состоянии — единственный момент обучения. */
+.ov-hint {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #b4abb9;
+}
+
+/* ── шапка и главная цифра ───────────────────────────────────── */
+
+.ov-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.ov-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(255 157 60 / 18%);
+  color: #ffc27a;
+  font-weight: 700;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ov-chip-town {
+  background: rgb(230 190 140 / 14%);
+  color: #e5c08f;
+}
+
+.ov-chip-off {
+  background: rgb(160 165 180 / 14%);
+  color: #a9adbb;
+}
+
+.ov-mapname {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #cfc6ba;
+}
+
+.ov-hero {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 28px;
+  font-weight: 750;
+  line-height: 1.05;
+  color: #a6f3c1;
+}
+
+.ov-hero-sub {
+  font-size: 13px;
+  font-weight: 500;
+  color: #b9b0a5;
+}
+
+.ov-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px 6px 1px 4px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-delta.up {
+  color: #7be3a1;
+  background: rgb(60 180 110 / 20%);
+}
+
+.ov-delta.down {
+  color: #ff8f7c;
+  background: rgb(220 90 70 / 20%);
+}
+
+/* ── строки сводки ───────────────────────────────────────────── */
+
+.ov-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ov-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  color: #d8cfc3;
+}
+
+.ov-row > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ov-row > .ico {
+  color: #ffb45c;
+}
+
+.ov-row b {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-weight: 700;
+  color: #ffc27a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ov-row b small {
+  font-size: 11.5px;
+  color: #b9b0a5;
+}
+
+.ov-row-dim,
+.ov-row-dim b {
+  color: #b4abb9;
+}
+
+.ov-row-dim > .ico {
+  color: #a9a2b5;
+}
+
+/* Пояснение без игры: почему пусто и что сделать. */
+.ov-note {
+  font-size: 12.5px;
+  color: #b4abb9;
+}
+
+/* ── находки полосами ────────────────────────────────────────── */
+
+/* Ступени ценности: те же пороги, что у свиста и золотой плашки. */
+.t-gold {
+  --tier: #ffc94d;
+}
+
+.t-orange {
+  --tier: #ff8a3d;
+}
+
+.t-plain {
+  --tier: #8e94a6;
+}
+
+.t-none {
+  --tier: #5a5f6e;
+}
+
+.ov-drops {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ov-drops li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  height: 25px;
+  padding: 0 6px 0 2px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 5%);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.ov-drops li > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--tier) 42%, transparent),
+    color-mix(in srgb, var(--tier) 18%, transparent)
+  );
+  border-left: 2px solid var(--tier);
+}
+
+.ov-drops li > span {
+  position: relative;
+}
+
+.ov-drop-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.ov-drop-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 70%));
+}
+
+.ov-drop-ph {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  background: #2b2730;
+  color: #a7a0b0;
+  font-weight: 700;
+}
+
+.ov-drop-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #ebe3d8;
+}
+
+.ov-drop-qty {
+  color: #b9b0a5;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-drop-fe {
+  min-width: 40px;
+  text-align: right;
+  font-weight: 700;
+}
+
+/* ── тройка «забег / в час / сессия» ─────────────────────────── */
+
+.ov-trio {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-radius: 7px;
+  background: rgb(255 255 255 / 5%);
+  overflow: hidden;
+}
+
+.ov-trio > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 7px 4px;
+  min-width: 0;
+}
+
+.ov-trio > div + div {
+  border-left: 1px solid rgb(255 255 255 / 8%);
+}
+
+.ov-trio small {
+  font-size: 12px;
+  color: #b9b0a5;
+  white-space: nowrap;
+}
+
+.ov-trio b {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffc27a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ov-trio .ov-trio-run b {
+  color: #a6f3c1;
+}
+
+/* ── крупное за сессию ───────────────────────────────────────── */
+
+/* Статичная золотая рамка: без пульсации, она стоила бы GPU весь фарм. */
+.ov-find {
+  display: grid;
+  grid-template-columns: auto 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgb(255 201 77 / 55%);
+  background: linear-gradient(90deg, rgb(255 201 77 / 22%), rgb(255 201 77 / 6%));
+  font-size: 13px;
+}
+
+.ov-find > .ico {
+  color: #ffc94d;
+}
+
+.ov-find-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ov-find-text .ov-drop-name {
+  color: #fff1cc;
+  font-weight: 600;
+}
+
+.ov-find-text small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: #d9c3a3;
+}
+
+.ov-find .ov-drop-fe {
+  color: #ffe08a;
+}
+
+/* ── цель сессии ─────────────────────────────────────────────── */
+
+.ov-goal {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: #d9c3a3;
+  font-variant-numeric: tabular-nums;
+  padding-top: 5px;
+  border-top: 1px solid rgb(255 255 255 / 9%);
+}
+
+.ov-goal > .ico {
+  color: #ffb45c;
+}
+
+.ov-goal-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 12%);
+  overflow: hidden;
+}
+
+.ov-goal-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #c7631b, #ffb45c);
+  transition: width 400ms ease;
+}
+
+.ov-goal-text {
+  white-space: nowrap;
+}
+
+.ov-goal-done,
+.ov-goal-done > .ico {
+  color: #7be3a1;
+}
+
+.ov-goal-done .ov-goal-bar i {
+  background: linear-gradient(90deg, #3c9a63, #7be3a1);
+}
+
+/* ── число с иконкой ФЕ ──────────────────────────────────────── */
+
+.fe {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.fe-icon {
+  width: 1em;
+  height: 1em;
+  align-self: center;
+  object-fit: contain;
+  color: #ff9d3c;
+}
+
+/* ── лента: оверлей в одну строку ────────────────────────────── */
+
+/* Ширина — по содержимому: main подгоняет окно под неё (setContentHeight). */
+.ov.ov-strip {
+  display: inline-flex;
+  width: max-content;
+  padding: 5px 10px 5px 7px;
+  gap: 5px;
+  border-radius: 9px;
+}
+
+.ov-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 28px;
+  white-space: nowrap;
+}
+
+.ov-line .ov-mapname {
+  max-width: 190px;
+}
+
+.ov-sep {
+  width: 1px;
+  height: 18px;
+  background: rgb(255 255 255 / 14%);
+}
+
+.ov-line-hero {
+  font-size: 20px;
+  font-weight: 750;
+  color: #a6f3c1;
+}
+
+.ov-kv {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 13px;
+  color: #b9b0a5;
+}
+
+.ov-kv b {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #ffc27a;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-mgoal {
+  width: 60px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 12%);
+  overflow: hidden;
+}
+
+.ov-mgoal i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #c7631b, #ffb45c);
+}
+
+.ov-mgoal-done i {
+  background: linear-gradient(90deg, #3c9a63, #7be3a1);
+}
+
+.ov-dchips {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.ov-dchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 7px 0 2px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--tier) 70%, transparent);
+  background: color-mix(in srgb, var(--tier) 22%, transparent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ov-dchip .ov-drop-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Крупное за сессию: статичная золотая рамка, как у строки в колонке. */
+.ov-sfind {
+  --tier: #ffc94d;
+  padding-left: 5px;
+  color: #ffe08a;
+}
+
+.ov-sfind > .ico {
+  color: #ffc94d;
+}

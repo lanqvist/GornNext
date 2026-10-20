@@ -634,3 +634,11 @@ impl Storage {
             .optional()
     }
 }
+
+/// Копия базы целиком (`VACUUM INTO`): работает и с живой базой в режиме WAL,
+/// которую в этот момент держит другой процесс; источник не меняется.
+pub fn copy_database(src: &Path, dst: &Path) -> rusqlite::Result<()> {
+    let db = Connection::open_with_flags(src, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    db.execute("VACUUM INTO ?1", [dst.to_string_lossy()])?;
+    Ok(())
+}
