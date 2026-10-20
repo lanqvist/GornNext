@@ -37,7 +37,7 @@ fn days_of(root: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(days)
 }
 
-pub fn run(root: &Path, db: &Path, rounds: Option<u64>, budget: f64) -> Result<(), String> {
+pub fn run(root: &Path, db: &Path, rounds: Option<u64>, budget: f64, chain: bool) -> Result<(), String> {
     let journal = Journal::open(db, &format!("replay {}", env!("CARGO_PKG_VERSION"))).map_err(|e| e.to_string())?;
     let (stop, quick) = match rounds {
         Some(r) => (StopRule { max_rounds: r, ..STOP_DEFAULTS }, f64::INFINITY),
@@ -49,6 +49,9 @@ pub fn run(root: &Path, db: &Path, rounds: Option<u64>, budget: f64) -> Result<(
         let name = day.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
         // Память забега — с нуля на каждый день, как у повтора.
         let mut adv = OwnAdvisor::new();
+        // Цепочка подарков — как в приложении (--no-chain — без неё, для сравнения).
+        adv.chain_gifts = chain;
+        adv.adapter.chain_gifts = chain;
         let got: Arc<Mutex<Vec<Value>>> = Arc::default();
         let sink = got.clone();
         adv.facts = Some(Box::new(move |f| sink.lock().unwrap().push(f)));

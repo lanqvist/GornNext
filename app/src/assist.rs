@@ -514,6 +514,8 @@ impl Assist {
             .spawn(move || {
                 below_normal();
                 let mut adv = OwnAdvisor::new();
+                // Цепочка подарков (этап 7): остаток выборов по призмам.
+                adv.chain_gifts = true;
                 adv.init(state.as_ref(), near);
                 let threads = std::thread::available_parallelism()
                     .map(|n| n.get())

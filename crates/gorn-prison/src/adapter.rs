@@ -544,6 +544,22 @@ pub struct PrisonAdapter {
     p: Params,
     /// Орудия, у которых есть эталон иконки на панели.
     panel_known: Vec<u32>,
+    /// Цепочка подарков (этап 7): каждая новая Призматическая — ещё один выбор,
+    /// а счётчика выборов на экране нет. Остаток считается по предсказанию
+    /// выбранного подарка и выправляется по призмам на доске за окном.
+    /// У эталона этого нет — для сверки с ним выключено.
+    pub chain_gifts: bool,
+    /// День цепочки: на новый день прежний остаток не переносится.
+    chain_day: i32,
+    /// Призмы, ожидаемые на следующем просмотре доски в цепочке
+    /// (None — доску в этой цепочке ещё не смотрели).
+    chain_storage: Option<i32>,
+    /// Сколько новых Призматических даст показанный подарок (предсказание движка).
+    pub gift_prediction: i32,
+    /// Последняя доска снята по кнопке «посмотреть доску» из окна подарков.
+    /// Доска до окна или сразу после «Подтвердить» — со старыми призмами
+    /// (анимация): по ней остаток только растёт.
+    pub board_viewed: bool,
 }
 
 impl PrisonAdapter {
@@ -558,6 +574,11 @@ impl PrisonAdapter {
             tool_misses: HashMap::new(),
             p: DEFAULT_PARAMS,
             panel_known,
+            chain_gifts: false,
+            chain_day: -1,
+            chain_storage: None,
+            gift_prediction: 0,
+            board_viewed: false,
         }
     }
 
@@ -980,6 +1001,16 @@ impl PrisonAdapter {
         if self.mem.gifts > 0 {
             self.mem.gifts -= 1;
         }
+        // Взятый подарок даст ещё Призматических — столько же выборов следом.
+        if self.chain_gifts && self.gift_prediction > 0 {
+            self.mem.gifts += self.gift_prediction;
+            self.chain_storage = self.chain_storage.map(|c| c + self.gift_prediction);
+        }
+        // Выборы кончились — цепочка закрыта: призмы до следующего окна не в счёт.
+        if self.mem.gifts <= 0 {
+            self.chain_storage = None;
+        }
+        self.gift_prediction = 0;
     }
 
     /// Сокровищница. view — доска за окном уже видна; иначе after — что к ней привело.
@@ -987,7 +1018,30 @@ impl PrisonAdapter {
         if view {
             self.mem.step = Step::Gift;
             self.mem.gifts = self.mem.gifts.max(1);
+            if self.chain_gifts {
+                // Доска за окном: призм больше ожидаемого — столько же выборов
+                // прибавилось, меньше (только по настоящему просмотру) — подарок
+                // не дал предсказанного. Первый просмотр в цепочке — отсчёт.
+                let s = self.mem.storage;
+                match self.chain_storage {
+                    None if self.board_viewed => self.chain_storage = Some(s),
+                    None => {}
+                    Some(prev) => {
+                        let delta = s - prev;
+                        if delta > 0 || (delta < 0 && self.board_viewed) {
+                            self.mem.gifts = (self.mem.gifts + delta).max(1);
+                            self.chain_storage = Some(s);
+                        }
+                    }
+                }
+            }
             return;
+        }
+        if self.chain_gifts && (self.mem.gifts <= 0 || self.mem.day != self.chain_day) {
+            // Выборов не осталось или день другой — новая цепочка.
+            self.mem.gifts = 0;
+            self.chain_day = self.mem.day;
+            self.chain_storage = None;
         }
         if after == Cause::Morning {
             // Утренний Призматический уже в хранилище.

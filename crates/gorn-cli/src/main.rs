@@ -71,7 +71,7 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
             i += 1;
             continue;
         };
-        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep");
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -260,6 +260,7 @@ fn main() -> ExitCode {
                     &db,
                     o.get("rounds").map(|_| num(&o, "rounds", 0)).transpose()?.map(|r| r as u64),
                     num(&o, "budget", 1500)? as f64,
+                    !o.contains_key("no-chain"),
                 )?;
                 Ok(true)
             }
@@ -272,7 +273,12 @@ fn main() -> ExitCode {
                         vec![d.join("prison-facts-history.db"), d.join("prison-facts.db")]
                     }
                 };
-                learn::run(&dbs, o.contains_key("json"))?;
+                learn::run(
+                    &dbs,
+                    o.contains_key("json"),
+                    o.get("detail").map(String::as_str),
+                    o.get("gift-chains").map(|_| num(&o, "gift-chains", 2000)).transpose()?.map(u64::from),
+                )?;
                 Ok(true)
             }
             "debug-gifts" => {

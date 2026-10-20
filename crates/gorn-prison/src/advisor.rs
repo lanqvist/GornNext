@@ -188,6 +188,8 @@ pub struct OwnAdvisor {
     /// всем ходам, быстрый и показанный совет. Отдельно от ответов: поток
     /// ответов сверяется с эталоном и не меняется.
     pub facts: Option<Box<dyn FnMut(Value) + Send>>,
+    /// Цепочка подарков в адаптере (этап 7); у эталона нет — для сверки выключено.
+    pub chain_gifts: bool,
 }
 
 impl Default for OwnAdvisor {
@@ -215,11 +217,13 @@ impl OwnAdvisor {
             sink: None,
             latest: None,
             facts: None,
+            chain_gifts: false,
         }
     }
 
     pub fn init(&mut self, state: Option<&Value>, near: Option<Geometry>) {
         self.adapter = PrisonAdapter::new(state);
+        self.adapter.chain_gifts = self.chain_gifts;
         self.geo = near;
     }
 
@@ -268,6 +272,7 @@ impl OwnAdvisor {
         if msg.as_treasure && seen.is_some() {
             // Доска снята, а окно подарков уже открыто: обновить по ней доску, совет — по подаркам.
             if let Some(ScreenView::Board(b)) = &seen {
+                self.adapter.board_viewed = msg.treasure_view;
                 self.adapter.board(b);
                 if msg.treasure_closed {
                     self.board_behind_treasure = true;
@@ -320,6 +325,7 @@ impl OwnAdvisor {
             // Доска без дверей, ряда решений и цепочки — экран между состояниями: не совет.
             if !msg.treasure_view && b.doors.is_empty() && b.decision.is_none() && b.chain.is_none() {
                 if msg.treasure_closed {
+                    self.adapter.board_viewed = false;
                     self.adapter.board(&b);
                     self.board_behind_treasure = true;
                     self.save_state();
@@ -327,6 +333,7 @@ impl OwnAdvisor {
                 self.reply(Reply::Clear { id: msg.id });
                 return;
             }
+            self.adapter.board_viewed = msg.treasure_view;
             self.adapter.board(&b);
             self.board_behind_treasure = msg.treasure_closed;
             // Просмотр доски из сокровищницы: совет по подарку сразу.
@@ -596,12 +603,36 @@ impl OwnAdvisor {
             self.adapter.advised((c & 63) as u32);
             self.save_state();
         }
+        if self.chain_gifts && c >> 6 == crate::actions::A_GIFT {
+            if let Some((state, _, _)) = &self.last_search {
+                self.adapter.gift_prediction = gift_prisms(state, c);
+            }
+        }
         let reason = if c == instant_code { short_reason(instant_text, c) } else { String::new() };
         let parts: Vec<&str> = [ctx.reason.as_str(), reason.as_str(), note].into_iter().filter(|s| !s.is_empty()).collect();
         let ctx2 = HintContext { reason: parts.join(" · "), ..ctx.clone() };
         let hn = hint(c, &ctx2);
         self.reply(Reply::Hint { id: msg.id, phase, w, h, text: hn.text, marks: hn.marks, live });
     }
+}
+
+/// Сколько новых Призматических даст подарок c в позиции s: среднее по
+/// розыгрышам (скрытое — заново, как у решателя), округлённое.
+fn gift_prisms(s: &State, c: i32) -> i32 {
+    use crate::state::STORAGE;
+    let p = &DEFAULT_PARAMS;
+    const N: u32 = 64;
+    let mut sum = 0i64;
+    for k in 0..N {
+        let mut r = crate::rng::Rng::new(crate::rng::mix_pair(k * 7919 + 11, c as u32));
+        let mut w = *s;
+        crate::solver::redeterminize(&mut w, &mut r, false, p);
+        let before = w.m[STORAGE];
+        if crate::actions::apply_code(&mut w, c, &mut r, p).is_ok() {
+            sum += (w.m[STORAGE] - before) as i64;
+        }
+    }
+    (sum as f64 / N as f64).round() as i32
 }
 
 /// Ход из текста подсказки — общий ключ для прежнего и своего пути (`moveKey` эталона).
