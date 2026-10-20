@@ -100,6 +100,7 @@ impl ArrowLayer {
             .shadow(false)
             .focused(false)
             .visible(false)
+            .additional_browser_args(crate::layers::BROWSER_ARGS)
             .build()
             .map_err(|e| eprintln!("[тюрьма] окно стрелок: {e}"))
             .ok()?;

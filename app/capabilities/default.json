@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Окна Горна: события моста window.gorn (вызовы идут командой gorn)",
   "windows": ["main", "overlay", "toasts", "panel", "prison", "arrows"],
-  "permissions": ["core:event:default"]
+  "permissions": ["core:event:default", "core:window:allow-start-dragging"]
 }

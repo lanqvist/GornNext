@@ -8,6 +8,7 @@
 mod assist;
 mod capture;
 mod icons;
+mod layers;
 mod overlay;
 mod settings;
 mod shots;
@@ -16,7 +17,7 @@ mod triggers;
 
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use gorn_core::engine::{CatalogueItem, EngineOptions};
 use serde_json::{json, Value};
@@ -27,12 +28,16 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use assist::{Assist, Event, Paths};
+use layers::Layers;
 use settings::Settings;
 use tracker::{name_language, ui_lang, Tracker};
 
 struct AppState {
     tx: Mutex<Sender<Event>>,
-    settings: Mutex<Settings>,
+    settings: Arc<Mutex<Settings>>,
+    layers: Arc<Layers>,
+    /// Сочетания, которые занять не удалось, — показываются в настройках.
+    busy_hotkeys: Vec<String>,
     tracker: Tracker,
     shots_dir: PathBuf,
     /// Выход по-настоящему: отличает «закрыть в трей» от завершения.
@@ -92,6 +97,7 @@ fn create_main_window(app: &AppHandle, visible: bool) -> tauri::Result<()> {
         .min_inner_size(940.0, 620.0)
         .background_color(tauri::window::Color(0x0e, 0x0f, 0x13, 0xff))
         .visible(visible)
+        .additional_browser_args(layers::BROWSER_ARGS)
         // Внешние ссылки — в браузере, а не внутри приложения; только http(s).
         .on_navigation(|url| {
             if url.scheme() == "http" && url.host_str().is_some_and(|h| h.ends_with(".localhost")) || url.scheme() == "tauri" {
@@ -105,6 +111,10 @@ fn create_main_window(app: &AppHandle, visible: bool) -> tauri::Result<()> {
         .build()?;
     let app2 = app.clone();
     w.on_window_event(move |ev| {
+        // Окно показали или развернули — догнать пропущенные срезы.
+        if let tauri::WindowEvent::Focused(true) | tauri::WindowEvent::Resized(_) = ev {
+            app2.state::<AppState>().layers.main_shown();
+        }
         if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
             let st = app2.state::<AppState>();
             let to_tray = st.settings.lock().unwrap().bool("closeToTray");
@@ -116,6 +126,7 @@ fn create_main_window(app: &AppHandle, visible: bool) -> tauri::Result<()> {
             } else {
                 // На Windows закрытие главного окна — выход.
                 *st.quitting.lock().unwrap() = true;
+                st.layers.shutdown();
                 st.tracker.shutdown();
                 app2.exit(0);
             }
@@ -252,7 +263,7 @@ async fn gorn(app: AppHandle, channel: String, args: Vec<Value>) -> Result<Value
                 "closeToTray": s.bool("closeToTray"),
                 "autoStart": s.bool("autoStart"),
                 "version": env!("CARGO_PKG_VERSION"),
-                "busyHotkeys": [],
+                "busyHotkeys": st.busy_hotkeys,
             })
         }
         "app:setCloseToTray" => {
@@ -286,13 +297,56 @@ async fn gorn(app: AppHandle, channel: String, args: Vec<Value>) -> Result<Value
             let _ = st.tx.lock().unwrap().send(Event::OverlayReady);
             Value::Null
         }
-        // Оверлей, плашки и пульт — следующий шаг этапа 5; пока окна нет.
-        "overlay:state" => {
-            let mut o = st.settings.lock().unwrap().overlay().clone();
-            o["enabled"] = json!(false);
-            o
+        "overlay:state" => st.settings.lock().unwrap().overlay().clone(),
+        "overlay:toggle" => json!(st.layers.toggle_overlay()),
+        "overlay:close" => {
+            st.layers.close_overlay(true);
+            Value::Null
         }
-        "overlay:toggle" => json!(false),
+        "overlay:setMode" => {
+            st.layers.set_mode(a0.as_str().unwrap_or(""));
+            Value::Null
+        }
+        "overlay:cycleMode" => {
+            st.layers.cycle_mode();
+            Value::Null
+        }
+        "overlay:toggleLock" => {
+            st.layers.toggle_locked();
+            Value::Null
+        }
+        "overlay:setOpacity" => {
+            st.layers.set_opacity(a0.as_f64().unwrap_or(0.9));
+            Value::Null
+        }
+        "overlay:height" => {
+            st.layers.set_overlay_content(a0.as_f64().unwrap_or(0.0), a1.as_f64());
+            Value::Null
+        }
+        "overlay:setPrefs" => {
+            st.layers.patch_prefs(&a0);
+            Value::Null
+        }
+        "toasts:height" => {
+            st.layers.toasts_height(a0.as_f64().unwrap_or(0.0));
+            Value::Null
+        }
+        "toasts:active" => {
+            st.layers.toasts_active(a0.as_bool().unwrap_or(false));
+            Value::Null
+        }
+        "panel:ready" => {
+            st.layers.panel_ready();
+            Value::Null
+        }
+        "panel:close" => {
+            st.layers.hide_panel();
+            Value::Null
+        }
+        "panel:tab" => {
+            st.layers.panel_tab(a0.as_str().unwrap_or(""));
+            Value::Null
+        }
         // Обновления — через плагин updater на следующем шаге.
         "update:get" => Value::Null,
         _ => Value::Null,
@@ -326,16 +380,41 @@ fn main() {
     // подсказки в тюрьме выключены на этот запуск, каждый срез пишется в файл.
     let smoke = args.iter().position(|a| a == "--smoke").and_then(|i| args.get(i + 1)).map(PathBuf::from);
     let smoke_setup = smoke.clone();
-    let manual = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyP);
+    // Горячие клавиши — как у Горна на Electron. Сочетания редкие: пересечься
+    // с игровыми биндами почти нечем.
+    let key = |c: Code| Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), c);
+    let bindings: Vec<(Shortcut, &'static str)> = vec![
+        (key(Code::KeyG), "Ctrl+Alt+G"),
+        (key(Code::KeyL), "Ctrl+Alt+L"),
+        (key(Code::KeyM), "Ctrl+Alt+M"),
+        // Подсказка в тюрьме вручную: если автоматический снимок не сработал.
+        (key(Code::KeyP), "Ctrl+Alt+P"),
+        // Пульт поверх игры; F — сразу к поиску цены.
+        (key(Code::KeyT), "Ctrl+Alt+T"),
+        (key(Code::KeyF), "Ctrl+Alt+F"),
+    ];
+    let handled = bindings.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, sc, ev| {
-                    if sc == &manual && ev.state() == ShortcutState::Pressed {
-                        if let Some(st) = app.try_state::<AppState>() {
+                    if ev.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    let Some(st) = app.try_state::<AppState>() else { return };
+                    match handled.iter().find(|(k, _)| k == sc).map(|(_, n)| *n) {
+                        Some("Ctrl+Alt+G") => {
+                            st.layers.toggle_overlay();
+                        }
+                        Some("Ctrl+Alt+L") => st.layers.toggle_locked(),
+                        Some("Ctrl+Alt+M") => st.layers.cycle_mode(),
+                        Some("Ctrl+Alt+P") => {
                             let _ = st.tx.lock().unwrap().send(Event::Manual);
                         }
+                        Some("Ctrl+Alt+T") => st.layers.toggle_panel(None),
+                        Some("Ctrl+Alt+F") => st.layers.toggle_panel(Some("prices")),
+                        _ => {}
                     }
                 })
                 .build(),
@@ -366,12 +445,22 @@ fn main() {
             if !moved.is_empty() {
                 eprintln!("[горн] перенесено из Горна на Electron: {}", moved.join(", "));
             }
-            let settings = Settings::load(&data, system_locale().as_deref());
+            let settings = Arc::new(Mutex::new(Settings::load(&data, system_locale().as_deref())));
+            let layers = Layers::new(app.handle().clone(), settings.clone());
+            let sink_layers = layers.clone();
+            let smoke_file = smoke_setup.clone();
+            let sink: tracker::Sink = Arc::new(move |snap: &Value| {
+                sink_layers.publish(snap);
+                if let Some(f) = &smoke_file {
+                    let _ = std::fs::write(f, snap.to_string());
+                }
+            });
+            let settings_now = settings.lock().unwrap();
 
             let items = CatalogueItem::parse_list(include_str!("../../crates/gorn-core/data/items.json"))?;
             let maps = serde_json::from_str(include_str!("../../crates/gorn-core/data/maps.json")).ok();
             icons::init(&data, old.exists().then_some(old.clone()), &items);
-            let s = settings.get();
+            let s = settings_now.get().clone();
             let tracker = Tracker::start(
                 app.handle().clone(),
                 tracker::Config {
@@ -381,7 +470,7 @@ fn main() {
                         community_prices: s["communityPrices"].as_bool().unwrap_or(true),
                         player_filter: s["playerFilter"].as_str().map(str::to_string),
                         all_seasons: s["allSeasons"].as_bool().unwrap_or(false),
-                        excluded_items: settings.excluded(),
+                        excluded_items: settings_now.excluded(),
                         min_drop_fe: s["minDropFe"].as_f64().unwrap_or(0.0),
                         maps,
                         language: name_language(s["itemNames"].as_str()),
@@ -390,6 +479,7 @@ fn main() {
                         ..Default::default()
                     },
                     items,
+                    sink,
                 },
             );
 
@@ -401,8 +491,8 @@ fn main() {
             };
             let shots_dir = paths.shots.clone();
             let (tx, rx) = std::sync::mpsc::channel::<Event>();
-            let mut assist = Assist::new(app.handle().clone(), tx.clone(), paths, settings.bool("prisonSaveShots"));
-            if !settings.bool("prisonHints") || smoke_setup.is_some() {
+            let mut assist = Assist::new(app.handle().clone(), tx.clone(), paths, settings_now.bool("prisonSaveShots"));
+            if !settings_now.bool("prisonHints") || smoke_setup.is_some() {
                 let _ = tx.send(Event::SetEnabled(false));
             }
             let log_found = gorn_core::locate::find_log_directory().is_some() || s["logDir"].is_string();
@@ -425,14 +515,15 @@ fn main() {
 
             // Трей: окно трекера и подсказки в тюрьме.
             let show = MenuItem::with_id(app, "show", "Показать Горн", true, None::<&str>)?;
-            let hints = CheckMenuItem::with_id(app, "hints", "Подсказки в тюрьме", true, settings.bool("prisonHints"), None::<&str>)?;
-            let save = CheckMenuItem::with_id(app, "save", "Сохранять кадры тюрьмы (для разбора)", true, settings.bool("prisonSaveShots"), None::<&str>)?;
+            let hints = CheckMenuItem::with_id(app, "hints", "Подсказки в тюрьме", true, settings_now.bool("prisonHints"), None::<&str>)?;
+            let save = CheckMenuItem::with_id(app, "save", "Сохранять кадры тюрьмы (для разбора)", true, settings_now.bool("prisonSaveShots"), None::<&str>)?;
+            let overlay_item = MenuItem::with_id(app, "overlay", "Оверлей (Ctrl+Alt+G)", true, None::<&str>)?;
             let open = MenuItem::with_id(app, "open", "Открыть папку кадров", true, None::<&str>)?;
             let shot = MenuItem::with_id(app, "shot", "Подсказка по экрану сейчас (Ctrl+Alt+P)", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&show, &sep, &hints, &save, &shot, &open, &sep2, &quit])?;
+            let menu = Menu::with_items(app, &[&show, &overlay_item, &sep, &hints, &save, &shot, &open, &sep2, &quit])?;
             let tip = if log_found { "Горн Next" } else { "Горн Next — лог игры не найден" };
             TrayIconBuilder::with_id("tray")
                 .icon(app.default_window_icon().cloned().expect("иконка"))
@@ -448,6 +539,9 @@ fn main() {
                     let st = app.state::<AppState>();
                     match ev.id().as_ref() {
                         "show" => show_main(app),
+                        "overlay" => {
+                            st.layers.toggle_overlay();
+                        }
                         "hints" => {
                             let mut s = st.settings.lock().unwrap();
                             let on = !s.bool("prisonHints");
@@ -471,6 +565,7 @@ fn main() {
                         }
                         "quit" => {
                             *st.quitting.lock().unwrap() = true;
+                            st.layers.shutdown();
                             st.tracker.shutdown();
                             app.exit(0);
                         }
@@ -479,15 +574,32 @@ fn main() {
                 })
                 .build(app)?;
 
-            if let Err(e) = app.global_shortcut().register(manual) {
-                eprintln!("[горн] Ctrl+Alt+P занят (Горн на Electron?): {e}");
+            let mut busy_hotkeys = vec![];
+            for (k, name) in &bindings {
+                if let Err(e) = app.global_shortcut().register(*k) {
+                    eprintln!("[горн] {name} занято другой программой (Горн на Electron?): {e}");
+                    busy_hotkeys.push(name.to_string());
+                }
             }
-            app.manage(AppState { tx: Mutex::new(tx), settings: Mutex::new(settings), tracker, shots_dir, quitting: Mutex::new(false) });
-            if let Some(f) = &smoke_setup {
-                let f = f.clone();
-                app.listen("snapshot", move |ev| {
-                    let _ = std::fs::write(&f, ev.payload());
-                });
+            let overlay_on = settings_now.overlay()["enabled"].as_bool().unwrap_or(false);
+            drop(settings_now);
+            app.manage(AppState {
+                tx: Mutex::new(tx),
+                settings,
+                layers: layers.clone(),
+                busy_hotkeys,
+                tracker,
+                shots_dir,
+                quitting: Mutex::new(false),
+            });
+            if smoke_setup.is_none() {
+                if overlay_on {
+                    layers.open_overlay();
+                }
+                // Слой всплывашек независим от оверлея-панели.
+                layers.sync_toasts();
+                // Пульт заранее, спрятанным: первое нажатие открывает его сразу и с фокусом.
+                layers.warm_panel();
             }
             create_main_window(app.handle(), smoke_setup.is_none())?;
             Ok(())

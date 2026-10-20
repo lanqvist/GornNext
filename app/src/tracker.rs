@@ -13,6 +13,9 @@ use gorn_core::tailer::{TailEvent, Tailer, TailerHandle, TailerOptions};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
+/// Куда уходит каждый новый срез (раздача по окнам — в layers.rs).
+pub type Sink = Arc<dyn Fn(&Value) + Send + Sync>;
+
 /// Работа над движком в его потоке.
 pub type Job = Box<dyn FnOnce(&mut Engine) + Send>;
 
@@ -41,6 +44,7 @@ pub struct Config {
     pub items: Vec<CatalogueItem>,
     pub options: EngineOptions,
     pub log_dir: Option<PathBuf>,
+    pub sink: Sink,
 }
 
 pub fn name_language(s: Option<&str>) -> NameLanguage {
@@ -113,13 +117,14 @@ impl Tracker {
     }
 
     fn run(self, app: AppHandle, cfg: Config, rx: Receiver<Msg>) {
-        let mut engine = match Engine::new(&cfg.data_dir, &cfg.items, cfg.options, Arc::new(|| chrono::Utc::now().timestamp_millis())) {
+        let mut engine = match Engine::new(&cfg.data_dir, &cfg.items, cfg.options.clone(), Arc::new(|| chrono::Utc::now().timestamp_millis())) {
             Ok(e) => e,
             Err(err) => {
                 eprintln!("[трекер] база не открылась: {err}");
                 return;
             }
         };
+        let sink = cfg.sink.clone();
         let mut tailer: Option<TailerHandle> = None;
         let mut last_boot_try = std::time::Instant::now() - Duration::from_secs(3600);
         for msg in rx {
@@ -174,14 +179,14 @@ impl Tracker {
                         Ok(None) => {}
                         Err((snap, why)) => {
                             eprintln!("[трекер] старт: {why}");
-                            self.publish(&app, serde_json::to_value(&*snap).unwrap_or(Value::Null));
+                            self.publish(&sink, serde_json::to_value(&*snap).unwrap_or(Value::Null));
                         }
                     }
                 }
             }
             if engine.take_emit() {
                 let snap = serde_json::to_value(engine.build_snapshot()).unwrap_or(Value::Null);
-                self.publish(&app, snap);
+                self.publish(&sink, snap);
             }
         }
         if let Some(t) = tailer {
@@ -190,8 +195,8 @@ impl Tracker {
         engine.stop();
     }
 
-    fn publish(&self, app: &AppHandle, snap: Value) {
-        let _ = app.emit("snapshot", &snap);
+    fn publish(&self, sink: &Sink, snap: Value) {
+        sink(&snap);
         *self.latest.lock().unwrap() = snap;
     }
 
