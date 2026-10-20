@@ -14,8 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW,
+    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 use crate::settings::{Settings, OVERLAY_MODES};
@@ -78,13 +77,14 @@ fn cursor_area() -> Area {
     area_at(Some((p.x, p.y)))
 }
 
-/// Окно не берёт фокус (иначе полноэкранная игра свернётся) и не видно в Alt+Tab.
-fn no_activate(win: &WebviewWindow) {
+/// Окно не видно в Alt+Tab. Фокус не берёт — `focusable(false)` при создании:
+/// стиль, выставленный руками, Tauri стирает при смене флагов окна (клики насквозь).
+fn tool_window(win: &WebviewWindow) {
     if let Ok(hwnd) = win.hwnd() {
         unsafe {
             let h = HWND(hwnd.0);
             let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
-            SetWindowLongPtrW(h, GWL_EXSTYLE, ex | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize);
+            SetWindowLongPtrW(h, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW.0 as isize);
         }
     }
 }
@@ -103,6 +103,29 @@ fn hide(win: &WebviewWindow) {
             let _ = ShowWindow(HWND(hwnd.0), SW_HIDE);
         }
     }
+}
+
+/// Позиция и размер в пикселях. Сначала перенос: окно, созданное на мониторе
+/// с другим масштабом, получает WM_DPICHANGED и пересчитывает размер само —
+/// размер, заданный до переноса, умножался дважды (оверлей и плашки в 1,5 раза
+/// шире при 150 %). После размера — позиция ещё раз.
+fn place(win: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.set_size(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+}
+
+/// Сохранённая позиция оверлея в пикселях: своя точная, иначе — логическая
+/// от Горна на Electron (DIP), пересчитанная масштабом основного монитора.
+fn saved_placement(p: &Value) -> Option<(i32, i32)> {
+    let px = &p["placementPx"];
+    if let (Some(x), Some(y)) = (px["x"].as_f64(), px["y"].as_f64()) {
+        return Some((x as i32, y as i32));
+    }
+    let dip = &p["placement"];
+    let (x, y) = (dip["x"].as_f64()?, dip["y"].as_f64()?);
+    let scale = area_at(None).scale;
+    Some(((x * scale).round() as i32, (y * scale).round() as i32))
 }
 
 /// Прямоугольник в пределах рабочей области.
@@ -151,6 +174,9 @@ struct OverlayState {
 struct ToastState {
     open: bool,
     anchor_bottom: i32,
+    /// Левый край и ширина в пикселях: окно по центру монитора.
+    left: i32,
+    width: i32,
     scale: f64,
     last_key: Option<String>,
     /// Поколение «спрятать»: новая плашка отменяет отложенное скрытие.
@@ -273,7 +299,7 @@ impl Layers {
             self.patch_overlay(json!({ "locked": false, "introShown": true }));
         }
         let p = self.overlay_prefs();
-        let saved = p["placement"].as_object().and_then(|o| Some((o.get("x")?.as_f64()? as i32, o.get("y")?.as_f64()? as i32)));
+        let saved = saved_placement(&p);
         let area = area_at(saved);
         let scale = area.scale;
         let w = (mode_width(p["mode"].as_str().unwrap_or("compact")) * p["fontScale"].as_f64().unwrap_or(1.0) * scale).round() as i32;
@@ -292,6 +318,7 @@ impl Layers {
             .resizable(false)
             .shadow(false)
             .focused(false)
+            .focusable(false)
             .visible(false)
             .additional_browser_args(BROWSER_ARGS)
             .build()
@@ -302,14 +329,19 @@ impl Layers {
                 return;
             }
         };
-        no_activate(&win);
-        let _ = win.set_size(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32));
-        let _ = win.set_position(PhysicalPosition::new(x, y));
+        tool_window(&win);
+        place(&win, x, y, w, h);
         let _ = win.set_ignore_cursor_events(p["locked"].as_bool().unwrap_or(true));
+        crate::log(&format!("[оверлей] открыт: {x},{y} {w}x{h}, масштаб {scale}"));
         let me = self.clone();
         win.on_window_event(move |ev| match ev {
             tauri::WindowEvent::Moved(pos) => {
-                me.patch_overlay(json!({ "placement": { "x": pos.x, "y": pos.y, "displayId": 0 } }));
+                // Логическая позиция — для Горна на Electron, точная — для себя.
+                let scale = area_at(Some((pos.x, pos.y))).scale;
+                me.patch_overlay(json!({
+                    "placement": { "x": (pos.x as f64 / scale).round(), "y": (pos.y as f64 / scale).round(), "displayId": 0 },
+                    "placementPx": { "x": pos.x, "y": pos.y },
+                }));
             }
             tauri::WindowEvent::Destroyed => {
                 me.overlay.lock().unwrap().open = false;
@@ -323,6 +355,13 @@ impl Layers {
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(400));
             apply_opacity(&shown, opacity);
+            // Размер ещё раз — после того, как окно обжилось на своём мониторе.
+            if let Ok(size) = shown.inner_size() {
+                if size.width as i32 != w {
+                    crate::log(&format!("[оверлей] ширина {} вместо {w} — поправлена", size.width));
+                    place(&shown, x, y, w, size.height as i32);
+                }
+            }
             show_inactive(&shown);
         });
         self.overlay.lock().unwrap().open = true;
@@ -405,8 +444,7 @@ impl Layers {
         let area = area_at(Some((pos.x, pos.y)));
         let nw = (css_w * area.scale).round() as i32;
         let (x, y) = keep_on(&area, pos.x, pos.y, nw, size.height as i32);
-        let _ = w.set_size(PhysicalSize::new(nw.max(1) as u32, size.height));
-        let _ = w.set_position(PhysicalPosition::new(x, y));
+        place(&w, x, y, nw, size.height as i32);
     }
 
     /// Окно ровно по содержимому: лишняя прозрачная площадь дорога композитору.
@@ -425,8 +463,8 @@ impl Layers {
             return;
         }
         let (x, y) = keep_on(&area, pos.x, pos.y, tw, th);
-        let _ = w.set_size(PhysicalSize::new(tw.max(1) as u32, th.max(1) as u32));
-        let _ = w.set_position(PhysicalPosition::new(x, y));
+        crate::log(&format!("[оверлей] размер {}x{} -> {tw}x{th}", size.width, size.height));
+        place(&w, x, y, tw, th);
     }
 
     /// Всплывашки, звук, масштаб, цель: оверлей и плашки узнают сразу.
@@ -486,7 +524,7 @@ impl Layers {
             return;
         }
         // Монитор оверлея-панели (обычно с игрой), иначе основной.
-        let saved = self.overlay_prefs()["placement"].as_object().and_then(|o| Some((o.get("x")?.as_f64()? as i32, o.get("y")?.as_f64()? as i32)));
+        let saved = saved_placement(&self.overlay_prefs());
         let area = area_at(saved);
         let w = (TOAST_WIDTH * area.scale).round() as i32;
         let h = (TOAST_INITIAL * area.scale).round() as i32;
@@ -501,6 +539,7 @@ impl Layers {
             .resizable(false)
             .shadow(false)
             .focused(false)
+            .focusable(false)
             .visible(false)
             .additional_browser_args(BROWSER_ARGS)
             .build()
@@ -511,14 +550,17 @@ impl Layers {
                 return;
             }
         };
-        no_activate(&win);
+        tool_window(&win);
         // Клики — всегда насквозь: это чистый «floating combat text».
         let _ = win.set_ignore_cursor_events(true);
-        let _ = win.set_size(PhysicalSize::new(w as u32, h as u32));
-        let _ = win.set_position(PhysicalPosition::new(area.x + (area.w - w) / 2, anchor - h));
+        let left = area.x + (area.w - w) / 2;
+        place(&win, left, anchor - h, w, h);
+        crate::log(&format!("[плашки] слой: {left},{} {w}x{h}, масштаб {}", anchor - h, area.scale));
         let mut t = self.toasts.lock().unwrap();
         t.open = true;
         t.anchor_bottom = anchor;
+        t.left = left;
+        t.width = w;
         t.scale = area.scale;
         // Новое окно ничего не видело — следующий срез уходит в любом случае.
         t.last_key = None;
@@ -561,21 +603,20 @@ impl Layers {
 
     /// Нижняя кромка закреплена: окно растёт вверх, от персонажа.
     pub fn toasts_height(&self, height: f64) {
-        let (anchor, scale) = {
+        let (anchor, scale, left, width) = {
             let t = self.toasts.lock().unwrap();
             if !t.open {
                 return;
             }
-            (t.anchor_bottom, t.scale)
+            (t.anchor_bottom, t.scale, t.left, t.width)
         };
         let Some(w) = self.win("toasts") else { return };
         let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size()) else { return };
         let th = (height.ceil().clamp(TOAST_INITIAL, TOAST_MAX) * scale).round() as i32;
-        if (size.height as i32 - th).abs() < 2 {
+        if (size.height as i32 - th).abs() < 2 && size.width as i32 == width && pos.x == left {
             return;
         }
-        let _ = w.set_size(PhysicalSize::new(size.width, th as u32));
-        let _ = w.set_position(PhysicalPosition::new(pos.x, anchor - th));
+        place(&w, left, anchor - th, width, th);
     }
 
     // ── пульт ────────────────────────────────────────────────────────────
@@ -635,8 +676,7 @@ impl Layers {
         let h = (PANEL_HEIGHT * font * area.scale).round() as i32;
         // Справа по центру: слева и в центре — персонаж и бой, сверху справа — миникарта.
         let margin = (24.0 * area.scale).max(area.w as f64 * 0.06) as i32;
-        let _ = win.set_size(PhysicalSize::new(w as u32, h as u32));
-        let _ = win.set_position(PhysicalPosition::new(area.x + area.w - w - margin, area.y + (area.h - h) / 2));
+        place(&win, area.x + area.w - w - margin, area.y + (area.h - h) / 2, w, h);
         // Сначала содержимое, потом показ: иначе мелькает пустая подложка.
         let _ = win.emit("panel:open", json!({ "tab": tab, "scale": font }));
         let _ = win.show();

@@ -75,6 +75,36 @@ fn test_capture(out: &str) {
     let _ = std::fs::write(format!("{out}.txt"), line);
 }
 
+/// Журнал в `%APPDATA%\com.gorn.next\gorn.log`: у релизной сборки нет консоли,
+/// и без файла сбой окна или паника остаются невидимыми. stderr перенаправлен
+/// туда же — `eprintln!` модулей и сообщение паники попадают в журнал.
+fn init_log(data_dir: &std::path::Path) {
+    let path = data_dir.join("gorn.log");
+    // Прошлый запуск — рядом, один файл: журнал не растёт бесконечно.
+    let _ = std::fs::rename(&path, data_dir.join("gorn.log.old"));
+    let Ok(file) = std::fs::File::create(&path) else { return };
+    if cfg!(not(debug_assertions)) {
+        use std::os::windows::io::IntoRawHandle;
+        let h = file.into_raw_handle();
+        unsafe {
+            let _ = windows::Win32::System::Console::SetStdHandle(
+                windows::Win32::System::Console::STD_ERROR_HANDLE,
+                windows::Win32::Foundation::HANDLE(h),
+            );
+        }
+    }
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log(&format!("[паника] {info}"));
+        prev(info);
+    }));
+}
+
+/// Строка в журнал (и в консоль отладочной сборки).
+pub fn log(msg: &str) {
+    eprintln!("{} {msg}", chrono::Local::now().format("%H:%M:%S%.3f"));
+}
+
 /// Локаль системы — язык новой установки.
 fn system_locale() -> Option<String> {
     let mut buf = [0u16; 85];
@@ -86,6 +116,9 @@ fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
+        // Windows не отдаёт фокус фоновому процессу: поверх всех на миг — и обратно.
+        let _ = w.set_always_on_top(true);
+        let _ = w.set_always_on_top(false);
         let _ = w.set_focus();
     }
 }
@@ -407,6 +440,12 @@ fn main() {
     ];
     let handled = bindings.clone();
     tauri::Builder::default()
+        // Второй запуск поднимает окно первого: два экземпляра делили бы одну базу,
+        // хоткеи и оверлей.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log("[горн] второй запуск — показываю окно");
+            show_main(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(
@@ -450,6 +489,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![gorn])
         .setup(move |app| {
             let data = app.path().app_data_dir()?;
+            let _ = std::fs::create_dir_all(&data);
+            init_log(&data);
+            log(&format!("[горн] запуск {}", env!("CARGO_PKG_VERSION")));
             let pictures = app.path().picture_dir()?;
             let roaming = data.parent().map(|p| p.to_path_buf()).unwrap_or_default();
             let old = roaming.join("gorn-tli");
@@ -617,6 +659,7 @@ fn main() {
                 layers.warm_panel();
             }
             create_main_window(app.handle(), smoke_setup.is_none())?;
+            log("[горн] главное окно создано");
             Ok(())
         })
         .build(tauri::generate_context!())
