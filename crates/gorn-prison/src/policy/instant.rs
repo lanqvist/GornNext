@@ -288,6 +288,17 @@ impl Ctx<'_> {
         (self.k.tools >> t) & 1 == 1
     }
 
+    /// val[t] с чтением за границей как в JS: Float64Array[−1] — undefined → NaN.
+    /// Бывает у Замены, когда адаптер ставит ряд решений на камеру без узника.
+    #[inline(always)]
+    fn val_js(&self, t: i32) -> f64 {
+        if (0..6).contains(&t) {
+            self.k.val[t as usize]
+        } else {
+            f64::NAN
+        }
+    }
+
     #[inline(always)]
     fn rise_v(&self, t: i32, n: i32) -> f64 {
         let uu = t + n;
@@ -521,7 +532,7 @@ impl Ctx<'_> {
         if self.has(tool::SCAPEGOAT) && others >= p.scapegoat_removes {
             // Бросок не ниже прежней + 1 и не ниже порога Петли — как в движке.
             let avg_other =
-                if others > 0 { (k.val_sum - if c >= 0 { k.val[u(t)] } else { 0.0 }) / others as f64 } else { 0.0 };
+                if others > 0 { (k.val_sum - if c >= 0 { self.val_js(t) } else { 0.0 }) / others as f64 } else { 0.0 };
             let floor = (t + 1).max(if self.has(tool::ROPE) { 2 } else { 0 });
             v = self.rise_v(t, floor - t) - p.scapegoat_removes as f64 * avg_other;
             p_up = 1.0;
@@ -555,7 +566,7 @@ impl Ctx<'_> {
         if c >= 0 && self.has(tool::TONGS) && self.m[FLAGS + u(c)] & F_TUSK != 0 {
             v += p.tongs_targets as f64 * k.avg_rise;
         }
-        v - k.val[u(t)] + self.w[W_SWAP]
+        v - self.val_js(t) + self.w[W_SWAP]
     }
 
     /// Лучшее действие дня для узника в камере c: 0 — конец дня.
