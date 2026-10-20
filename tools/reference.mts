@@ -15,6 +15,8 @@
 //                                     [сид, K], затем K записей [код, состояние SIZE слов];
 //                                     первая запись — после startRun, код −1
 //   bench <selfplay-seeds>          — замеры (текстом), см. bench() ниже
+//   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
+//                                     (для замера на нескольких процессах)
 //
 // Забег сида g (одинаково в gorn-cli verify):
 //   instant — Rng(g), тема START_EVENT_IDS[g % 5], цель OBJECTIVE_IDS[⌊g / 5⌋ % 5], выбор орудия
@@ -331,6 +333,22 @@ switch (cmd) {
   case 'bench':
     await bench(num(0, 200000));
     break;
+  case 'selfplay': {
+    const s = new st.State();
+    let total = 0, moves = 0;
+    const from = num(0), n = num(1);
+    for (let g = from; g < from + n; g++) {
+      const r = new Rng(g);
+      startFor('instant', s, r, g);
+      while (s.m[st.PHASE] !== st.P_END) {
+        actions.applyCode(s, instantCode(s, p), r, p);
+        moves++;
+      }
+      total += s.m[st.STORAGE];
+    }
+    console.log(`${n} ${moves} ${total}`);
+    break;
+  }
   default:
     console.error(`неизвестная команда ${cmd}`);
     process.exit(2);
