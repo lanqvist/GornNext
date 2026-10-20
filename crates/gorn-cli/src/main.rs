@@ -12,6 +12,7 @@ mod bench;
 mod dbcheck;
 mod enginecheck;
 mod facts;
+mod learn;
 mod debugtrace;
 mod frames;
 mod genlog;
@@ -260,6 +261,18 @@ fn main() -> ExitCode {
                     o.get("rounds").map(|_| num(&o, "rounds", 0)).transpose()?.map(|r| r as u64),
                     num(&o, "budget", 1500)? as f64,
                 )?;
+                Ok(true)
+            }
+            "learn" => {
+                // По умолчанию — живой журнал Горна Next и история по кадрам.
+                let dbs: Vec<std::path::PathBuf> = match o.get("db") {
+                    Some(list) => list.split(',').map(std::path::PathBuf::from).collect(),
+                    None => {
+                        let d = std::path::PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("com.gorn.next");
+                        vec![d.join("prison-facts-history.db"), d.join("prison-facts.db")]
+                    }
+                };
+                learn::run(&dbs, o.contains_key("json"))?;
                 Ok(true)
             }
             "debug-gifts" => {
