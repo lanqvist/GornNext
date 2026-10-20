@@ -21,6 +21,10 @@
 //                                     зерно 1000+i, потолок rounds раундов, без срока. Строка:
 //                                     «i раундов done лучший k код:среднее:gapSe:раунды:отсечён …»
 //                                     (дробные — hex-биты f64)
+//   play <from> <n> <rounds>        — самоигра с решателем без срока (как gorn-cli play --mode fixed):
+//                                     сид 777000+g, тема g % 5, цель случайная; ход решателя —
+//                                     solve({seed: g·1000+ход, maxRounds: rounds}).step(∞), где
+//                                     ходов > 1. Строка: «g мгновенная решатель h1 h2» (хеш ходов решателя)
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -381,6 +385,33 @@ switch (cmd) {
   case 'solve':
     await solveCmd(rest[0] ?? 'default', num(1), num(2), num(3), num(4, 18), num(5, 2));
     break;
+  case 'play': {
+    const from = num(0), n = num(1), rounds = num(2);
+    for (let g = from; g < from + n; g++) {
+      const scores: number[] = [];
+      for (const useSolver of [false, true]) {
+        const s = new st.State();
+        const r = new Rng(777_000 + g);
+        actions.startRun(s, r, p, { start: model.START_EVENT_IDS[g % 5] });
+        let move = 0;
+        if (useSolver) hReset();
+        while (s.m[st.PHASE] !== st.P_END) {
+          let c: number;
+          if (useSolver && actions.legalCodes(s, buf) > 1) {
+            solver.clearSolveCache();
+            c = actions.encode(solver.solve(s, { seed: g * 1000 + move, maxRounds: rounds }).step(Infinity).best);
+          } else c = instantCode(s, p);
+          if (useSolver) hPush(c);
+          actions.applyCode(s, c, r, p);
+          move++;
+        }
+        scores.push(s.m[st.STORAGE]);
+      }
+      await line(`${g} ${scores[0]} ${scores[1]} ${h1 >>> 0} ${h2 >>> 0}`);
+    }
+    await flushLines();
+    break;
+  }
   case 'selfplay': {
     const s = new st.State();
     let total = 0, moves = 0;

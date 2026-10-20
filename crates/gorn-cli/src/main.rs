@@ -9,6 +9,7 @@
 
 mod bench;
 mod reference;
+mod solverbench;
 mod verify;
 
 use std::collections::HashMap;
@@ -21,8 +22,15 @@ gorn-cli bench [--selfplay N=200000] [--threads T=0] [--ts] [--tli ../gorn-tli]
     замеры: случайные доигрывания, доигрывание стратегией, мгновенный совет,
     самоигра (один поток и T потоков, 0 — все ядра); --ts — затем то же в эталоне TS
 gorn-cli selfplay [--seeds N=200000] [--from K=0] [--mode instant|random] [--threads T=1]
+gorn-cli play [--seeds N=800] [--from K=0] [--mode new|flat|old|fixed] [--rounds R=400]
+              [--threads T=1] [--solver-threads S=1] [--quiet]
+    самоигра с решателем (сиды 777000+g), как prison-solve-bench --play; fixed — без срока
+gorn-cli solve-bench [--games 12] [--every 2] [--positions N] [--min 256] [--max R] [--cap 300]
+              [--threads S=1] [--rate [--stride 5]] [--regret [--ref файл] [--ref-rounds 20000] [--ref-threads 14]]
+    советы на позициях самоигры, как prison-solve-bench; 580 позиций аудита: --games 18 --positions 580
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
                 [--rng N=100000] [--solve N=580] [--solve-rounds R=400] [--solve-pool T=4]
+                [--play N=32] [--play-rounds R=300]
                 [--from K=0] [--jobs J=ядра] [--quick] [--tli ../gorn-tli]
     сверка с эталоном: веса, ГСЧ, забеги по хешу и целиком, решатель";
 
@@ -32,7 +40,7 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
     while i < args.len() {
         let a = &args[i];
         let key = a.strip_prefix("--").ok_or_else(|| format!("непонятный аргумент {a}"))?;
-        let flag = matches!(key, "ts" | "quick");
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -102,7 +110,53 @@ fn main() -> ExitCode {
                     solve: num(&o, "solve", if quick { 40 } else { 580 })?,
                     solve_rounds: num(&o, "solve-rounds", 400)?,
                     solve_pool: num(&o, "solve-pool", 4)?,
+                    play: num(&o, "play", if quick { 2 } else { 32 })?,
+                    play_rounds: num(&o, "play-rounds", 300)?,
                 })
+            }
+            "play" => {
+                let mode = match o.get("mode").map(String::as_str).unwrap_or("new") {
+                    "new" => solverbench::PlayMode::New,
+                    "flat" => solverbench::PlayMode::Flat,
+                    "old" => solverbench::PlayMode::Old,
+                    "fixed" => solverbench::PlayMode::Fixed(num(&o, "rounds", 400)? as u64),
+                    m => return Err(format!("--mode: {m}")),
+                };
+                solverbench::play(
+                    num(&o, "from", 0)?,
+                    num(&o, "seeds", 800)?,
+                    mode,
+                    num(&o, "threads", 1)? as usize,
+                    num(&o, "solver-threads", 1)? as usize,
+                    o.contains_key("quiet"),
+                );
+                Ok(true)
+            }
+            "solve-bench" => {
+                let max = match o.get("max") {
+                    None => u64::MAX,
+                    Some(_) => num(&o, "max", 0)? as u64,
+                };
+                solverbench::solve_bench(&solverbench::BenchOpts {
+                    games: num(&o, "games", 12)?,
+                    every: num(&o, "every", 2)?,
+                    positions: num(&o, "positions", u32::MAX)? as usize,
+                    min_rounds: num(&o, "min", 256)? as u64,
+                    max_rounds: max,
+                    cap_ms: num(&o, "cap", 300)? as f64,
+                    threads: num(&o, "threads", 1)? as usize,
+                    rate: o.contains_key("rate").then(|| num(&o, "stride", 5)).transpose()?.map(|x| x as usize),
+                    regret: if o.contains_key("regret") {
+                        Some(solverbench::RegretOpts {
+                            file: o.get("ref").cloned().unwrap_or_else(|| "prison-solve-ref.json".into()),
+                            rounds: num(&o, "ref-rounds", 20_000)? as u64,
+                            threads: num(&o, "ref-threads", 14)? as usize,
+                        })
+                    } else {
+                        None
+                    },
+                })?;
+                Ok(true)
             }
             "help" | "--help" | "-h" => {
                 println!("{USAGE}");

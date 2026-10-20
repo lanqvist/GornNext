@@ -35,6 +35,9 @@ pub struct Options {
     pub solve_rounds: u32,
     /// Потоков пула для проверки «пул = один поток» (0 — не проверять).
     pub solve_pool: u32,
+    /// Забегов самоигры с решателем без срока и потолок раундов.
+    pub play: u32,
+    pub play_rounds: u32,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -57,6 +60,9 @@ pub fn run(o: &Options) -> Result<bool, String> {
         if n > 0 {
             ok &= check_full(&rf, mode, o.from, n, o.jobs)?;
         }
+    }
+    if o.play > 0 {
+        ok &= check_play(&rf, o.play, o.play_rounds, o.jobs)?;
     }
     if o.solve > 0 {
         for rule in ["default", "free"] {
@@ -488,4 +494,55 @@ fn check_solve(rf: &Reference, rule: &str, n: u32, rounds: u32, pool_threads: u3
         shown.extend(s);
     }
     Ok(report(&format!("решатель ({rule}, {rounds} раундов), позиций"), cnt, bad, &shown, t))
+}
+
+/// Самоигра с решателем без срока: те же ходы и счёт, что у эталона.
+fn check_play(rf: &Reference, n: u32, rounds: u32, jobs: u32) -> Result<bool, String> {
+    use crate::solverbench::{play_game, PlayMode};
+    let t = Clock::now();
+    let p = &DEFAULT_PARAMS;
+    let parts = shards(0, n, jobs);
+    type Part = (u64, u64, Vec<String>);
+    let results: Vec<Result<Part, String>> = std::thread::scope(|sc| {
+        let hs: Vec<_> = parts
+            .iter()
+            .map(|&(a, k)| {
+                sc.spawn(move || -> Result<Part, String> {
+                    let mut child = rf.spawn(&["play".into(), a.to_string(), k.to_string(), rounds.to_string()])?;
+                    let rd = BufReader::new(child.stdout.take().unwrap());
+                    let (mut cnt, mut bad, mut shown) = (0u64, 0u64, vec![]);
+                    for line in rd.lines() {
+                        let line = line.map_err(|e| e.to_string())?;
+                        let f: Vec<u64> = line.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                        if f.len() != 5 {
+                            return Err(format!("play: строка эталона «{line}»"));
+                        }
+                        let g = play_game(f[0] as u32, PlayMode::Fixed(rounds as u64), p, None);
+                        let mine = (g.instant as u64, g.solver as u64, g.hash >> 32, g.hash & 0xffff_ffff);
+                        cnt += 1;
+                        if mine != (f[1], f[2], f[3], f[4]) {
+                            bad += 1;
+                            if shown.len() < SHOW {
+                                shown.push(format!("самоигра {}: TS «{line}», Rust {mine:?}", f[0]));
+                            }
+                        }
+                    }
+                    child.wait().map_err(|e| e.to_string())?;
+                    if cnt != k as u64 {
+                        return Err(format!("play: эталон дал {cnt} забегов из {k}"));
+                    }
+                    Ok((cnt, bad, shown))
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut cnt, mut bad, mut shown) = (0, 0, vec![]);
+    for r in results {
+        let (c, b, s) = r?;
+        cnt += c;
+        bad += b;
+        shown.extend(s);
+    }
+    Ok(report(&format!("самоигра с решателем ({rounds} раундов), забегов"), cnt, bad, &shown, t))
 }

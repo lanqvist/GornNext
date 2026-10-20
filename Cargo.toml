@@ -10,7 +10,7 @@ license = "MIT"
 [workspace.dependencies]
 gorn-prison = { path = "crates/gorn-prison" }
 rayon = "1.10"
-serde_json = { version = "1", features = ["float_roundtrip"] }
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 
 [profile.release]
 lto = "fat"

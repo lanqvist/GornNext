@@ -8,3 +8,4 @@ license.workspace = true
 [dependencies]
 gorn-prison.workspace = true
 rayon.workspace = true
+serde_json.workspace = true

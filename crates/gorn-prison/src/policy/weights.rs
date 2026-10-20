@@ -96,3 +96,68 @@ pub fn default_weights() -> &'static Weights {
     static W: OnceLock<Weights> = OnceLock::new();
     W.get_or_init(|| from_json(include_str!("../../data/weights.json")).expect("data/weights.json"))
 }
+
+/// `Math.round` из JS: половина — вверх.
+fn js_round(x: f64) -> f64 {
+    let r = x.floor();
+    if x - r >= 0.5 {
+        r + 1.0
+    } else {
+        r
+    }
+}
+
+/// Веса в JSON (формат weights.json, как `toJson` эталона: 4 знака).
+pub fn to_json(w: &Weights) -> String {
+    // Целые — без «.0», как JSON.stringify.
+    let r = |x: f64| {
+        let v = js_round(x * 10000.0) / 10000.0;
+        if v == v.trunc() && v.abs() < 1e15 {
+            serde_json::json!(v as i64)
+        } else {
+            serde_json::json!(v)
+        }
+    };
+    let mut j = serde_json::Map::new();
+    let arr = |a: &[f64]| serde_json::Value::Array(a.iter().map(|&x| r(x)).collect());
+    j.insert("val0".into(), arr(&w[W_VAL0..W_VAL0 + 5]));
+    j.insert("val1".into(), arr(&w[W_VAL1..W_VAL1 + 5]));
+    let mut tools = serde_json::Map::new();
+    for (i, id) in TOOL_IDS.iter().enumerate() {
+        tools.insert(id.to_string(), r(w[W_TOOL + i]));
+    }
+    j.insert("tools".into(), serde_json::Value::Object(tools));
+    for (name, k) in SCALARS {
+        j.insert(name.into(), r(w[k]));
+    }
+    let mut s = serde_json::to_string_pretty(&serde_json::Value::Object(j)).unwrap();
+    s.push('\n');
+    s
+}
+
+/// Ручные веса: от них стартует настройка и на них — «жадная» сравнительная точка.
+pub fn hand_weights() -> Weights {
+    let mut w = [0.0; W_SIZE];
+    let val0 = [0.02, 0.05, 0.12, 0.27, 0.55];
+    let val1 = [0.0, 0.01, 0.03, 0.08, 0.2];
+    for t in 0..5 {
+        w[W_VAL0 + t] = val0[t];
+        w[W_VAL1 + t] = val1[t];
+    }
+    w[W_GIFT] = 0.3;
+    w[W_DOOR] = 0.03;
+    w[W_EVENT] = 0.05;
+    w[W_SWAP] = 0.0;
+    w[W_INSTIGATE] = 0.03;
+    w[W_REROLL] = 0.3;
+    w[W_CHAIN] = 0.0;
+    w[W_FAR] = 0.0;
+    w[W_BRAND] = 0.05;
+    w[W_AHEAD] = 0.0;
+    w[W_SKIP] = 0.0;
+    w[W_RING] = 0.0;
+    for i in 0..TOOL_COUNT {
+        w[W_TOOL + i] = 0.5;
+    }
+    w
+}
