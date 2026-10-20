@@ -20,8 +20,8 @@ use windows::Win32::Graphics::Gdi::{
     MONITOR_DEFAULTTOPRIMARY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_HIDE,
-    SW_SHOWNOACTIVATE, WS_EX_TOOLWINDOW,
+    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
+    SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 use crate::settings::{Settings, OVERLAY_MODES};
@@ -46,7 +46,6 @@ const INITIAL_HEIGHT: f64 = 64.0;
 const MAX_HEIGHT: f64 = 520.0;
 
 const TOAST_WIDTH: f64 = 560.0;
-const TOAST_INITIAL: f64 = 40.0;
 const TOAST_MAX: f64 = 260.0;
 
 const PANEL_WIDTH: f64 = 780.0;
@@ -124,6 +123,18 @@ fn hide(win: &WebviewWindow) {
     if let Ok(hwnd) = win.hwnd() {
         unsafe {
             let _ = ShowWindow(HWND(hwnd.0), SW_HIDE);
+        }
+    }
+}
+
+/// Перенос и размер одним вызовом — для окон, уже стоящих на своём мониторе.
+/// Каждое изменение размера прозрачного окна WebView2 — пересоздание его
+/// поверхности в другом процессе; три вызова подряд (как в `place`) на
+/// каждое изменение содержимого давали подтормаживание игры.
+fn set_rect(win: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
+    if let Ok(hwnd) = win.hwnd() {
+        unsafe {
+            let _ = SetWindowPos(HWND(hwnd.0), None, x, y, w.max(1), h.max(1), SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
 }
@@ -527,7 +538,7 @@ impl Layers {
         let area = area_at(Some((pos.x, pos.y)));
         let nw = (css_w * area.scale).round() as i32;
         let (x, y) = keep_on(&area, pos.x, pos.y, nw, size.height as i32);
-        place(&w, x, y, nw, size.height as i32);
+        set_rect(&w, x, y, nw, size.height as i32);
     }
 
     /// Окно ровно по содержимому: лишняя прозрачная площадь дорога композитору.
@@ -550,11 +561,7 @@ impl Layers {
             return;
         }
         let (x, y) = keep_on(&area, pos.x, pos.y, tw, th);
-        crate::log(&format!(
-            "[оверлей] размер {}x{} -> {tw}x{th}",
-            size.width, size.height
-        ));
-        place(&w, x, y, tw, th);
+        set_rect(&w, x, y, tw, th);
     }
 
     /// Всплывашки, звук, масштаб, цель: оверлей и плашки узнают сразу.
@@ -620,7 +627,8 @@ impl Layers {
         let saved = saved_placement(&self.overlay_prefs());
         let area = area_at(saved);
         let w = (TOAST_WIDTH * area.scale).round() as i32;
-        let h = (TOAST_INITIAL * area.scale).round() as i32;
+        // Сразу во всю высоту стека: размер окна плашек больше не меняется.
+        let h = (TOAST_MAX * area.scale).round() as i32;
         // Кромка чуть выше середины: стек растёт вверх, не доставая до полосы босса.
         let anchor = (area.y as f64 + area.h as f64 * 0.36).round() as i32;
         let win = match WebviewWindowBuilder::new(
@@ -702,8 +710,11 @@ impl Layers {
         });
     }
 
-    /// Нижняя кромка закреплена: окно растёт вверх, от персонажа.
-    pub fn toasts_height(&self, height: f64) {
+    /// Окно слоя — постоянного размера во всю высоту стека, плашки прижаты к
+    /// нижней кромке стилями: подгонка прозрачного окна WebView2 на каждом кадре
+    /// анимации плашек тормозила игру. Здесь — только возврат окна на место,
+    /// если его сдвинули (смена масштаба монитора).
+    pub fn toasts_height(&self, _height: f64) {
         let (anchor, scale, left, width) = {
             let t = self.toasts.lock().unwrap();
             if !t.open {
@@ -715,11 +726,11 @@ impl Layers {
         let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size()) else {
             return;
         };
-        let th = (height.ceil().clamp(TOAST_INITIAL, TOAST_MAX) * scale).round() as i32;
-        if (size.height as i32 - th).abs() < 2 && size.width as i32 == width && pos.x == left {
+        let th = (TOAST_MAX * scale).round() as i32;
+        if size.height as i32 == th && size.width as i32 == width && pos.x == left && pos.y == anchor - th {
             return;
         }
-        place(&w, left, anchor - th, width, th);
+        set_rect(&w, left, anchor - th, width, th);
     }
 
     // ── пульт ────────────────────────────────────────────────────────────

@@ -14,7 +14,10 @@
 html,
 body {
   margin: 0;
-  height: auto;
+  /* Окно слоя в Tauri — постоянного размера (менять размер прозрачного окна
+     WebView2 на каждом кадре анимации дорого, игра подтормаживала): стек
+     прижат к нижней кромке окна стилями, а не подгонкой окна по высоте. */
+  height: 100%;
   background: transparent;
   overflow: hidden;
   user-select: none;
@@ -23,7 +26,12 @@ body {
   color: #f2f3f7;
 }
 
+#root {
+  height: 100%;
+}
+
 .tl {
+  height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
