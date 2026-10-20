@@ -3,12 +3,17 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { UpdateState } from '../../main/updater.js';
 import { tr, uiLanguage, type UiLanguage } from '../../core/i18n.js';
 import { num } from '../format.js';
+import { plural, RUN } from '../../core/plural.js';
 import { playPreview, playTest, type SoundPreview } from '../overlay/sound.js';
 
 /**
  * Кнопки прослушивания: каждый звук как в игре — громкость и режим
  * подбираются на слух, без ожидания золотой находки на карте.
  */
+const DECISION = { one: 'решение', few: 'решения', many: 'решений', en: ['decision', 'decisions'] } as const;
+/** С этого числа забегов отчёт «ожидали → получили» даёт выводы, а не шум. */
+const LEARN_RUNS = 20;
+
 const SOUND_PREVIEWS: ReadonlyArray<readonly [SoundPreview, string, string]> = [
   ['exalted', 'Возвышение', 'Exalted'],
   ['divine', 'Дивайн', 'Divine'],
@@ -131,6 +136,7 @@ export function SettingsPanel({
   const [community, setCommunity] = useState(true);
   const [prisonHints, setPrisonHints] = useState(false);
   const [prisonShots, setPrisonShots] = useState(false);
+  const [prisonFacts, setPrisonFacts] = useState<{ runs: number; decisions: number } | null>(null);
   const [logDirNote, setLogDirNote] = useState<string | null>(null);
   const [needsRestart, setNeedsRestart] = useState(false);
   const [updState, setUpdState] = useState<UpdateState | null>(null);
@@ -159,6 +165,7 @@ export function SettingsPanel({
     void window.gorn.getCommunityPrices().then(setCommunity);
     void window.gorn.getPrisonHints().then(setPrisonHints);
     void window.gorn.getPrisonSaveShots().then(setPrisonShots);
+    void window.gorn.getPrisonFacts?.().then(setPrisonFacts);
     return window.gorn.update.onState(setUpdState);
   }, []);
 
@@ -435,6 +442,22 @@ export function SettingsPanel({
               }}
             />
           </label>
+          {prisonFacts && (
+            <div className="set-row">
+              <span
+                title={tr(
+                  `Советник записывает каждое своё решение и то, что вышло. По этим забегам он учится: где модель ошибается, где совет можно улучшить. Выводы — от ${LEARN_RUNS} забегов.`,
+                  `The advisor records each decision and what came of it. It learns from these runs: where the model is off and where advice can improve. Conclusions from ${LEARN_RUNS} runs.`,
+                )}
+              >
+                {tr('Журнал советника', 'Advisor journal')}
+              </span>
+              <span className="muted">
+                {num(prisonFacts.runs)} {plural(prisonFacts.runs, RUN)} {tr('из', 'of')} {LEARN_RUNS} ·{' '}
+                {num(prisonFacts.decisions)} {plural(prisonFacts.decisions, DECISION)}
+              </span>
+            </div>
+          )}
           <div className="set-row">
             <span>{tr('Папка с кадрами', 'Captures folder')}</span>
             <button type="button" onClick={() => void window.gorn?.openPrisonShots()}>

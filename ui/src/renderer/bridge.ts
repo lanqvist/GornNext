@@ -87,6 +87,7 @@ if (tauri) {
     getPrisonSaveShots: () => call('settings:prisonSaveShots'),
     setPrisonSaveShots: (enabled) => call('settings:setPrisonSaveShots', enabled),
     openPrisonShots: () => call('settings:openPrisonShots'),
+    getPrisonFacts: () => call('settings:prisonFacts'),
     prison: {
       ready: () => send('prison:ready'),
       onHint: (cb) => on('prison:hint', cb),

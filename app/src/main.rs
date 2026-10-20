@@ -42,6 +42,8 @@ struct AppState {
     busy_hotkeys: Vec<String>,
     tracker: Tracker,
     shots_dir: PathBuf,
+    /// Журнал фактов тюрьмы — для счётчика забегов в настройках.
+    facts_path: PathBuf,
     updater: updater::Updater,
     /// Выход по-настоящему: отличает «закрыть в трей» от завершения.
     quitting: Mutex<bool>,
@@ -376,6 +378,10 @@ async fn gorn(
             let _ = st.tx.lock().unwrap().send(Event::SetSaveShots(on));
             json!(on)
         }
+        "settings:prisonFacts" => {
+            let (runs, decisions) = gorn_core::facts::summary(&st.facts_path).unwrap_or((0, 0));
+            json!({ "runs": runs, "decisions": decisions })
+        }
         "settings:openPrisonShots" => {
             let _ = std::fs::create_dir_all(&st.shots_dir);
             let _ = std::process::Command::new("explorer")
@@ -709,6 +715,7 @@ fn main() {
                 shots: pictures.join("Горн Next — тюрьма"),
             };
             let shots_dir = paths.shots.clone();
+            let facts_path = paths.facts.clone();
             let (tx, rx) = std::sync::mpsc::channel::<Event>();
             let mut assist = Assist::new(
                 app.handle().clone(),
@@ -881,6 +888,7 @@ fn main() {
                 busy_hotkeys,
                 tracker,
                 shots_dir,
+                facts_path,
                 quitting: Mutex::new(false),
             });
             if smoke_setup.is_none() {

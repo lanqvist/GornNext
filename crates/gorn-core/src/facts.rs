@@ -55,6 +55,16 @@ CREATE INDEX IF NOT EXISTS idx_fact_run ON fact(run_id, ts);
 /// Пауза дольше этого — точно другой забег, даже без выбора орудий в начале.
 const NEW_RUN_GAP_MS: i64 = 3 * 3_600_000;
 
+/// Сводка журнала для настроек: забегов с решениями и решений всего.
+/// Журнала ещё нет — нули (файл не создаётся).
+pub fn summary(path: &Path) -> rusqlite::Result<(i64, i64)> {
+    if !path.exists() {
+        return Ok((0, 0));
+    }
+    let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    db.query_row("SELECT COUNT(*), COALESCE(SUM(decisions), 0) FROM run WHERE decisions > 0", [], |r| Ok((r.get(0)?, r.get(1)?)))
+}
+
 pub struct Journal {
     db: Connection,
     /// Версия Горна, чей советник давал советы.
