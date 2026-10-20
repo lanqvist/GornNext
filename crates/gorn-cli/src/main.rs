@@ -8,8 +8,10 @@
 //! --threads: 1 — один поток (по умолчанию для selfplay), 0 — все ядра.
 
 mod bench;
+mod debugtrace;
 mod frames;
 mod reference;
+mod replay;
 mod solverbench;
 mod tune;
 mod verify;
@@ -33,10 +35,14 @@ gorn-cli solve-bench [--games 12] [--every 2] [--positions N] [--min 256] [--max
 gorn-cli tune [--runs 6000] [--passes 4] [--from hand] [--out weights-tuned.json] [--threads T=0]
 gorn-cli tune --report [--runs 20000] [--threads T=0]
     настройка весов мгновенной стратегии самоигрой, как prison-tune.ts
+gorn-cli replay ПАПКА [--budget 1000] [--from ЧЧММСС] [--to ЧЧММСС] [--rounds R] [--diffs файл.md] [--json]
+    свой путь подсказок на сохранённых кадрах против прежнего, как prison-replay.ts;
+    --rounds — решатель без срока (детерминированно), --json — строка на кадр
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
                 [--rng N=100000] [--solve N=580] [--solve-rounds R=400] [--solve-pool T=4]
                 [--play N=32] [--play-rounds R=300] [--tune N=20000]
                 [--frames ПАПКА|data] [--frames-max N]
+                [--replay ПАПКА|data] [--replay-rounds R=64] [--replay-from ЧЧММСС] [--replay-to ЧЧММСС]
                 [--from K=0] [--jobs J=ядра] [--quick] [--tli ../gorn-tli]
     сверка с эталоном: веса, ГСЧ, забеги по хешу и целиком, решатель";
 
@@ -45,8 +51,16 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        let key = a.strip_prefix("--").ok_or_else(|| format!("непонятный аргумент {a}"))?;
-        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report");
+        let Some(key) = a.strip_prefix("--") else {
+            // Позиционный аргумент (папка у replay) — под ключом «_».
+            if m.contains_key("_") {
+                return Err(format!("непонятный аргумент {a}"));
+            }
+            m.insert("_".to_string(), a.clone());
+            i += 1;
+            continue;
+        };
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -77,7 +91,7 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
     let res = (|| -> Result<bool, String> {
-        let o = parse(&args[1..])?;
+        let o = if cmd.starts_with("debug-") { Default::default() } else { parse(&args[1..])? };
         match cmd.as_str() {
             "bench" => {
                 let n = num(&o, "selfplay", 200_000)?;
@@ -121,6 +135,10 @@ fn main() -> ExitCode {
                     tune: num(&o, "tune", if quick { 2000 } else { 20_000 })?,
                     frames: o.get("frames").cloned(),
                     frames_max: num(&o, "frames-max", if quick { 40 } else { u32::MAX })?,
+                    replay: o.get("replay").cloned(),
+                    replay_rounds: num(&o, "replay-rounds", 64)?,
+                    replay_from: o.get("replay-from").cloned().unwrap_or_else(|| "000000".into()),
+                    replay_to: o.get("replay-to").cloned().unwrap_or_else(|| "999999".into()),
                 })
             }
             "play" => {
@@ -184,6 +202,34 @@ fn main() -> ExitCode {
                         Ok(true)
                     }
                 })
+            }
+            "replay" => {
+                let dir = match o.get("_") {
+                    Some(d) => std::path::PathBuf::from(d),
+                    None => return Err("replay: папка кадров (день Горна)".into()),
+                };
+                replay::report(
+                    &dir,
+                    o.get("from").map(String::as_str).unwrap_or("000000"),
+                    o.get("to").map(String::as_str).unwrap_or("999999"),
+                    num(&o, "budget", 1000)? as f64,
+                    o.get("rounds").map(|_| num(&o, "rounds", 0)).transpose()?.map(|r| r as u64),
+                    o.get("diffs").map(String::as_str),
+                    o.contains_key("json"),
+                )?;
+                Ok(true)
+            }
+            "debug-gifts" => {
+                debugtrace::gifts(args.get(1).ok_or("файл")?)?;
+                Ok(true)
+            }
+            "debug-trace" => {
+                let a: Vec<&String> = args[1..].iter().collect();
+                if a.len() < 3 {
+                    return Err("debug-trace <state.json> <seed> <rounds>".into());
+                }
+                debugtrace::run(a[0], a[1].parse().map_err(|_| "seed")?, a[2].parse().map_err(|_| "rounds")?)?;
+                Ok(true)
             }
             "help" | "--help" | "-h" => {
                 println!("{USAGE}");

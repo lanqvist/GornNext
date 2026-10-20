@@ -5,6 +5,9 @@
 //! при расхождении текста и кода верен код эталона.
 
 pub mod actions;
+pub mod adapter;
+pub mod advisor;
+pub mod hint;
 pub mod model;
 pub mod policy;
 pub mod recognize;

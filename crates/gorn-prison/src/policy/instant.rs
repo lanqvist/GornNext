@@ -97,7 +97,32 @@ pub struct Instant {
     hunt_gain: f64,
     best_j: i32,
     best_gain: f64,
+    /// Почему выбран последний ход (R_*): для подписи.
+    why: u8,
 }
+
+/// Почему выбран ход: для подписи.
+pub const R_NONE: u8 = 0;
+pub const R_TOOL: u8 = 1;
+pub const R_REROLL: u8 = 2;
+pub const R_GIFT: u8 = 3;
+pub const R_HUNT: u8 = 4;
+pub const R_DOOR_EAT: u8 = 5;
+pub const R_DOOR_NEW: u8 = 6;
+pub const R_DOOR_EVENT: u8 = 7;
+pub const R_DOOR_OFFICE: u8 = 8;
+pub const R_DOOR_PRISM: u8 = 9;
+pub const R_DEVOUR: u8 = 10;
+pub const R_DEVOUR_PRISM: u8 = 11;
+pub const R_CHAIN: u8 = 12;
+pub const R_STOP: u8 = 13;
+pub const R_SWAP: u8 = 14;
+pub const R_END: u8 = 15;
+pub const R_BESTOW: u8 = 16;
+pub const R_INSTIGATE: u8 = 17;
+pub const R_ACCEPT: u8 = 18;
+pub const R_SKIP: u8 = 19;
+pub const R_RATWAY: u8 = 20;
 
 impl Default for Instant {
     fn default() -> Self {
@@ -150,6 +175,7 @@ impl Instant {
             hunt_gain: f64::NEG_INFINITY,
             best_j: -1,
             best_gain: f64::NEG_INFINITY,
+            why: R_NONE,
         }
     }
 
@@ -167,13 +193,62 @@ impl Instant {
                 }
             }
             P_PATROL => x.pick_door(),
-            P_EVENT => code(A_ACCEPT, 0),
+            P_EVENT => {
+                // Событие пропустить нельзя (в игре только «Подтвердить»).
+                x.k.why = R_ACCEPT;
+                code(A_ACCEPT, 0)
+            }
             P_OFFICE => x.pick_office(),
             P_RATWAY => x.pick_ratway(),
             P_MANAGE => x.pick_manage(),
             P_CHAIN => x.pick_chain(),
             _ => panic!("тюрьма: забег окончен, ходов нет"),
         }
+    }
+
+    /// Ход и короткое объяснение (≤ 40 символов) для подписи в Горне (`advise` эталона).
+    pub fn advise(&mut self, s: &State, p: &Params, w: &Weights) -> (i32, String) {
+        let c = self.code(s, p, w);
+        let arg = c & 63;
+        let n = arg + 1; // игроку камеры с 1
+        let short_tool = |i: i32| crate::model::TOOL_NAMES[i as usize].split(':').next().unwrap_or("").to_string();
+        let text = match self.why {
+            R_TOOL => format!("Взять «{}»", short_tool(arg)),
+            R_REROLL => "Обновить: все три карты слабые".to_string(),
+            R_GIFT => format!("Подарок: {}", crate::model::GIFT_NAMES[arg as usize]),
+            R_HUNT => format!("Выслеживание: узник в камере {n}"),
+            R_DOOR_PRISM => format!("Камера {n}: цепочка к призматическому"),
+            R_DOOR_EAT => format!("Камера {n}: узник съест соседа"),
+            R_DOOR_EVENT => format!("Камера {n}: событие"),
+            R_DOOR_OFFICE => "В допросную".to_string(),
+            R_DOOR_NEW => {
+                if arg == OFFICE {
+                    "В допросную".to_string()
+                } else {
+                    format!("Камера {n}: новый узник")
+                }
+            }
+            R_DEVOUR_PRISM => format!("Съесть {n} → Призматический"),
+            R_DEVOUR => format!("Съесть узника в камере {n}"),
+            R_CHAIN => format!("Есть дальше: камера {n}"),
+            R_STOP => "Отменить: дальше невыгодно".to_string(),
+            R_SWAP => "Заменить узника".to_string(),
+            R_END => "Завершить день".to_string(),
+            R_BESTOW => "Наградить случайного узника".to_string(),
+            R_INSTIGATE => "Подстрекнуть: события за дверями".to_string(),
+            R_ACCEPT => "Принять событие".to_string(),
+            R_SKIP => "Пропустить событие".to_string(),
+            R_RATWAY => format!("Тропа: в камеру {n}"),
+            _ => String::new(),
+        };
+        (c, fit(&text, 40))
+    }
+
+    /// Оценки четырёх подарков на позиции (для разбора и тестов).
+    pub fn gift_values(&mut self, s: &State, p: &Params, w: &Weights) -> [f64; 4] {
+        let mut x = Ctx { s, m: &s.m, p, w, k: self };
+        x.prepare();
+        [x.gift_value(0), x.gift_value(1), x.gift_value(2), x.gift_value(3)]
     }
 
     /// Доиграть забег мгновенной стратегией; вернуть счёт.
@@ -184,6 +259,17 @@ impl Instant {
         }
         s.m[STORAGE]
     }
+}
+
+/// Не длиннее max кодовых единиц UTF-16 (как length в JS): иначе обрезать с «…».
+pub fn fit(text: &str, max: usize) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    if units.len() <= max {
+        return text.to_string();
+    }
+    let mut out = String::from_utf16_lossy(&units[..max - 1]);
+    out.push('…');
+    out
 }
 
 fn normalize(out: &mut [f64; 6], odds: &[f64; 6], floor: usize) {
@@ -623,7 +709,7 @@ impl Ctx<'_> {
 
     // ── решения ─────────────────────────────────────────────────────────────
 
-    fn pick_tool(&self) -> i32 {
+    fn pick_tool(&mut self) -> i32 {
         let m = self.m;
         let mut best = -1;
         let mut best_v = f64::NEG_INFINITY;
@@ -636,12 +722,16 @@ impl Ctx<'_> {
             }
         }
         if m[REROLLS] > 0 && best_v < self.w[W_REROLL] {
+            self.k.why = R_REROLL;
             return code(A_REROLL, 0);
         }
+        self.k.why = R_TOOL;
         code(A_TOOL, best)
     }
 
-    /// Укус «Медного рога»: без цепочки, цель — та, что дана.
+    /// Укус «Медного рога»: без цепочки, цель — та, что дана. Скачок Молота
+    /// (мамонт — на 2 выше съеденного) Рогу не засчитывается: тот же укус даёт
+    /// и обычное Пожирание мамонта (gorn-tli 1.0.32, 0201290).
     fn horn_bite(&self, e: i32, j: i32) -> f64 {
         let m = self.m;
         let te = m[TIER + u(e)];
@@ -651,8 +741,7 @@ impl Ctx<'_> {
         }
         let tt = m[TIER + u(j)];
         let bt = m[BEAST + u(j)];
-        let food = bt == FIRST_FOOD[u(be)] || bt == SECOND_FOOD[u(be)];
-        -self.k.val[u(tt)] + self.rise_v(te, self.base_gain(be, te, food, tt, bt == RAT)) - self.k.val[u(te)]
+        -self.k.val[u(tt)] + self.rise_v(te, self.base_gain(be, te, false, tt, bt == RAT)) - self.k.val[u(te)]
     }
 
     /// Ценность подарка по доске — без пробного применения.
@@ -717,6 +806,7 @@ impl Ctx<'_> {
                 best = g;
             }
         }
+        self.k.why = R_GIFT;
         code(A_GIFT, best)
     }
 
@@ -761,7 +851,23 @@ impl Ctx<'_> {
                 best = c;
             }
         }
+        self.k.why = self.door_reason(best);
         code(A_PATROL, best)
+    }
+
+    fn door_reason(&self, c: i32) -> u8 {
+        let m = self.m;
+        if c == OFFICE {
+            return R_DOOR_OFFICE;
+        }
+        if m[EVT + u(c)] != 0 {
+            return R_DOOR_EVENT;
+        }
+        if m[LOCK + u(c)] != 1 && m[TIER + u(c)] >= 0 && targets(self.s, c) != 0 {
+            let t = m[TIER + u(c)];
+            return if self.k.f[u((t * 4 + m[BEAST + u(c)]) * 2)] >= self.k.prism_v * 0.5 { R_DOOR_PRISM } else { R_DOOR_EAT };
+        }
+        R_DOOR_NEW
     }
 
     fn pick_ratway(&mut self) -> i32 {
@@ -779,6 +885,7 @@ impl Ctx<'_> {
                 best = c;
             }
         }
+        self.k.why = R_RATWAY;
         code(A_PATROL, best)
     }
 
@@ -806,16 +913,21 @@ impl Ctx<'_> {
         self.best_target(e, 0); // и таблицы
         let sw = self.swap_gain(t, e);
         self.best_hunt();
-        let k = &*self.k;
+        let claws_gain = self.p.claws_gain;
+        let k = &mut *self.k;
         if k.hunt_j >= 0 && k.hunt_gain > k.best_gain && k.hunt_gain > sw && k.hunt_gain > 0.0 {
+            k.why = R_HUNT;
             return code(A_HUNT, k.hunt_j);
         }
         if k.best_j >= 0 && k.best_gain >= sw && k.best_gain >= 0.0 {
+            k.why = if t + 1 >= 5 || (self.m[LOCK + u(k.best_j)] == 1 && t + claws_gain >= 5) { R_DEVOUR_PRISM } else { R_DEVOUR };
             return code(A_DEVOUR, k.best_j);
         }
         if sw > 0.0 {
+            k.why = R_SWAP;
             return code(A_SWAP, 0);
         }
+        k.why = R_END;
         code(A_END, 0)
     }
 
@@ -823,15 +935,19 @@ impl Ctx<'_> {
         let e = self.m[CHAIN_EATER];
         self.best_target(e, 1);
         if self.k.best_j >= 0 && self.k.best_gain + self.w[W_CHAIN] > 0.0 {
+            self.k.why = R_CHAIN;
             return code(A_CHAIN, self.k.best_j);
         }
+        self.k.why = R_STOP;
         code(A_STOPCHAIN, 0)
     }
 
-    fn pick_office(&self) -> i32 {
+    fn pick_office(&mut self) -> i32 {
         if self.bestow_value() >= self.instigate_value() {
+            self.k.why = R_BESTOW;
             code(A_BESTOW, 0)
         } else {
+            self.k.why = R_INSTIGATE;
             code(A_INSTIGATE, 0)
         }
     }

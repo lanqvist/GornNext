@@ -43,6 +43,11 @@ pub struct Options {
     /// Кадры распознавания: папка («data» — папка данных тестов gorn-tli), None — не сверять.
     pub frames: Option<String>,
     pub frames_max: u32,
+    /// Повтор кадров советником: папка дня или папка дней («data» — runs папки данных).
+    pub replay: Option<String>,
+    pub replay_rounds: u32,
+    pub replay_from: String,
+    pub replay_to: String,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -74,6 +79,17 @@ pub fn run(o: &Options) -> Result<bool, String> {
         for mode in ["fresh", "chain", "chainre"] {
             ok &= check_frames(&rf, mode, &list, o.jobs)?;
         }
+    }
+    if let Some(dir) = &o.replay {
+        let root = if dir == "data" { crate::frames::data_dir().join("runs") } else { std::path::PathBuf::from(dir) };
+        // Папка дней — каждый день отдельно; папка дня — она сама.
+        let mut days: Vec<std::path::PathBuf> =
+            std::fs::read_dir(&root).map_err(|e| format!("{}: {e}", root.display()))?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        days.sort();
+        if days.is_empty() {
+            days.push(root);
+        }
+        ok &= check_replay(&rf, &days, o.replay_rounds, &o.replay_from, &o.replay_to)?;
     }
     if o.tune > 0 {
         ok &= check_tune(&rf, o.tune)?;
@@ -717,4 +733,80 @@ fn check_frames(rf: &Reference, mode: &str, list: &[std::path::PathBuf], jobs: u
         shown.extend(s);
     }
     Ok(report(&format!("распознавание ({mode}), кадров"), cnt, bad, &shown, t))
+}
+
+/// Советник на сохранённых кадрах без срока: те же ответы, память забега и
+/// оценки ходов на каждом кадре, что у эталона. Дни — параллельно.
+fn check_replay(rf: &Reference, days: &[std::path::PathBuf], rounds: u32, from: &str, to: &str) -> Result<bool, String> {
+    use gorn_prison::advisor::OwnAdvisor;
+    use gorn_prison::solver::{StopRule, STOP_DEFAULTS};
+    let t = Clock::now();
+    type Part = (u64, u64, Vec<String>);
+    let results: Vec<Result<Part, String>> = std::thread::scope(|sc| {
+        let hs: Vec<_> = days
+            .iter()
+            .map(|day| {
+                sc.spawn(move || -> Result<Part, String> {
+                    let mut child = rf.spawn(&[
+                        "replay".into(),
+                        day.to_string_lossy().to_string(),
+                        rounds.to_string(),
+                        from.into(),
+                        to.into(),
+                    ])?;
+                    let mut ts = BufReader::new(child.stdout.take().unwrap()).lines();
+                    let (mut cnt, mut bad, mut shown) = (0u64, 0u64, vec![]);
+                    let mut err: Option<String> = None;
+                    let mut adv = OwnAdvisor::new();
+                    let stop = StopRule { max_rounds: rounds as u64, ..STOP_DEFAULTS };
+                    crate::replay::run(day, from, to, 1000.0, stop, f64::INFINITY, &mut adv, |adv, o| {
+                        if err.is_some() {
+                            return;
+                        }
+                        let mine = crate::replay::frame_json(adv, &o);
+                        let line = match ts.next() {
+                            Some(Ok(l)) => l,
+                            _ => {
+                                err = Some(format!("{}: эталон оборвался на {}", day.display(), o.file));
+                                return;
+                            }
+                        };
+                        let theirs: serde_json::Value = match serde_json::from_str(&line) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                err = Some(e.to_string());
+                                return;
+                            }
+                        };
+                        let mut d = vec![];
+                        json_diff(&theirs, &mine, "", &mut d);
+                        cnt += 1;
+                        if !d.is_empty() {
+                            bad += 1;
+                            if shown.len() < SHOW {
+                                shown.push(format!("{} {}:\n    {}", day.display(), o.file, d.join("\n    ")));
+                            }
+                        }
+                    })?;
+                    if let Some(e) = err {
+                        return Err(e);
+                    }
+                    if ts.next().is_some() {
+                        return Err(format!("{}: у эталона кадров больше", day.display()));
+                    }
+                    child.wait().map_err(|e| e.to_string())?;
+                    Ok((cnt, bad, shown))
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut cnt, mut bad, mut shown) = (0, 0, vec![]);
+    for r in results {
+        let (c, b, s) = r?;
+        cnt += c;
+        bad += b;
+        shown.extend(s);
+    }
+    Ok(report(&format!("советник на кадрах ({rounds} раундов), кадров"), cnt, bad, &shown, t))
 }

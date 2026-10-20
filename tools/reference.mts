@@ -34,6 +34,10 @@
 //                                     fresh — каждый кадр без прежней геометрии; chain — геометрия
 //                                     переходит от кадра к кадру по порядку списка; chainre — то же
 //                                     с recalibrate. Строка — JSON {file, view, geo}
+//   replay <папка> <rounds> [from ЧЧММСС] [to ЧЧММСС]
+//                                   — свой путь подсказок (OwnAdvisor) на сохранённых кадрах, как
+//                                     prison-replay.ts, но без срока: решатель до остановки или
+//                                     rounds раундов. Строка на кадр — JSON {file, replies, memory, options}
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -454,6 +458,88 @@ switch (cmd) {
       const r = rec.read(frame, mode === 'fresh' ? null : geo, { recalibrate: mode === 'chainre' });
       geo = r.geo;
       await line(JSON.stringify({ file: f, view: r.view, geo: r.geo }));
+    }
+    await flushLines();
+    break;
+  }
+  case 'replay': {
+    const { existsSync, readFileSync, readdirSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { decodePng } = await imp('core/prison/recognize/png.ts');
+    const { OwnAdvisor } = await imp('main/prison/ownAdvisor.ts');
+    const { lastHint, moveKey } = await imp('cli/prison-moves.ts');
+    // OwnAdvisor пишет в console.log — поток вывода только для строк сверки.
+    console.log = () => {};
+    const dir = rest[0]!;
+    const rounds = num(1);
+    const from = rest[2] ?? '000000';
+    const to = rest[3] ?? '999999';
+    const files = readdirSync(dir).filter((f: string) => f.endsWith('.json') && f.slice(0, 6) >= from && f.slice(0, 6) <= to).sort();
+    let replies: any[] = [];
+    // Ответ копируется сразу, как postMessage в приложении (память — живой объект).
+    const advisor = new OwnAdvisor((m: any) => replies.push(structuredClone(m)), { sleep: () => Promise.resolve(), quickMs: Infinity, stop: { maxRounds: rounds } });
+    advisor.init(null, null);
+    let id = 0;
+    let prevKind = '';
+    let logDay: { cur: number; max: number } | null = null;
+    let dayFresh = false;
+    let morningDone = -1;
+    const budget = 1000;
+    const out = (file: string) =>
+      line(JSON.stringify({
+        file,
+        replies,
+        memory: advisor.memory,
+        options: advisor.lastOptions.map((o: any) => [actions.encode(o.action), o.mean]),
+      }));
+    for (const f of files) {
+      const saved = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+      if (saved.kind === 'board' && saved.treasureClosed && prevKind !== 'treasure' && dayFresh && logDay && morningDone !== logDay.cur) {
+        morningDone = logDay.cur;
+        replies = [];
+        await advisor.handle({
+          type: 'shot', id: ++id, kind: 'treasure', fresh: false, after: 'morning', treasureView: false, rerolled: false,
+          treasureClosed: false, asTreasure: false, theme: null, day: logDay, width: 1920, height: 1080,
+          buffer: new ArrayBuffer(0), format: 'rgba', budgetMs: budget, savePath: null,
+        }, null);
+        await out(`${f}#утро`);
+      }
+      for (const l of saved.lines ?? []) {
+        const d = /check cur=(\d+) max=([1-9]\d*)/.exec(l);
+        if (d && Number(d[1]) > 0) dayFresh = true;
+        if (/Btn_S16Board_(?:RouteCell|ActionCell|Cell)\b/.test(l)) dayFresh = false;
+      }
+      const png = join(dir, f.replace(/\.json$/, '.png'));
+      const frame = existsSync(png) ? decodePng(readFileSync(png)) : null;
+      const msg = {
+        type: 'shot',
+        id: ++id,
+        kind: saved.kind,
+        fresh: !!saved.fresh,
+        after: saved.after ?? '',
+        treasureView: !!saved.treasureView,
+        rerolled: !!saved.rerolled,
+        treasureClosed: saved.treasureClosed ?? (saved.kind === 'board' && prevKind === 'treasure'),
+        asTreasure: saved.asTreasure ?? (saved.kind === 'board' && moveKey(lastHint(saved.hints ?? [])) === 'показать доску'),
+        theme: saved.theme ?? null,
+        day: (() => {
+          for (const l of saved.lines ?? []) {
+            const d = /check cur=(\d+) max=(\d+)/.exec(l);
+            if (d && Number(d[2]) > 0) logDay = { cur: Number(d[1]), max: Number(d[2]) };
+          }
+          return saved.day ?? logDay;
+        })(),
+        width: frame?.width ?? 1920,
+        height: frame?.height ?? 1080,
+        buffer: new ArrayBuffer(0),
+        format: 'rgba',
+        budgetMs: budget,
+        savePath: null,
+      };
+      prevKind = saved.kind;
+      replies = [];
+      await advisor.handle(msg, frame);
+      await out(f);
     }
     await flushLines();
     break;
