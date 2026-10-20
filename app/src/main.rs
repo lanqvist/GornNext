@@ -155,14 +155,13 @@ fn create_main_window(
     }
     let w = b
         .title("Горн — трекер Torchlight: Infinite")
-        .inner_size(1280.0, 820.0)
         .min_inner_size(940.0, 620.0)
         .background_color(tauri::window::Color(0x0e, 0x0f, 0x13, 0xff))
-        .visible(visible)
+        // Показ — после того, как окно встанет по экрану.
+        .visible(false)
         .additional_browser_args(layers::BROWSER_ARGS)
-        // Внешние ссылки — в браузере, а не внутри приложения. Остальное (страницы
-        // приложения, about:blank при старте WebView2) пропускается: запрет
-        // навигации на about:blank оставлял окно пустым.
+        // Внешние ссылки — в браузере, а не внутри приложения; страницы
+        // приложения (*.localhost) и служебные адреса пропускаются.
         .on_navigation(|url| {
             let external = matches!(url.scheme(), "http" | "https")
                 && !url.host_str().is_some_and(|h| h.ends_with(".localhost"));
@@ -175,6 +174,11 @@ fn create_main_window(
             !external
         })
         .build()?;
+    layers::fit_main(&w);
+    if visible {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
     let app2 = app.clone();
     w.on_window_event(move |ev| {
         // Окно показали или развернули — догнать пропущенные срезы.

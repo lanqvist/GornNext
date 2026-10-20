@@ -21,7 +21,8 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
-    SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_TOOLWINDOW,
+    SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
+    WS_EX_TRANSPARENT,
 };
 
 use crate::settings::{Settings, OVERLAY_MODES};
@@ -137,6 +138,34 @@ fn set_rect(win: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
             let _ = SetWindowPos(HWND(hwnd.0), None, x, y, w.max(1), h.max(1), SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
+}
+
+/// Клики насквозь — стилем окна напрямую. `set_ignore_cursor_events` у Tauri
+/// пересобирает стиль окна из своих флагов, а окно показано в обход Tauri
+/// (без активации — иначе игра теряет фокус), и флага видимости у Tauri нет:
+/// окно пряталось (Ctrl+Alt+L «закрывал» оверлей, Ctrl+Alt+G — не с первого раза).
+fn set_click_through(win: &WebviewWindow, on: bool) {
+    if let Ok(hwnd) = win.hwnd() {
+        unsafe {
+            let h = HWND(hwnd.0);
+            let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
+            let bits = (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0) as isize;
+            // Как у Tauri: оба флага вместе.
+            let next = if on { ex | bits } else { ex & !bits };
+            if next != ex {
+                SetWindowLongPtrW(h, GWL_EXSTYLE, next);
+            }
+        }
+    }
+}
+
+/// Главное окно по экрану: 1280×820 логических пикселей, как у Горна, но не
+/// больше 85 % рабочей области монитора под курсором, по центру.
+pub fn fit_main(win: &WebviewWindow) {
+    let area = cursor_area();
+    let w = ((1280.0 * area.scale) as i32).min((area.w as f64 * 0.85) as i32);
+    let h = ((820.0 * area.scale) as i32).min((area.h as f64 * 0.85) as i32);
+    place(win, area.x + (area.w - w) / 2, area.y + (area.h - h) / 2, w, h);
 }
 
 /// Позиция и размер в пикселях. Сначала перенос: окно, созданное на мониторе
@@ -415,7 +444,7 @@ impl Layers {
         };
         tool_window(&win);
         place(&win, x, y, w, h);
-        let _ = win.set_ignore_cursor_events(p["locked"].as_bool().unwrap_or(true));
+        set_click_through(&win, p["locked"].as_bool().unwrap_or(true));
         crate::log(&format!(
             "[оверлей] открыт: {x},{y} {w}x{h}, масштаб {scale}"
         ));
@@ -491,7 +520,7 @@ impl Layers {
     pub fn set_locked(&self, locked: bool) {
         self.patch_overlay(json!({ "locked": locked }));
         if let Some(w) = self.win("overlay") {
-            let _ = w.set_ignore_cursor_events(locked);
+            set_click_through(&w, locked);
             let _ = w.emit_to(w.label(), "overlay:locked", locked);
         }
     }
@@ -657,7 +686,7 @@ impl Layers {
         };
         tool_window(&win);
         // Клики — всегда насквозь: это чистый «floating combat text».
-        let _ = win.set_ignore_cursor_events(true);
+        set_click_through(&win, true);
         let left = area.x + (area.w - w) / 2;
         place(&win, left, anchor - h, w, h);
         crate::log(&format!(
