@@ -40,6 +40,9 @@ pub struct Options {
     pub play_rounds: u32,
     /// Забегов настройки (prison-tune) на каждый вид стратегии.
     pub tune: u32,
+    /// Кадры распознавания: папка («data» — папка данных тестов gorn-tli), None — не сверять.
+    pub frames: Option<String>,
+    pub frames_max: u32,
 }
 
 /// Расхождений показываем не больше стольких на проверку.
@@ -62,6 +65,14 @@ pub fn run(o: &Options) -> Result<bool, String> {
     for (mode, n) in [(Mode::Instant, o.full), (Mode::Random, o.full_random)] {
         if n > 0 {
             ok &= check_full(&rf, mode, o.from, n, o.jobs)?;
+        }
+    }
+    if let Some(dir) = &o.frames {
+        let dir = if dir == "data" { crate::frames::data_dir().join("images") } else { std::path::PathBuf::from(dir) };
+        let mut list = crate::frames::pngs(&dir);
+        list.truncate(o.frames_max as usize);
+        for mode in ["fresh", "chain", "chainre"] {
+            ok &= check_frames(&rf, mode, &list, o.jobs)?;
         }
     }
     if o.tune > 0 {
@@ -589,4 +600,121 @@ fn check_tune(rf: &Reference, n: u32) -> Result<bool, String> {
         }
     }
     Ok(report("забеги настройки (random, greedy, policy), забегов", cnt, bad, &shown, t))
+}
+
+// ── распознавание ───────────────────────────────────────────────────────────
+
+/// Сравнить JSON: числа — по значению f64 до бита, порядок ключей не важен.
+fn json_diff(a: &serde_json::Value, b: &serde_json::Value, path: &str, out: &mut Vec<String>) {
+    use serde_json::Value::*;
+    if out.len() >= 6 {
+        return;
+    }
+    match (a, b) {
+        (Number(x), Number(y)) => {
+            if x.as_f64().map(f64::to_bits) != y.as_f64().map(f64::to_bits) {
+                out.push(format!("{path}: TS {x} Rust {y}"));
+            }
+        }
+        (Object(x), Object(y)) => {
+            for (k, v) in x {
+                match y.get(k) {
+                    Some(w) => json_diff(v, w, &format!("{path}.{k}"), out),
+                    None => out.push(format!("{path}.{k}: у Rust нет (TS {v})")),
+                }
+            }
+            for (k, w) in y {
+                if !x.contains_key(k) {
+                    out.push(format!("{path}.{k}: у TS нет (Rust {w})"));
+                }
+            }
+        }
+        (Array(x), Array(y)) => {
+            if x.len() != y.len() {
+                out.push(format!("{path}: длина TS {} Rust {}", x.len(), y.len()));
+                return;
+            }
+            for (i, (v, w)) in x.iter().zip(y).enumerate() {
+                json_diff(v, w, &format!("{path}[{i}]"), out);
+            }
+        }
+        _ => {
+            if a != b {
+                out.push(format!("{path}: TS {a} Rust {b}"));
+            }
+        }
+    }
+}
+
+fn geo_json(g: &Option<gorn_prison::recognize::Geometry>) -> serde_json::Value {
+    match g {
+        None => serde_json::Value::Null,
+        Some(g) => serde_json::json!({
+            "width": g.width, "height": g.height, "s": g.s, "tx": g.tx, "ty": g.ty, "score": g.score,
+        }),
+    }
+}
+
+/// Кадры: тот же вид экрана и та же геометрия, что у эталона.
+fn check_frames(rf: &Reference, mode: &str, list: &[std::path::PathBuf], jobs: u32) -> Result<bool, String> {
+    use gorn_prison::recognize::{read, Geometry, ReadOptions};
+    let t = Clock::now();
+    let n = list.len() as u32;
+    // chain — геометрия от кадра к кадру: каждый процесс берёт свой отрезок списка подряд.
+    let parts = shards(0, n, jobs);
+    let tmp = std::env::temp_dir();
+    type Part = (u64, u64, Vec<String>);
+    let results: Vec<Result<Part, String>> = std::thread::scope(|sc| {
+        let hs: Vec<_> = parts
+            .iter()
+            .enumerate()
+            .map(|(j, &(a, k))| {
+                let part = &list[a as usize..(a + k) as usize];
+                let listfile = tmp.join(format!("gorn-verify-frames-{}-{j}.txt", std::process::id()));
+                sc.spawn(move || -> Result<Part, String> {
+                    let text: String = part.iter().map(|p| format!("{}\n", p.display())).collect();
+                    std::fs::write(&listfile, text).map_err(|e| e.to_string())?;
+                    let mut child = rf.spawn(&["read".into(), mode.into(), listfile.to_string_lossy().to_string()])?;
+                    let rd = BufReader::new(child.stdout.take().unwrap());
+                    let (mut cnt, mut bad, mut shown) = (0u64, 0u64, vec![]);
+                    let mut geo: Option<Geometry> = None;
+                    for (i, line) in rd.lines().enumerate() {
+                        let line = line.map_err(|e| e.to_string())?;
+                        let ts: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+                        let path = &part[i];
+                        let img = crate::frames::decode_png(path)?;
+                        let prev = if mode == "fresh" { None } else { geo };
+                        let (view, g) = read(&img.frame(), prev.as_ref(), ReadOptions { recalibrate: mode == "chainre" });
+                        geo = g;
+                        let mine = serde_json::json!({ "view": view.to_json(), "geo": geo_json(&g) });
+                        let mut d = vec![];
+                        json_diff(&ts["view"], &mine["view"], "view", &mut d);
+                        json_diff(&ts["geo"], &mine["geo"], "geo", &mut d);
+                        cnt += 1;
+                        if !d.is_empty() {
+                            bad += 1;
+                            if shown.len() < SHOW {
+                                shown.push(format!("кадр {} ({mode}):\n    {}", path.display(), d.join("\n    ")));
+                            }
+                        }
+                    }
+                    child.wait().map_err(|e| e.to_string())?;
+                    let _ = std::fs::remove_file(&listfile);
+                    if cnt != k as u64 {
+                        return Err(format!("кадры: эталон дал {cnt} из {k}"));
+                    }
+                    Ok((cnt, bad, shown))
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut cnt, mut bad, mut shown) = (0, 0, vec![]);
+    for r in results {
+        let (c, b, s) = r?;
+        cnt += c;
+        bad += b;
+        shown.extend(s);
+    }
+    Ok(report(&format!("распознавание ({mode}), кадров"), cnt, bad, &shown, t))
 }

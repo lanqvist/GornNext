@@ -7,12 +7,14 @@
 pub mod actions;
 pub mod model;
 pub mod policy;
+pub mod recognize;
 pub mod rng;
 pub mod rules;
 pub mod runs;
 pub mod solver;
 pub mod state;
 pub mod tables;
+pub mod view;
 
 pub use actions::{apply_code, apply_trusted, legal_codes, random_playout, start_run, CodeBuf, RunOptions};
 pub use model::{Params, DEFAULT_PARAMS};

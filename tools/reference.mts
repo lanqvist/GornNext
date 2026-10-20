@@ -29,6 +29,11 @@
 //                                   — забеги prison-tune (сценарий «все темы по кругу», кости
 //                                     imul(seed ^ i, 0x9e3779b1) ^ i): «n среднее h1 h2» по счётам
 //                                     (policy — настроенные веса, остальные — ручные)
+//   read <fresh|chain|chainre> <список>
+//                                   — распознавание кадров (PNG, пути по строке в файле-списке):
+//                                     fresh — каждый кадр без прежней геометрии; chain — геометрия
+//                                     переходит от кадра к кадру по порядку списка; chainre — то же
+//                                     с recalibrate. Строка — JSON {file, view, geo}
 //   selfplay <from> <n>             — самоигра instant-сидов без записи: «забегов ходов сумма-призм.»
 //                                     (для замера на нескольких процессах)
 //
@@ -434,6 +439,22 @@ switch (cmd) {
       total += x;
     }
     await line(`${n} ${total / n} ${h1 >>> 0} ${h2 >>> 0}`);
+    await flushLines();
+    break;
+  }
+  case 'read': {
+    const { readFileSync } = await import('node:fs');
+    const rec = await imp('core/prison/recognize/index.ts');
+    const { decodePng } = await imp('core/prison/recognize/png.ts');
+    const mode = rest[0];
+    const files = readFileSync(rest[1]!, 'utf8').split(/\r?\n/).filter(Boolean);
+    let geo: any = null;
+    for (const f of files) {
+      const frame = decodePng(readFileSync(f));
+      const r = rec.read(frame, mode === 'fresh' ? null : geo, { recalibrate: mode === 'chainre' });
+      geo = r.geo;
+      await line(JSON.stringify({ file: f, view: r.view, geo: r.geo }));
+    }
     await flushLines();
     break;
   }

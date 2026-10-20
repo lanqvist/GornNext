@@ -1,0 +1,76 @@
+//! Панели вокруг доски: орудия слева, хранилище призматических справа, цель.
+//! Перенос `recognize/panels.ts`.
+
+use super::layout::{chromatic_slot, tool_slot, CHROMATIC_HEADER, OBJECTIVE, TOOL_SLOTS};
+use super::sample::{dot, jmax, normalize, sample_into, Frame, Geometry};
+use super::templates::{get, nearest, scores_by_label, ScreensTemplate};
+use crate::model::TOOL_IDS;
+
+const TOOL_MIN: f64 = 0.75;
+const OBJECTIVE_MIN: f64 = 0.8;
+/// Заголовок «Призматический узник» на обычной доске — 0,8 и выше.
+const HEADER_MIN: f64 = 0.6;
+
+/// Орудия, у которых есть эталон иконки на панели.
+pub fn panel_tool_ids(t: &ScreensTemplate) -> Vec<&'static str> {
+    TOOL_IDS.iter().copied().filter(|id| t.tools.iter().any(|p| p.label == *id)).collect()
+}
+
+/// Места панели орудий слева направо: орудие или None — иконка без эталона.
+/// Первое пустое место — конец списка.
+pub fn read_tool_slots(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> Vec<Option<String>> {
+    let mut out = vec![];
+    let mut buf = [0.0f32; 12 * 18 * 3];
+    for i in 0..TOOL_SLOTS {
+        sample_into(frame, geo, tool_slot(i), 12, 18, 3, &mut buf);
+        normalize(&mut buf);
+        let (label, score) = nearest(&buf, &t.tools);
+        if label == "empty" {
+            break;
+        }
+        out.push((score >= TOOL_MIN && TOOL_IDS.contains(&label)).then(|| label.to_string()));
+    }
+    out
+}
+
+/// Призматических в хранилище; −1 — панель скрыта.
+pub fn read_chromatic(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> i32 {
+    let mut head_buf = [0.0f32; 92 * 20];
+    sample_into(frame, geo, CHROMATIC_HEADER, 92, 20, 1, &mut head_buf);
+    normalize(&mut head_buf);
+    let mut head = -1.0;
+    for h in &t.chromatic_header {
+        head = jmax(head, dot(&head_buf, h));
+    }
+    let mut filled = [false; 10];
+    let mut buf = [0.0f32; 12 * 16 * 3];
+    for (i, f) in filled.iter_mut().enumerate() {
+        sample_into(frame, geo, chromatic_slot(i), 12, 16, 3, &mut buf);
+        normalize(&mut buf);
+        let s = scores_by_label(&buf, &t.chromatic);
+        *f = get(&s, "filled").unwrap_or(-2.0) > get(&s, "empty").unwrap_or(-2.0);
+    }
+    // Хранилище заполняется по порядку: пустое место, за которым два занятых подряд, — занято.
+    for i in (0..=7).rev() {
+        if filled[i + 1] && filled[i + 2] {
+            filled[i] = true;
+        }
+    }
+    let n = filled.iter().filter(|&&f| f).count() as i32;
+    if n == 0 && head < HEADER_MIN {
+        -1
+    } else {
+        n
+    }
+}
+
+/// Цель забега; None — не узнана.
+pub fn read_objective(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> Option<String> {
+    let mut buf = [0.0f32; 80 * 15];
+    sample_into(frame, geo, OBJECTIVE, 80, 15, 1, &mut buf);
+    if normalize(&mut buf) < 3.0 {
+        return None;
+    }
+    let (label, score) = nearest(&buf, &t.objectives);
+    (score >= OBJECTIVE_MIN).then(|| label.to_string())
+}

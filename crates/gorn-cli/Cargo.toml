@@ -9,3 +9,4 @@ license.workspace = true
 gorn-prison.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
+png = "0.17"

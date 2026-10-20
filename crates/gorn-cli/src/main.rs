@@ -8,6 +8,7 @@
 //! --threads: 1 — один поток (по умолчанию для selfplay), 0 — все ядра.
 
 mod bench;
+mod frames;
 mod reference;
 mod solverbench;
 mod tune;
@@ -35,6 +36,7 @@ gorn-cli tune --report [--runs 20000] [--threads T=0]
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
                 [--rng N=100000] [--solve N=580] [--solve-rounds R=400] [--solve-pool T=4]
                 [--play N=32] [--play-rounds R=300] [--tune N=20000]
+                [--frames ПАПКА|data] [--frames-max N]
                 [--from K=0] [--jobs J=ядра] [--quick] [--tli ../gorn-tli]
     сверка с эталоном: веса, ГСЧ, забеги по хешу и целиком, решатель";
 
@@ -117,6 +119,8 @@ fn main() -> ExitCode {
                     play: num(&o, "play", if quick { 2 } else { 32 })?,
                     play_rounds: num(&o, "play-rounds", 300)?,
                     tune: num(&o, "tune", if quick { 2000 } else { 20_000 })?,
+                    frames: o.get("frames").cloned(),
+                    frames_max: num(&o, "frames-max", if quick { 40 } else { u32::MAX })?,
                 })
             }
             "play" => {
