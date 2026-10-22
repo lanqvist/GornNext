@@ -679,7 +679,9 @@ impl Ctx<'_> {
         if self.has(tool::FIRE) {
             v += p.fire_chance * k.open_v;
         }
-        if self.has(tool::BLACKLIST) && k.locked_count - 1 <= p.blacklist_locked {
+        // «Чёрный список»: запертых до открытия этой двери (прежняя модель — после).
+        let locked = if p.blacklist_before_open { k.locked_count } else { k.locked_count - 1 };
+        if self.has(tool::BLACKLIST) && locked <= p.blacklist_locked {
             v += p.blacklist_count as f64 * k.avg_rise;
         }
         v
@@ -922,7 +924,8 @@ impl Ctx<'_> {
         let e = self.m[WARDEN];
         let t = self.m[TIER + u(e)];
         self.best_target(e, 0); // и таблицы
-        let sw = self.swap_gain(t, e);
+        // После замены «Заменить» больше нет — только Пожирание или конец дня.
+        let sw = if self.m[USED] == USED_SWAP { f64::NEG_INFINITY } else { self.swap_gain(t, e) };
         self.best_hunt();
         let claws_gain = self.p.claws_gain;
         let k = &mut *self.k;

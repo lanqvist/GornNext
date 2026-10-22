@@ -1081,6 +1081,11 @@ impl PrisonAdapter {
                 if m.cells.get(m.warden as usize).map(CellMemory::kind) != Some(CellK::Inmate) {
                     return Position::No { problem: "нет едока", fallback: None };
                 }
+                if !m.first_bite && m.chain_targets.is_empty() {
+                    // После укуса экран выбора цели показывается и без целей (едок стал
+                    // Призматическим или есть некого) и проходит сам [кадры 21.10: 10 из 25].
+                    return Position::No { problem: "цепочка без подсвеченных целей", fallback: None };
+                }
                 if !m.chain_targets.is_empty() && !self.chain_fits() {
                     // Модель не объясняет подсвеченные цели: совет по самой редкой из подсвеченных.
                     let t = |n: i32| m.cells.get(n as usize).and_then(|c| c.t).unwrap_or(-1);
@@ -1093,9 +1098,13 @@ impl PrisonAdapter {
             }
             _ => {}
         }
-        let state = self.build();
+        let mut state = self.build();
         let decision =
             if m.step == Step::Manage || (m.step == Step::Chain && m.first_bite) { m.decision } else { None };
+        // Ряд решений без «Заменить», но с Пожиранием — замена в этот день уже была.
+        if decision.is_some_and(|d| !d.replace && (d.consume || d.hunt)) {
+            state.m[USED] = USED_SWAP;
+        }
         let allowed = Allowed {
             targets_shown: (m.step == Step::Chain && m.first_bite).then(|| m.chain_targets.clone()),
             hunting: m.step == Step::Hunt,
@@ -1240,6 +1249,20 @@ impl PrisonAdapter {
                 x[DOORS + i] = m.doors[i];
             }
             x[DOORS_N] = n as i32;
+            x[NEXT] = P_PATROL;
+            return;
+        }
+        if m.resume == Step::Patrol && !m.doors.is_empty() {
+            // Награда за цель приходит по клику на дверь, раньше хода надзирателя
+            // [факты 21.10: 10 выборов из 10 — надзиратель на старом месте]:
+            // обход ещё впереди, цель уже выполнена.
+            let n = m.doors.len().min(3);
+            for i in 0..n {
+                x[DOORS + i] = m.doors[i];
+            }
+            x[DOORS_N] = n as i32;
+            x[OBJECTIVE_ID] = -1;
+            x[OBJ_DONE] = 1;
             x[NEXT] = P_PATROL;
             return;
         }

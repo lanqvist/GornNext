@@ -56,7 +56,7 @@ pub fn greedy_code(s: &State) -> i32 {
             if j >= 0 {
                 return code(A_DEVOUR, j);
             }
-            code(if m[TIER + e as usize] <= 1 { A_SWAP } else { A_END }, 0)
+            code(if m[TIER + e as usize] <= 1 && m[USED] != USED_SWAP { A_SWAP } else { A_END }, 0)
         }
         P_CHAIN => code(A_CHAIN, lowest(targets(s, m[CHAIN_EATER]))),
         _ => panic!("тюрьма: забег окончен, ходов нет"),

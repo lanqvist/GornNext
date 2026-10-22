@@ -823,8 +823,9 @@ pub fn patrol(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
     progress(s, r, p, objective::WALK, steps);
 
     if cell != OFFICE && s.m[LOCK + u(cell)] == 1 {
+        let locked_before = popcount(locked_mask(s));
         open_cell(s, r, p, cell);
-        door_tools(s, r, p, cell);
+        door_tools(s, r, p, cell, locked_before);
     }
     if s.has_tool(tool::SHORTCHAIN) && steps <= p.shortchain_steps && r.chance(p.shortchain_chance) {
         open_random(s, r, p);
@@ -854,8 +855,8 @@ fn arrive(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
     }
 }
 
-/// Орудия при открытии двери обходом.
-fn door_tools(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
+/// Орудия при открытии двери обходом; locked_before — запертых до открытия этой двери.
+fn door_tools(s: &mut State, r: &mut Rng, p: &Params, c: i32, locked_before: i32) {
     if s.has_tool(tool::DOGTAG) && r.chance(p.dogtag_chance) {
         raise(s, r, p, c, 1);
     }
@@ -869,7 +870,10 @@ fn door_tools(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
     if s.has_tool(tool::FIRE) && s.m[TIER + u(c)] >= 0 && r.chance(p.fire_chance) {
         copy_inmate(s, r, p, c);
     }
-    if s.has_tool(tool::BLACKLIST) && popcount(locked_mask(s)) <= p.blacklist_locked {
+    // «Неоткрытых не больше 5» — до открытия этой двери [факты 21.10: при 6
+    // запертых до обхода — ни разу, 9 из 9; при ≤ 5 — срабатывает].
+    let locked = if p.blacklist_before_open { locked_before } else { popcount(locked_mask(s)) };
+    if s.has_tool(tool::BLACKLIST) && locked <= p.blacklist_locked {
         raise_random(s, r, p, p.blacklist_count, 1);
     }
 }
@@ -1091,12 +1095,14 @@ pub fn run_event(s: &mut State, r: &mut Rng, p: &Params, c: i32, ev: i32) {
 
 // ── замена ──────────────────────────────────────────────────────────────────
 
-/// Замена узника в камере надзирателя.
+/// Замена узника в камере надзирателя. После неё ряд решений открывается
+/// снова, уже без «Заменить»: новый узник может съесть кого-то в тот же день
+/// [кадры 21.10: 56 из 126 замен].
 pub fn swap(s: &mut State, r: &mut Rng, p: &Params) {
     let c = s.m[WARDEN];
     let cu = u(c);
     s.m[USED] = USED_SWAP;
-    s.m[NEXT] = P_DAYEND;
+    s.m[NEXT] = if p.swap_then_devour { P_MANAGE } else { P_DAYEND };
     let old_tier = s.m[TIER + cu];
     let old_beast = s.m[BEAST + cu];
     if old_tier < 0 {

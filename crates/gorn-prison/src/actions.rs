@@ -88,7 +88,10 @@ pub fn settle(s: &mut State, r: &mut Rng, p: &Params) {
                 }
             }
             P_MANAGE => {
-                if s.m[USED] != 0 || s.m[TIER + s.m[WARDEN] as usize] < 0 {
+                // После замены ряд решений — только если новому есть кого съесть.
+                let w = s.m[WARDEN];
+                let again = s.m[USED] == USED_SWAP && (targets(s, w) | hunt_targets(s)) != 0;
+                if (s.m[USED] != 0 && !again) || s.m[TIER + w as usize] < 0 {
                     s.m[NEXT] = P_DAYEND;
                     continue;
                 }
@@ -165,7 +168,9 @@ pub fn legal_codes(s: &State, out: &mut CodeBuf) -> usize {
                     push(code(A_HUNT, c));
                 }
             }
-            push(code(A_SWAP, 0));
+            if m[USED] != USED_SWAP {
+                push(code(A_SWAP, 0));
+            }
             push(code(A_END, 0));
         }
         P_CHAIN => {
@@ -215,9 +220,8 @@ pub fn apply_code(s: &mut State, c: i32, r: &mut Rng, p: &Params) -> Result<(), 
         }
         A_DEVOUR => ph == P_MANAGE && (targets(s, s.m[WARDEN]) >> arg) & 1 == 1,
         A_CHAIN => ph == P_CHAIN && (targets(s, s.m[CHAIN_EATER]) >> arg) & 1 == 1,
-        A_STOPCHAIN | A_SWAP | A_END => {
-            ph == if c >> 6 == A_STOPCHAIN { P_CHAIN } else { P_MANAGE }
-        }
+        A_STOPCHAIN | A_END => ph == if c >> 6 == A_STOPCHAIN { P_CHAIN } else { P_MANAGE },
+        A_SWAP => ph == P_MANAGE && s.m[USED] != USED_SWAP,
         A_HUNT => ph == P_MANAGE && (hunt_targets(s) >> arg) & 1 == 1,
         A_BESTOW | A_INSTIGATE => ph == P_OFFICE,
         A_ACCEPT | A_SKIP => ph == P_EVENT,

@@ -1,7 +1,8 @@
-//! Снимки эталона на TS (gorn-tli), снятые tools/reference.mts:
-//! tests/data/rng.txt — `rng <сид> 1 16`, tests/data/runs.txt — `runs <режим> <сид> 1 hash`.
-//! Полная сверка на миллионе сидов — `gorn-cli verify`; здесь — то, что
-//! должно проходить без node и без соседнего репозитория.
+//! Снимки, снятые tools/reference.mts: tests/data/rng.txt — `rng <сид> 1 16`
+//! эталона на TS (gorn-tli); tests/data/runs.txt — `runs <режим> <сид> 1 hash`
+//! движка с правилами 22.10 (замена, «Чёрный список»; в gorn-tli их нет —
+//! эталон больше не меняется, снимок — страж движка GornNext). Проходит без
+//! node и без соседнего репозитория.
 
 use gorn_prison::rng::{Label, Rng};
 use gorn_prison::runs::{Mode, Runner, Summary};

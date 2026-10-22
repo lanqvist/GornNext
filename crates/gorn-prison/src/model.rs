@@ -267,6 +267,13 @@ pub struct Params {
     pub brand_count: i32,
 
     pub instigate_doors: i32,
+
+    /// После замены ряд решений открывается снова (Пожирание в тот же день).
+    /// false — прежняя модель: замена завершает день (только для A/B самоигрой).
+    pub swap_then_devour: bool,
+    /// «Чёрный список» считает запертых до открытия двери; false — прежняя
+    /// модель: после открытия (только для A/B самоигрой).
+    pub blacklist_before_open: bool,
 }
 
 pub const DEFAULT_PARAMS: Params = Params {
@@ -339,4 +346,7 @@ pub const DEFAULT_PARAMS: Params = Params {
     brand_count: 4,
 
     instigate_doors: 1,
+
+    swap_then_devour: true,
+    blacklist_before_open: true,
 };
