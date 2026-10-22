@@ -18,6 +18,7 @@ pub mod runs;
 pub mod solver;
 pub mod state;
 pub mod tables;
+pub mod trace;
 pub mod view;
 
 pub use actions::{apply_code, apply_trusted, legal_codes, random_playout, start_run, CodeBuf, RunOptions};

@@ -12,6 +12,7 @@ mod bench;
 mod dbcheck;
 mod enginecheck;
 mod facts;
+mod fit;
 mod learn;
 mod liveab;
 mod debugtrace;
@@ -40,6 +41,9 @@ gorn-cli play [--seeds N=800] [--from K=0] [--mode new|flat|old|fixed] [--rounds
     самоигра с решателем (сиды 777000+g), как prison-solve-bench --play; fixed — без срока;
     --model old — решатель считает по прежней модели правил (замена завершает день, «Чёрный список»
     после открытия двери), игра — по нынешней
+gorn-cli fit [--db a.db,b.db] [--samples N=2000] [--iters K=3] [--out params-learned.json] [--synth N]
+    подгонка шансов движка по журналу фактов: апостериорные счёты бросков в розыгрышах, давших
+    ровно наблюдённое (EM); --synth — забеги по известным шансам, проверка, что fit их находит
 gorn-cli live-ab [--db a.db,b.db] [--rounds R=300] [--ref-rounds RR=5000] [--threads T=ядра]
     A/B моделей правил на позициях живых забегов: ход прежней и нынешней модели (R раундов),
     расхождения — глубокой оценкой по нынешним правилам (RR раундов, без отсечения)
@@ -303,6 +307,23 @@ fn main() -> ExitCode {
                     return Err("debug-trace <state.json> <seed> <rounds>".into());
                 }
                 debugtrace::run(a[0], a[1].parse().map_err(|_| "seed")?, a[2].parse().map_err(|_| "rounds")?)?;
+                Ok(true)
+            }
+            "fit" => {
+                let dbs: Vec<std::path::PathBuf> = match o.get("db") {
+                    Some(list) => list.split(',').map(std::path::PathBuf::from).collect(),
+                    None => {
+                        let d = std::path::PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("com.gorn.next");
+                        vec![d.join("prison-facts-history.db"), d.join("prison-facts.db")]
+                    }
+                };
+                fit::run(
+                    &dbs,
+                    num(&o, "samples", 2000)?,
+                    num(&o, "iters", 3)?,
+                    o.get("out").map(String::as_str),
+                    o.get("synth").map(|_| num(&o, "synth", 200)).transpose()?,
+                )?;
                 Ok(true)
             }
             "live-ab" => {

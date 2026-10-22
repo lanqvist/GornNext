@@ -92,7 +92,7 @@ pub fn moves(file: &str, code: i32, n: u32, cells: &[usize]) -> Result<(), Strin
         *hist.entry(key).or_default() += 1;
     }
     let mut v: Vec<_> = hist.into_iter().collect();
-    v.sort_by(|a, b| b.1.cmp(&a.1));
+    v.sort_by_key(|x| std::cmp::Reverse(x.1));
     for (k, c) in v {
         println!("{:>7.3} %  {k}", c as f64 * 100.0 / n as f64);
     }

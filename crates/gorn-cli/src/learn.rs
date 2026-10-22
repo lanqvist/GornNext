@@ -72,21 +72,21 @@ fn two_step(a: &State, b: &State, codes: &[i32], fields: &[usize], seed: u32, sa
 
 const TIERS: [&str; 6] = ["обычный", "необычный", "редкий", "эпический", "легендарный", "мифический"];
 
-struct Fact {
-    run: String,
-    ts: i64,
-    key: String,
-    day: i64,
-    state: State,
-    advised: i32,
+pub(crate) struct Fact {
+    pub(crate) run: String,
+    pub(crate) ts: i64,
+    pub(crate) key: String,
+    pub(crate) day: i64,
+    pub(crate) state: State,
+    pub(crate) advised: i32,
     /// Ходы решателя: код, среднее призм к концу.
-    options: Vec<(i32, f64)>,
-    storage: i64,
+    pub(crate) options: Vec<(i32, f64)>,
+    pub(crate) storage: i64,
     /// Экран успокоился к снимку (None — неизвестно, журнал до этапа 8).
-    settled: Option<bool>,
+    pub(crate) settled: Option<bool>,
 }
 
-fn load(db: &Path) -> Result<Vec<Fact>, String> {
+pub(crate) fn load(db: &Path) -> Result<Vec<Fact>, String> {
     let c = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| format!("{}: {e}", db.display()))?;
     // Колонка этапа 8; в журнале постарше её нет.
     let has_settled: bool = c
@@ -145,7 +145,7 @@ fn load(db: &Path) -> Result<Vec<Fact>, String> {
 }
 
 /// Видимые поля позиции: камеры (зверь, редкость, замок) и скаляры.
-fn visible() -> Vec<usize> {
+pub(crate) fn visible() -> Vec<usize> {
     let mut v = vec![];
     for c in 0..CELLS {
         v.extend([BEAST + c, TIER + c, LOCK + c]);
@@ -154,7 +154,7 @@ fn visible() -> Vec<usize> {
     v
 }
 
-fn diff(a: &State, b: &State, fields: &[usize]) -> Vec<usize> {
+pub(crate) fn diff(a: &State, b: &State, fields: &[usize]) -> Vec<usize> {
     fields.iter().copied().filter(|&i| a.m[i] != b.m[i]).collect()
 }
 

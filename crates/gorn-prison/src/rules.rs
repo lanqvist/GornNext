@@ -15,6 +15,7 @@ use crate::model::{
 };
 use crate::rng::Rng;
 use crate::state::*;
+use crate::trace::{self, Draw, What};
 use crate::tables::{EVENT_EXCL, EVENT_SPAWN, EVENT_W, SPAWN_OPENED, SPAWN_UNOPENED, TOOL_EXCL, TOOL_OFFER, TOOL_W};
 
 const C: i32 = CELLS as i32;
@@ -90,6 +91,16 @@ pub fn inmate_mask(s: &State) -> i32 {
 }
 
 // ── броски ──────────────────────────────────────────────────────────────────
+
+/// Шанс из `Params` по имени поля: тот же бросок, что `r.chance`, и запись для `fit`.
+#[inline]
+fn chance(r: &mut Rng, name: &'static str, q: f64) -> bool {
+    let ok = r.chance(q);
+    if trace::on() {
+        trace::record(Draw { what: What::Chance(name), cell: -1, value: ok as i32, floor: 0 });
+    }
+    ok
+}
 
 /// Редкость по долям, не ниже floor.
 pub fn roll_tier(r: &mut Rng, odds: &TierOdds, floor: i32) -> i32 {
@@ -279,7 +290,7 @@ pub fn relock(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
     if m[CHAIN_EATER] == c {
         m[CHAIN_EATER] = -1;
     }
-    if m[EVT + cu] == 0 && r.chance(p.relock_event) {
+    if m[EVT + cu] == 0 && chance(r, "relock_event", p.relock_event) {
         put_event(s, r, p, c);
     }
 }
@@ -336,6 +347,7 @@ pub fn preset(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
     }
     let floor = door_floor(s, c);
     s.m[PRE_TIER + cu] = roll_tier(r, &p.door_odds, floor);
+    trace::record(Draw { what: What::Door, cell: c, value: s.m[PRE_TIER + cu], floor });
     s.m[PRE_BEAST + cu] = r.int(4);
 }
 
@@ -350,6 +362,7 @@ pub fn open_cell(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
     if tier < 0 {
         let floor = door_floor(s, c);
         tier = roll_tier(r, &p.door_odds, floor);
+        trace::record(Draw { what: What::Door, cell: c, value: tier, floor });
         beast = r.int(4);
     }
     s.m[STAT_OPENED] += 1;
@@ -480,14 +493,14 @@ pub fn bite(s: &mut State, r: &mut Rng, p: &Params, e: i32, t: i32, in_chain: bo
     if be == LION && s.has_tool(tool::CROWN) {
         gain += p.crown_bonus;
     }
-    if s.has_tool(tool::WHIP) && r.chance(p.whip_chance) {
+    if s.has_tool(tool::WHIP) && chance(r, "whip_chance", p.whip_chance) {
         gain += 1;
     }
-    if in_chain && s.has_tool(tool::COLLAR) && r.chance(p.collar_chance) {
+    if in_chain && s.has_tool(tool::COLLAR) && chance(r, "collar_chance", p.collar_chance) {
         gain += 1;
     }
 
-    if !door && s.has_tool(tool::CAGE) && r.chance(p.cage_chance) {
+    if !door && s.has_tool(tool::CAGE) && chance(r, "cage_chance", p.cage_chance) {
         forget(s, t);
         s.m[LOCK + tu] = 1;
         s.m[PRE_TIER + tu] = -1;
@@ -524,10 +537,10 @@ pub fn bite(s: &mut State, r: &mut Rng, p: &Params, e: i32, t: i32, in_chain: bo
 
 /// «Ржавая пила» и «Железная дева мстителя»: после каждого Пожирания.
 fn after_devour(s: &mut State, r: &mut Rng, p: &Params, e: i32) {
-    if s.has_tool(tool::SAW) && r.chance(p.saw_chance) {
+    if s.has_tool(tool::SAW) && chance(r, "saw_chance", p.saw_chance) {
         raise(s, r, p, e, 1);
     }
-    if s.m[TIER + u(e)] >= 0 && s.has_tool(tool::REVENGE) && r.chance(p.revenge_chance) {
+    if s.m[TIER + u(e)] >= 0 && s.has_tool(tool::REVENGE) && chance(r, "revenge_chance", p.revenge_chance) {
         open_food(s, r, p, e);
     }
 }
@@ -615,7 +628,7 @@ pub fn morning(s: &mut State, r: &mut Rng, p: &Params) {
     if s.has_tool(tool::RAVENOUS) {
         ravenous(s, r, p);
     }
-    if s.has_tool(tool::COIN) && r.chance(p.coin_chance) {
+    if s.has_tool(tool::COIN) && chance(r, "coin_chance", p.coin_chance) {
         coin(s, r, p);
     }
 
@@ -701,7 +714,7 @@ fn ravenous(s: &mut State, r: &mut Rng, p: &Params) {
             continue;
         }
         remove(s, r, p, c);
-        if r.chance(p.ravenous_chance) {
+        if chance(r, "ravenous_chance", p.ravenous_chance) {
             gain += 1;
         }
     }
@@ -772,7 +785,7 @@ pub fn deal_doors(s: &mut State, r: &mut Rng, p: &Params) {
     let minus = s.has_tool(tool::FORGED) as i32 + s.has_tool(tool::WHIP) as i32 + s.has_tool(tool::STAKE) as i32;
     if minus > 0 {
         n -= minus;
-    } else if r.chance(p.one_less_door) {
+    } else if chance(r, "one_less_door", p.one_less_door) {
         n -= 1;
     }
     n = n.clamp(1, 3);
@@ -827,10 +840,10 @@ pub fn patrol(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
         open_cell(s, r, p, cell);
         door_tools(s, r, p, cell, locked_before);
     }
-    if s.has_tool(tool::SHORTCHAIN) && steps <= p.shortchain_steps && r.chance(p.shortchain_chance) {
+    if s.has_tool(tool::SHORTCHAIN) && steps <= p.shortchain_steps && chance(r, "shortchain_chance", p.shortchain_chance) {
         open_random(s, r, p);
     }
-    if s.has_tool(tool::SHACKLES) && steps >= p.shackles_steps && r.chance(p.shackles_chance) {
+    if s.has_tool(tool::SHACKLES) && steps >= p.shackles_steps && chance(r, "shackles_chance", p.shackles_chance) {
         raise_random(s, r, p, 1, 1);
     }
     arrive(s, r, p, cell);
@@ -857,17 +870,17 @@ fn arrive(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
 
 /// Орудия при открытии двери обходом; locked_before — запертых до открытия этой двери.
 fn door_tools(s: &mut State, r: &mut Rng, p: &Params, c: i32, locked_before: i32) {
-    if s.has_tool(tool::DOGTAG) && r.chance(p.dogtag_chance) {
+    if s.has_tool(tool::DOGTAG) && chance(r, "dogtag_chance", p.dogtag_chance) {
         raise(s, r, p, c, 1);
     }
-    if s.has_tool(tool::KEYS) && r.chance(p.keys_chance) {
+    if s.has_tool(tool::KEYS) && chance(r, "keys_chance", p.keys_chance) {
         open_cell(s, r, p, (c + C - 1) & CM);
         open_cell(s, r, p, (c + 1) & CM);
     }
-    if s.has_tool(tool::FORGED) && r.chance(p.forged_chance) {
+    if s.has_tool(tool::FORGED) && chance(r, "forged_chance", p.forged_chance) {
         open_random(s, r, p);
     }
-    if s.has_tool(tool::FIRE) && s.m[TIER + u(c)] >= 0 && r.chance(p.fire_chance) {
+    if s.has_tool(tool::FIRE) && s.m[TIER + u(c)] >= 0 && chance(r, "fire_chance", p.fire_chance) {
         copy_inmate(s, r, p, c);
     }
     // «Неоткрытых не больше 5» — до открытия этой двери [факты 21.10: при 6
@@ -1009,7 +1022,7 @@ pub fn run_event(s: &mut State, r: &mut Rng, p: &Params, c: i32, ev: i32) {
             }
             let mut gain = 0;
             for _ in 0..p.appetite_tries {
-                if r.chance(p.appetite_chance) {
+                if chance(r, "appetite_chance", p.appetite_chance) {
                     gain += 1;
                 }
             }
@@ -1125,8 +1138,9 @@ pub fn swap(s: &mut State, r: &mut Rng, p: &Params) {
         floor = floor.max((old_tier + 1).min(PRISMATIC));
     }
     let mut tier = roll_tier(r, &p.replace_odds, floor);
+    trace::record(Draw { what: What::Replace, cell: c, value: tier, floor });
     let mut beast = r.int(4);
-    if s.has_tool(tool::STAKE) && old_tier < LEGENDARY && tier < LEGENDARY && r.chance(p.stake_chance) {
+    if s.has_tool(tool::STAKE) && old_tier < LEGENDARY && tier < LEGENDARY && chance(r, "stake_chance", p.stake_chance) {
         tier = LEGENDARY;
     }
     if s.has_tool(tool::PESTLE) {
@@ -1161,7 +1175,7 @@ pub fn swap(s: &mut State, r: &mut Rng, p: &Params) {
             open_random(s, r, p);
         }
     }
-    if s.has_tool(tool::SCALES) && r.chance(p.scales_chance) {
+    if s.has_tool(tool::SCALES) && chance(r, "scales_chance", p.scales_chance) {
         reveal_best(s, r, p);
     }
     if tusk && s.has_tool(tool::TONGS) {
@@ -1400,7 +1414,7 @@ fn start_board(s: &mut State, r: &mut Rng, p: &Params) {
         place(s, r, p, c, beast, tier);
     }
     for c in 1..C {
-        if s.m[LOCK + u(c)] == 1 && r.chance(p.door_event) {
+        if s.m[LOCK + u(c)] == 1 && chance(r, "door_event", p.door_event) {
             put_event(s, r, p, c);
         }
     }
