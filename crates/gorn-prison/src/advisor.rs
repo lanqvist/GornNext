@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 use crate::actions::{describe, A_TOOL};
 use crate::adapter::{Cause, Position, PrisonAdapter, Step};
-use crate::hint::{hint, Hint, HintContext};
+use crate::hint::{heat, hint, HeatSpot, Hint, HintContext};
 use crate::policy::{default_weights, Instant};
 use crate::recognize::{default_geometry, read, reroll_box, treasure_boxes, Frame, Geometry, ReadOptions};
 use crate::solver::{state_key, SolveCache, SolveOptions, SolveStep, StopRule, STOP_DEFAULTS};
@@ -107,7 +107,8 @@ impl Reply {
                 "type": "hint", "id": id, "phase": phase, "frame": { "w": w, "h": h }, "text": hint.text,
                 "title": hint.title, "sub": hint.sub,
                 "marks": hint.marks.iter().map(|m| m.to_json()).collect::<Vec<_>>(),
-                "plate": hint.plate.map(|p| p.to_json()), "live": live,
+                "plate": hint.plate.map(|p| p.to_json()),
+                "heat": hint.heat.iter().map(HeatSpot::to_json).collect::<Vec<_>>(), "live": live,
             }),
             Reply::Settled { id, live } => json!({ "type": "settled", "id": id, "live": live }),
             Reply::Clear { id } => json!({ "type": "clear", "id": id }),
@@ -177,6 +178,10 @@ pub struct OwnAdvisor {
     held: Option<Held>,
     /// Варианты последней проверки (код, среднее).
     pub last_options: Vec<(i32, f64)>,
+    /// Варианты для тепловизора: код, среднее итога, отставание от лидера в SE.
+    last_heat: Vec<(i32, f64, f64)>,
+    /// Жар, уже отправленный с подсказкой: досчёт обновляет его, только если он изменился.
+    shown_heat: Vec<HeatSpot>,
     pub quick_ms: f64,
     pub stop: StopRule,
     cache: SolveCache,
@@ -214,6 +219,8 @@ impl OwnAdvisor {
             board_behind_treasure: false,
             held: None,
             last_options: vec![],
+            last_heat: vec![],
+            shown_heat: vec![],
             quick_ms: QUICK_MS,
             stop: STOP_DEFAULTS,
             cache: SolveCache::default(),
@@ -253,6 +260,7 @@ impl OwnAdvisor {
     /// Кадр: frame — RGBA (None — окно подарков без снимка). Ответы — в self.replies.
     pub fn handle(&mut self, msg: &Shot, frame: Option<&Frame>) {
         self.last_options.clear();
+        self.last_heat.clear();
         // Начало забега по логу — сброс памяти, даже если карты выбора не читаются.
         if msg.kind == ShotKind::Instruments && msg.fresh {
             self.adapter.start_run();
@@ -447,6 +455,7 @@ impl OwnAdvisor {
     /// Лучший ход решателя среди видимых на экране.
     fn pick_best(&mut self, res: &SolveStep, allowed: &crate::adapter::Allowed) -> Option<i32> {
         self.last_options = res.options.iter().filter(|o| allowed.allows(o.code)).map(|o| (o.code, o.mean)).collect();
+        self.last_heat = res.options.iter().filter(|o| allowed.allows(o.code)).map(|o| (o.code, o.mean, o.gap_se)).collect();
         let mut ranked: Vec<(i32, f64)> = res.options.iter().map(|o| (o.code, o.mean)).collect();
         ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         if allowed.allows(res.best) {
@@ -532,6 +541,11 @@ impl OwnAdvisor {
                 self.hold(&key, state, b, step, warden, day);
                 self.show(msg, b, "final", true, "уточнено", ctx, instant_code, &instant_text, w, h);
                 b
+            }
+            // Ход тот же; оценки для тепловизора досчитаны точнее — переслать их с подсказкой.
+            _ if heat(&self.last_heat, ctx) != self.shown_heat => {
+                self.show(msg, shown, "final", true, "", ctx, instant_code, &instant_text, w, h);
+                shown
             }
             _ => {
                 self.reply(Reply::Settled { id: msg.id, live: true });
@@ -619,6 +633,8 @@ impl OwnAdvisor {
         let parts: Vec<&str> = [ctx.reason.as_str(), reason.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
         let ctx2 = HintContext { reason: parts.join(" · "), ..ctx.clone() };
         let mut hn = hint(c, &ctx2);
+        hn.heat = heat(&self.last_heat, ctx);
+        self.shown_heat = hn.heat.clone();
         // «Уточнено» — только в журнал: на экране смену хода видно по вспышке.
         if !note.is_empty() {
             hn.text = format!("{} · {note}", hn.text);

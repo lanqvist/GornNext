@@ -570,6 +570,8 @@ fn main() {
         (key(Code::KeyM), "Ctrl+Alt+M"),
         // Подсказка в тюрьме вручную: если автоматический снимок не сработал.
         (key(Code::KeyP), "Ctrl+Alt+P"),
+        // Тепловизор доски: как решатель оценивает каждый вариант хода.
+        (key(Code::KeyH), "Ctrl+Alt+H"),
         // Пульт поверх игры; F — сразу к поиску цены.
         (key(Code::KeyT), "Ctrl+Alt+T"),
         (key(Code::KeyF), "Ctrl+Alt+F"),
@@ -609,6 +611,9 @@ fn main() {
                         Some("Ctrl+Alt+M") => st.layers.cycle_mode(),
                         Some("Ctrl+Alt+P") => {
                             let _ = st.tx.lock().unwrap().send(Event::Manual);
+                        }
+                        Some("Ctrl+Alt+H") => {
+                            let _ = st.tx.lock().unwrap().send(Event::Thermo);
                         }
                         Some("Ctrl+Alt+T") => st.layers.toggle_panel(None),
                         Some("Ctrl+Alt+F") => st.layers.toggle_panel(Some("prices")),

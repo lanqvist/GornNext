@@ -85,12 +85,41 @@ pub struct Hint {
     pub marks: Vec<HintMark>,
     /// None — плашка сверху по центру экрана.
     pub plate: Option<Plate>,
+    /// Тепловизор: жар каждого варианта хода (заполняет советник по оценкам решателя).
+    pub heat: Vec<HeatSpot>,
+}
+
+/// Вариант хода на тепловизоре: где он на экране и насколько хорош.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeatSpot {
+    /// Камера (центр и радиус) — свечение под ней.
+    pub cell: Option<CellAt>,
+    /// Карточка — свечение по её рамке.
+    pub card: Option<Box4>,
+    /// Оценка решателя — среднее итога забега, «4,8».
+    pub label: String,
+    /// Накал 0…1: 1 — лучший вариант, ниже — на сколько хуже (шаг — 1 призм.).
+    pub t: f64,
+    /// Не лучший, но разница в пределах погрешности: «≈ почти равно».
+    pub near: bool,
+}
+
+impl HeatSpot {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "cell": self.cell.map(|c| json!({ "x": c.x, "y": c.y, "r": c.r })),
+            "card": self.card.map(|b| b.to_vec()),
+            "label": self.label,
+            "t": self.t,
+            "near": self.near,
+        })
+    }
 }
 
 impl Hint {
     /// Подсказка без меток: только подпись.
     pub fn plain(text: &str) -> Hint {
-        Hint { text: text.to_string(), title: text.to_string(), sub: String::new(), marks: vec![], plate: None }
+        Hint { text: text.to_string(), title: text.to_string(), sub: String::new(), marks: vec![], plate: None, heat: vec![] }
     }
 
     /// Ход из двух кликов: на плашке и метках — номера шагов.
@@ -246,6 +275,7 @@ pub fn hint(code: i32, ctx: &HintContext) -> Hint {
             sub: format!("затем «{next}»"),
             marks,
             plate: cancel.map(Plate::Card),
+            heat: vec![],
         };
     }
 
@@ -383,7 +413,80 @@ pub fn hint(code: i32, ctx: &HintContext) -> Hint {
         text = format!("{text} · {}", ctx.reason);
     }
     let sub = [then.as_str(), ctx.reason.as_str()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
-    Hint { text, title, sub, marks, plate }
+    Hint { text, title, sub, marks, plate, heat: vec![] }
+}
+
+/// Где вариант хода на экране: камера и/или карточка. None — показать негде
+/// (событие: кнопки окна события не распознаются).
+fn spot_of(code: i32, ctx: &HintContext) -> Option<(Option<CellAt>, Option<Box4>)> {
+    let at = ctx.board.map(|b| &b.at);
+    let kind = code >> 6;
+    let arg = code & 63;
+    let cell = at.and_then(|a| a.cells.get(arg as usize)).copied();
+    let card = |k: &str| -> Option<Box4> {
+        let (at, b) = (at?, ctx.board?);
+        b.decision.as_ref()?;
+        let i = at.decision_kinds.iter().position(|x| x == k)?;
+        at.decision_cards.get(i).copied()
+    };
+    let cancel = at.and_then(|a| a.cancel);
+    let spot = match kind {
+        A_PATROL => {
+            let i = ctx.board.and_then(|b| b.doors.iter().position(|&d| d as i32 == arg));
+            (cell, i.and_then(|i| at.and_then(|a| a.door_cards.get(i))).copied())
+        }
+        A_DEVOUR | A_CHAIN | A_HUNT => (cell, None),
+        // Выбор цели до первого укуса: Замена и конец дня — через «Отменить».
+        A_SWAP | A_END if ctx.cancel_first => (None, cancel),
+        A_SWAP => (None, card("replace")),
+        A_END => (None, card("end")),
+        A_BESTOW => (None, card("bestow")),
+        A_INSTIGATE => (None, card("instigate")),
+        A_STOPCHAIN => (None, cancel),
+        A_TOOL => {
+            let id = crate::model::TOOL_IDS[arg as usize];
+            let p = ctx.pick?;
+            let i = p.cards.iter().position(|c| c.as_deref() == Some(id))?;
+            (None, p.boxes.get(i).copied())
+        }
+        A_GIFT => (None, ctx.gifts.as_ref().and_then(|g| g.get(arg as usize)).copied()),
+        A_REROLL => (None, ctx.reroll),
+        _ => (None, None),
+    };
+    (spot.0.is_some() || spot.1.is_some()).then_some(spot)
+}
+
+/// Тепловизор: варианты хода (код, среднее итога, отставание от лидера в SE)
+/// → жар на экране. Два варианта в одном месте (Замена и конец дня через
+/// «Отменить») — показывается лучший из них.
+pub fn heat(options: &[(i32, f64, f64)], ctx: &HintContext) -> Vec<HeatSpot> {
+    use crate::solver::{SWITCH_GAP, SWITCH_SE};
+    let best = options.iter().map(|o| o.1).fold(f64::NEG_INFINITY, f64::max);
+    if !best.is_finite() {
+        return vec![];
+    }
+    // Два знака после запятой, только если с одним разные оценки выглядят одинаково.
+    let one: Vec<String> = options.iter().map(|o| format!("{:.1}", o.1)).collect();
+    let close = (1..one.len()).any(|i| one[..i].contains(&one[i]));
+    let fmt = |v: f64| if close { format!("{v:.2}") } else { format!("{v:.1}") }.replace('.', ",");
+    let mut ranked: Vec<&(i32, f64, f64)> = options.iter().collect();
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let mut out: Vec<HeatSpot> = vec![];
+    for &&(code, mean, gap_se) in &ranked {
+        let Some((cell, card)) = spot_of(code, ctx) else { continue };
+        if out.iter().any(|h| h.cell == cell && h.card == card) {
+            continue;
+        }
+        let d = best - mean;
+        out.push(HeatSpot {
+            cell,
+            card,
+            label: fmt(mean),
+            t: (1.0 - d).clamp(0.25, 1.0),
+            near: d > 0.0 && !(d >= SWITCH_GAP && gap_se >= SWITCH_SE),
+        });
+    }
+    out
 }
 
 #[cfg(test)]
@@ -454,6 +557,24 @@ mod tests {
         let Some(Plate::Yard { at, anchor }) = h.plate else { panic!("{:?}", h.plate) };
         assert_eq!(anchor, Anchor::Top);
         assert!(at[1] > 139.0 + 70.0 && at[0] + 4.3 * 70.0 / 2.0 <= 1416.0 - 70.0 * 1.6 + 1e-9, "{at:?}");
+    }
+
+    #[test]
+    fn heat_ranks_options_and_marks_near() {
+        let b = board(manage(), vec![]);
+        let ctx = HintContext { board: Some(&b), warden: Some(14), ..Default::default() };
+        let opts = [(A_END << 6, 4.1, 6.0), (A_DEVOUR << 6 | 5, 4.8, 0.0), (A_DEVOUR << 6 | 13, 4.7, 1.2)];
+        let h = heat(&opts, &ctx);
+        let labels: Vec<&str> = h.iter().map(|s| s.label.as_str()).collect();
+        assert_eq!(labels, ["4,8", "4,7", "4,1"], "лучший первым");
+        assert_eq!(h[0].t, 1.0);
+        assert!(!h[0].near && h[1].near && !h[2].near, "≈ — только в пределах погрешности");
+        assert_eq!(h[0].cell.map(|c| c.x), Some(1392.0));
+        assert_eq!(h[2].card, Some([966.0, 747.0, 1298.0, 925.0]), "конец дня — на карточке");
+        // Одинаковые при одном знаке — два знака.
+        let h = heat(&[(A_DEVOUR << 6 | 5, 4.84, 0.0), (A_DEVOUR << 6 | 13, 4.81, 0.5)], &ctx);
+        assert_eq!(h[0].label, "4,84");
+        assert_eq!(h[1].label, "4,81");
     }
 
     #[test]

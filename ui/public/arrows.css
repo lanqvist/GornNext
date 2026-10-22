@@ -185,6 +185,34 @@ body,
   padding: 1px 8px;
 }
 
+/* Тепловизор (Ctrl+Alt+H): статичная картинка на 5 секунд, без анимаций. */
+.prison-thermo {
+  position: fixed;
+  inset: 0;
+}
+
+.prison-thermo-dim {
+  fill: rgb(8, 14, 26);
+  opacity: 0.58;
+}
+
+.prison-thermo-glow {
+  mix-blend-mode: screen;
+}
+
+.prison-heat-chip {
+  fill: rgba(10, 8, 7, 0.9);
+  stroke-width: 2;
+}
+
+.prison-heat-label {
+  font: 600 19px 'Segoe UI', system-ui, sans-serif;
+}
+
+.prison-heat-label.best {
+  font-weight: 800;
+}
+
 /*
  * Три вспышки на новый ход — и метки стоят. Бесконечная пульсация
  * перерисовывала прозрачное окно во весь 4K-монитор 60 раз в секунду:

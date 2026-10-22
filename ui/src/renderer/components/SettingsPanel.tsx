@@ -483,8 +483,8 @@ export function SettingsPanel({
           </div>
           <p className="muted small">
             {tr(
-              'Единственная функция Горна, которая смотрит на экран: в тюрьме по строкам лога снимается экран с игрой, распознаётся доска и считается ход. Снимки никуда не уходят и сохраняются, только если включено «Сохранять кадры». Нужен режим «окно без рамки» на весь монитор. Ctrl+Alt+P — снять кадр вручную.',
-              'The one Gorn feature that looks at the screen: in the prison the screen with the game is captured on log lines, the board is read and a move is worked out. Captures are never sent anywhere and are saved only with “Save captures” on. Needs borderless fullscreen. Ctrl+Alt+P captures by hand.',
+              'Единственная функция Горна, которая смотрит на экран: в тюрьме по строкам лога снимается экран с игрой, распознаётся доска и считается ход. Снимки никуда не уходят и сохраняются, только если включено «Сохранять кадры». Нужен режим «окно без рамки» на весь монитор. Ctrl+Alt+P — снять кадр вручную, Ctrl+Alt+H — тепловизор: как решатель оценивает каждый вариант хода.',
+              'The one Gorn feature that looks at the screen: in the prison the screen with the game is captured on log lines, the board is read and a move is worked out. Captures are never sent anywhere and are saved only with “Save captures” on. Needs borderless fullscreen. Ctrl+Alt+P captures by hand, Ctrl+Alt+H shows the heat view: how the solver rates every move.',
             )}
           </p>
         </section>

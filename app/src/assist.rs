@@ -50,6 +50,8 @@ const MAX_SOLVE_THREADS: usize = 4;
 pub enum Event {
     Lines(Vec<String>),
     Manual,
+    /// Ctrl+Alt+H: тепловизор доски поверх подсказки.
+    Thermo,
     Reply(Reply),
     OverlayReady,
     SetEnabled(bool),
@@ -212,6 +214,7 @@ impl Assist {
         match e {
             Event::Lines(lines) => self.on_lines(lines),
             Event::Manual => self.capture_now(),
+            Event::Thermo => self.layer.thermo(),
             Event::Reply(r) => self.on_reply(r),
             Event::OverlayReady => self.layer.on_ready(),
             Event::SetEnabled(on) => self.set_enabled(on),

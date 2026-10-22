@@ -263,12 +263,27 @@ impl ArrowLayer {
             Some(Plate::Yard { at, anchor }) => json!({ "at": pt(at), "anchor": anchor.name() }),
             None => json!({ "at": [cw / 2.0, ch * 0.12], "anchor": "top" }),
         };
+        // Тепловизор: жар вариантов хода — показывается по Ctrl+Alt+H.
+        let heat: Vec<Value> = hint
+            .heat
+            .iter()
+            .map(|h| {
+                json!({
+                    "cell": h.cell.map(|c| json!({ "at": pt([c.x, c.y]), "r": c.r * sx })),
+                    "card": h.card.map(|b| bx(&b)),
+                    "label": h.label,
+                    "t": h.t,
+                    "near": h.near,
+                })
+            })
+            .collect();
         let payload = json!({
             "title": hint.title,
             "sub": hint.sub,
             "twoSteps": hint.two_steps(),
             "marks": marks,
             "plate": plate,
+            "heat": heat,
             "live": live,
             "phase": phase,
         });
@@ -302,6 +317,15 @@ impl ArrowLayer {
         }
         self.hide_window();
         self.show_window();
+    }
+
+    /// Тепловизор по хоткею: окно само держит его несколько секунд.
+    pub fn thermo(&mut self) {
+        if self.ready && self.visible {
+            if let Some(win) = &self.window {
+                let _ = win.emit_to(win.label(), "prison:thermo", ());
+            }
+        }
     }
 
     /// Совет подтвердился проигрыванием вариантов — тот же ход.
