@@ -33,7 +33,7 @@ use crate::actions::{apply_code, apply_trusted, legal_codes, CodeBuf};
 use crate::model::{Params, CELLS};
 use crate::policy::{Instant, Weights};
 use crate::rng::{mix_pair as mix, Rng};
-use crate::rules::random_event;
+use crate::rules::{final_value, random_event};
 use crate::state::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -201,7 +201,7 @@ impl Player {
             k += 1;
             apply_trusted(work, c, rng, p);
         }
-        work.m[STORAGE] as f64 + TIE * work.m[OBJ_DONE] as f64 + TIE * TIE * work.m[OBJ_PROGRESS] as f64
+        final_value(work, p) + TIE * work.m[OBJ_DONE] as f64 + TIE * TIE * work.m[OBJ_PROGRESS] as f64
     }
 }
 

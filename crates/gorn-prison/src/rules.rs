@@ -316,6 +316,18 @@ pub fn settle_tier(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
     }
 }
 
+/// Итог забега для решателя: призмы в хранилище + `red_value` за каждого
+/// Величайшего (красного) на доске.
+pub fn final_value(s: &State, p: &Params) -> f64 {
+    let mut reds = 0;
+    for c in 1..CELLS {
+        if s.m[LOCK + c] == 0 && s.m[TIER + c] == SUPREME {
+            reds += 1;
+        }
+    }
+    s.m[STORAGE] as f64 + p.red_value * reds as f64
+}
+
 /// +n к редкости узника камеры c (если он там есть).
 pub fn raise(s: &mut State, r: &mut Rng, p: &Params, c: i32, n: i32) {
     if s.m[TIER + u(c)] < 0 || n <= 0 {
@@ -1465,6 +1477,24 @@ mod tests {
         s.m[LOCK + c] = 0;
         s.m[BEAST + c] = beast;
         s.m[TIER + c] = tier;
+    }
+
+    /// Итог: призмы + red_value за каждого Величайшего на открытой камере.
+    #[test]
+    fn final_value_counts_reds_on_board() {
+        let p = DEFAULT_PARAMS;
+        let mut s = State::new();
+        let mut r = Rng::new(1);
+        new_run(&mut s, &mut r, &p, RunSetup { start: 0, objective: -1, tools: 0, start_pick: false });
+        for c in 1..CELLS {
+            s.m[LOCK + c] = 1;
+            s.m[TIER + c] = -1;
+        }
+        s.m[STORAGE] = 10;
+        put(&mut s, 3, LION, SUPREME);
+        put(&mut s, 5, RAT, SUPREME);
+        put(&mut s, 6, WOLF, 3);
+        assert!((final_value(&s, &p) - (10.0 + 2.0 * p.red_value)).abs() < 1e-9);
     }
 
     /// Журнал фактов 21.10 21:50:02: мамонт 3 съел волка 3 и мог стать крысой 4 —

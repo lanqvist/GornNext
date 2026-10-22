@@ -320,7 +320,12 @@ impl Ctx<'_> {
         for t in 0..5 {
             k.val[t] = w[W_VAL1 + t] + (w[W_VAL0 + t] - w[W_VAL1 + t]) * k.frac;
         }
-        k.prism_v = if m[STORAGE] >= p.storage { k.val[4] } else { 1.0 + w[W_GIFT] };
+        // Величайший: шанс стать Призматическим (при полном хранилище — нет) плюс
+        // красный сундук в конце, если не станет (`red_value`; 0 — как до 22.10).
+        let full = m[STORAGE] >= p.storage;
+        let v4 = if full && p.red_value > 0.0 { 0.0 } else { k.val[4] };
+        k.val[4] = v4 + p.red_value * (1.0 - v4);
+        k.prism_v = if full { k.val[4] } else { 1.0 + w[W_GIFT] };
         k.val[5] = k.prism_v;
         k.tools = m[TOOLS];
         k.any_tier = m[START] == start_event::CAGEFIGHT;

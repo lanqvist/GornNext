@@ -92,6 +92,9 @@ pub struct Game {
     pub instant: i32,
     pub solver: i32,
     pub hash: u64,
+    /// Итог с красными (`final_value` по правилам игры p).
+    pub instant_v: f64,
+    pub solver_v: f64,
 }
 
 /// Забег g (сид 777000+g, тема g % 5): мгновенной стратегией и с решателем.
@@ -105,6 +108,7 @@ pub fn play_game_model(g: u32, mode: PlayMode, p: &Params, model: &Params, pool:
     let mut inst = Instant::new();
     let mut buf: CodeBuf = [0; 32];
     let mut scores = [0; 2];
+    let mut values = [0.0; 2];
     let mut h = StreamHash::new();
     for (k, use_solver) in [false, true].into_iter().enumerate() {
         let mut s = State::new();
@@ -124,20 +128,15 @@ pub fn play_game_model(g: u32, mode: PlayMode, p: &Params, model: &Params, pool:
             mv += 1;
         }
         scores[k] = s.m[STORAGE];
+        values[k] = gorn_prison::rules::final_value(&s, p);
     }
-    Game { g, instant: scores[0], solver: scores[1], hash: h.finish() }
+    Game { g, instant: scores[0], solver: scores[1], hash: h.finish(), instant_v: values[0], solver_v: values[1] }
 }
 
 /// `gorn-cli play`: самоигра N забегов; threads — забегов параллельно, solver_threads — пул на поиск.
-/// old_model — решатель считает по прежней модели правил (замена, «Чёрный список»), игра — по нынешней.
-pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: usize, quiet: bool, old_model: bool) {
+/// model — по чему считает решатель (прежняя модель — варианты rules-check), игра — по нынешним правилам.
+pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: usize, quiet: bool, model: &Params) {
     let p = &DEFAULT_PARAMS;
-    let model = &Params {
-        swap_then_devour: !old_model,
-        blacklist_before_open: !old_model,
-        horn_eaters_snapshot: !old_model,
-        ..DEFAULT_PARAMS
-    };
     let solver_pool =
         (solver_threads > 1).then(|| rayon::ThreadPoolBuilder::new().num_threads(solver_threads).build().unwrap());
     let t0 = Clock::now();
@@ -146,7 +145,7 @@ pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: u
             .map(|g| {
                 let r = play_game_model(g, mode, p, model, solver_pool.as_ref());
                 if !quiet {
-                    println!("{} {} {}", r.g, r.instant, r.solver);
+                    println!("{} {:.2} {:.2} {}", r.g, r.instant_v, r.solver_v, r.solver);
                 }
                 r
             })
@@ -159,15 +158,16 @@ pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: u
         v.sort_by_key(|r| r.g);
         if !quiet {
             for r in &v {
-                println!("{} {} {}", r.g, r.instant, r.solver);
+                println!("{} {:.2} {:.2} {}", r.g, r.instant_v, r.solver_v, r.solver);
             }
         }
         v
     };
     let sec = t0.elapsed().as_secs_f64();
-    let si: i64 = games.iter().map(|r| r.instant as i64).sum();
-    let ss: i64 = games.iter().map(|r| r.solver as i64).sum();
-    let d: Vec<f64> = games.iter().map(|r| (r.solver - r.instant) as f64).collect();
+    // Итог с красными (призмы + red_value за каждого Величайшего на доске).
+    let si: f64 = games.iter().map(|r| r.instant_v).sum();
+    let ss: f64 = games.iter().map(|r| r.solver_v).sum();
+    let d: Vec<f64> = games.iter().map(|r| r.solver_v - r.instant_v).collect();
     let md = d.iter().sum::<f64>() / d.len() as f64;
     let se = (d.iter().map(|x| (x - md) * (x - md)).sum::<f64>() / (d.len() as f64 * (d.len() as f64 - 1.0).max(1.0))).sqrt();
     let mut h = StreamHash::new();
@@ -178,8 +178,8 @@ pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: u
     }
     println!(
         "# {mode:?}: забегов {n}, мгновенная {:.3}, с проверкой {:.3} (+{md:.3} ± {se:.3}), {sec:.1} с, {:.2} с на забег (потоков {threads}×{solver_threads}), хеш {:016x}",
-        si as f64 / n as f64,
-        ss as f64 / n as f64,
+        si / n as f64,
+        ss / n as f64,
         sec / n as f64,
         h.finish()
     );

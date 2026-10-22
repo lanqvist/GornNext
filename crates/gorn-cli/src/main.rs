@@ -38,10 +38,11 @@ gorn-cli bench [--selfplay N=200000] [--threads T=0] [--ts] [--tli ../gorn-tli]
     самоигра (один поток и T потоков, 0 — все ядра); --ts — затем то же в эталоне TS
 gorn-cli selfplay [--seeds N=200000] [--from K=0] [--mode instant|random] [--threads T=1]
 gorn-cli play [--seeds N=800] [--from K=0] [--mode new|flat|old|fixed] [--rounds R=400]
-              [--threads T=1] [--solver-threads S=1] [--quiet] [--model new|old]
+              [--threads T=1] [--solver-threads S=1] [--quiet] [--model new|old] [--old вариант,…]
     самоигра с решателем (сиды 777000+g), как prison-solve-bench --play; fixed — без срока;
     --model old — решатель считает по прежней модели правил (замена завершает день, «Чёрный список»
-    после открытия двери, «Рог» с проверкой цели на ходу), игра — по нынешней
+    после открытия двери, «Рог» с проверкой цели на ходу), игра — по нынешней; --old — решатель по
+    вариантам rules-check (и no_red_value — итог без красных); итог — призмы + red_value × красные
 gorn-cli fit [--db a.db,b.db] [--samples N=2000] [--iters K=3] [--out params-learned.json] [--synth N]
     подгонка шансов движка по журналу фактов: апостериорные счёты бросков в розыгрышах, давших
     ровно наблюдённое (EM); --synth — забеги по известным шансам, проверка, что fit их находит
@@ -201,10 +202,11 @@ fn main() -> ExitCode {
                     num(&o, "threads", 1)? as usize,
                     num(&o, "solver-threads", 1)? as usize,
                     o.contains_key("quiet"),
-                    match o.get("model").map(String::as_str) {
-                        None | Some("new") => false,
-                        Some("old") => true,
-                        Some(m) => return Err(format!("--model: {m}")),
+                    &match (o.get("model").map(String::as_str), o.get("old")) {
+                        (_, Some(list)) => rulescheck::with_variants(list)?,
+                        (None | Some("new"), None) => gorn_prison::DEFAULT_PARAMS,
+                        (Some("old"), None) => rulescheck::with_variants(rulescheck::LEGACY)?,
+                        (Some(m), None) => return Err(format!("--model: {m}")),
                     },
                 );
                 Ok(true)

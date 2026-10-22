@@ -30,10 +30,15 @@ pub(crate) struct Variant {
 /// Прежние толкования до правок 22.10 — «прежняя модель» для live-ab и play.
 pub(crate) const LEGACY: &str = "swap_ends_day,blacklist_after_open,horn_check_on_turn";
 
-/// Нынешние правила с вариантами по именам через запятую.
+/// Нынешние правила с вариантами по именам через запятую. Кроме вариантов
+/// правил — `no_red_value`: итог без красных (только призмы, как до 22.10).
 pub(crate) fn with_variants(names: &str) -> Result<Params, String> {
     let mut p = DEFAULT_PARAMS;
     for name in names.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        if name == "no_red_value" {
+            p.red_value = 0.0;
+            continue;
+        }
         let v = VARIANTS.iter().find(|v| v.name == name).ok_or(format!("нет варианта {name}"))?;
         (v.apply)(&mut p);
     }
