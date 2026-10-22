@@ -9,6 +9,8 @@
 // по одной в секунду (вежливо к чужому серверу), берёт номер и иконку,
 // русское название — из русского словаря по тому же ключу страницы.
 // Прерванный прогон продолжается с места: страницы кэшируются в target/tlidb.
+// У легендарки страница называет и её базу («base: 4647»): в логе подбор
+// легендарки — номер базы, а пробивка и сравнение — номер самой легендарки.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -74,6 +76,7 @@ for (const x of wanted) {
   }
   const icon = /https?:\/\/cdn\.tlidb\.com\/[^"']*\/Icon[^"']*\.webp/.exec(html)?.[0] ?? null;
   const r = ru.get(x.value);
+  const base = x.desc === 'Legendary' ? Number(/base:\s*(\d+)/.exec(html)?.[1]) || null : null;
   out.push({
     id: Number(id),
     name: x.label,
@@ -81,6 +84,7 @@ for (const x of wanted) {
     type: x.desc,
     typeRu: r?.desc ?? null,
     icon,
+    ...(base ? { base } : {}),
     inItems: items.has(Number(id)),
   });
   if (n % 50 === 0) console.log(`  ${n}/${wanted.length}`);

@@ -28,6 +28,7 @@ pub struct Patterns {
     pub bag_remove: Regex,
     pub item_change: Regex,
     pub item_add: Regex,
+    pub gear_identity: Regex,
     pub enter_level: Regex,
     pub level_path: Regex,
     pub level_ids: Regex,
@@ -59,6 +60,9 @@ pub fn patterns() -> &'static Patterns {
             item_change: rx(&format!(r"{c}ItemChange@\s*ProtoName=(\w+)\s+(start|end)")),
             // ItemChange@ Add Id=10321_25b2b109-… BagNum=1 in PageId=103 SlotId=53
             item_add: rx(&format!(r"{c}ItemChange@\s*Add\s+Id=(\d+)_[0-9a-fA-F-]+\s+BagNum=(\d+)\s+in\s+PageId=(\d+)\s+SlotId=(\d+)")),
+            // Сравнение при наведении на вещь: база и легендарка на ней (0 — не легендарка).
+            // AttributeMgr:SetPlayerEquipment(BaseId=4647, GoldId=113107, 6)
+            gear_identity: rx(&format!(r"{c}AttributeMgr:SetPlayerEquipment\(BaseId=(\d+),\s*GoldId=(\d+)")),
             enter_level: rx(&format!(r"{c}LevelMgr:_EnterLevelSuccess\(\)\s*(\d+)")),
             // Ассет — папка, в которой лежит .umap.
             level_path: rx(&format!(r"{c}LevelMgr@:LevelPath,\s*Model\s*=\s*Content/Art/(?:[^\s/]+/)*([^\s/]+)/[^\s/]+\.umap")),

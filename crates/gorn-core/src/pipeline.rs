@@ -10,6 +10,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use serde::Serialize;
 
+use crate::gear::GearBaseLookup;
 use crate::inventory::{InventoryTracker, SlotState};
 use crate::parser::EventParser;
 use crate::patterns::{patterns, MapKeyLookup};
@@ -53,6 +54,10 @@ pub struct AnalyzeOptions<'a> {
     pub is_map_key: Option<MapKeyLookup<'a>>,
     /// Файл — текущий лог, который игра ещё дописывает.
     pub current: bool,
+    /// База легендарки — из справочника снаряжения. Задана — выпавшая база
+    /// опознаётся легендаркой по пробивке и сравнению (`gear::identify`);
+    /// у эталона опознания нет — для сверки с ним None.
+    pub gear_base: Option<GearBaseLookup<'a>>,
 }
 
 /// Строки как у `readline` (crlfDelay: Infinity).
@@ -116,6 +121,15 @@ pub fn analyze_bytes(bytes: &[u8], opts: AnalyzeOptions) -> AnalysisResult {
             }
         }
         let Some(ev) = parser.parse(raw) else { continue };
+        if let Some(base_of) = opts.gear_base {
+            if let Some((base, unique, ts)) = crate::gear::evidence(&ev, base_of) {
+                crate::gear::identify(segmenter.runs_mut(), base, unique, ts, base_of);
+            }
+        }
+        // Сравнение при наведении — только улика опознания, не событие для счётчиков.
+        if matches!(ev, LogEvent::GearIdentity { .. }) {
+            continue;
+        }
         // Пробивка с фильтрами по аффиксам — цена ролла, а не базы: для разбора
         // файла её нет (как у эталона); цену экземпляра ставит движок.
         if matches!(ev, LogEvent::FilteredPrice(_)) {
@@ -153,7 +167,7 @@ pub fn analyze_bytes(bytes: &[u8], opts: AnalyzeOptions) -> AnalysisResult {
             LogEvent::LevelIds { level_type, .. } => segmenter.note_level_type(level_type),
             LogEvent::EnterLevel { ts, area_id, .. } => segmenter.enter_level(ts, area_id),
             LogEvent::PriceObservation(p) => prices.push(p),
-            LogEvent::FilteredPrice(_) => {}
+            LogEvent::FilteredPrice(_) | LogEvent::GearIdentity { .. } => {}
             LogEvent::PlayerInfo(p) => {
                 let merged = merge_player_info(players.get(&p.player_id), &p);
                 players.insert(p.player_id.clone(), merged);

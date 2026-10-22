@@ -90,7 +90,7 @@ pub fn write(dir: &Path, db: &Path) -> Result<Value, String> {
         .filter_map(|it| it["id"].as_i64())
         .collect();
     let is_key = |id: i64| keys.contains(&id);
-    let r = retro_scan(dir, None, AnalyzeOptions { is_map_key: Some(&is_key), current: false }).map_err(err)?;
+    let r = retro_scan(dir, None, AnalyzeOptions { is_map_key: Some(&is_key), current: false, gear_base: None }).map_err(err)?;
     let s = Storage::open(db).map_err(err)?;
     let runs = &r.runs;
     let season = r.latest_season_id;

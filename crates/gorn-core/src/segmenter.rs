@@ -176,6 +176,11 @@ impl RunSegmenter {
         self.current.as_ref()
     }
 
+    /// Открытый и закрытые забеги — для опознания выпавшего снаряжения.
+    pub fn runs_mut(&mut self) -> impl Iterator<Item = &mut Run> {
+        self.current.iter_mut().chain(self.runs.iter_mut())
+    }
+
     /// Завершает открытый забег. Вызывать в конце файла.
     pub fn finish(&mut self, last_ts: i64) -> Vec<Run> {
         self.close_current(last_ts);

@@ -326,6 +326,9 @@ pub struct CatalogueItem {
     /// База снаряжения из `gear.json`: название есть, но цена — как у
     /// снаряжения вне справочника (нижняя цена сообщества: зависит от ролла).
     pub gear: bool,
+    /// Легендарка: номер её базы. Подбор пишет в лог базу, а пробивка — саму
+    /// легендарку; по базе выпавший экземпляр опознаётся (`gear::identify`).
+    pub base: Option<ConfigBaseId>,
 }
 
 impl CatalogueItem {
@@ -341,6 +344,7 @@ impl CatalogueItem {
                     type_cn: it["typeCn"].as_str().map(str::to_string),
                     icon: it["icon"].as_str().map(str::to_string),
                     gear: false,
+                    base: it["base"].as_i64(),
                 })
             })
             .collect())
@@ -366,8 +370,9 @@ pub struct EngineOptions {
     /// Начало адреса иконки (`<начало><id>.webp`); None — `gorn-icon://item/`, как у эталона.
     pub icon_base: Option<String>,
     /// Цена экземпляра: пробивка снаряжения с фильтрами по аффиксам ложится на
-    /// последний выпавший экземпляр этой базы. У эталона такой пробивки нет —
-    /// для сверки с ним выключено.
+    /// последний выпавший экземпляр этой базы, а пробивка или сравнение
+    /// легендарки опознаёт выпавшую базу ею (`gear::identify`). У эталона ни
+    /// того, ни другого нет — для сверки с ним выключено.
     pub instance_prices: bool,
 }
 
@@ -489,6 +494,8 @@ pub struct Engine {
     use_instance_prices: bool,
     /// Цены экземпляров: (начало забега, зона, база) → ФЕ.
     instance_prices: HashMap<(i64, i64, ConfigBaseId), f64>,
+    /// Легендарка → её база (справочник снаряжения).
+    gear_bases: HashMap<ConfigBaseId, ConfigBaseId>,
 }
 
 impl Engine {
@@ -509,6 +516,7 @@ impl Engine {
         // Связанность — по названию из справочника, а не арифметикой «id + 1000».
         let bound_ids: Vec<ConfigBaseId> =
             items.iter().filter(|it| is_bound_name(Some(&it.name)) || is_bound_name(it.name_ru.as_deref())).map(|it| it.id).collect();
+        let gear_bases = items.iter().filter_map(|it| Some((it.id, it.base?))).collect();
         let mut prices = PriceStore::new(None);
         prices.register_bound_ids(bound_ids.iter().copied());
         let mut community = CommunityPriceFeed::new(data_dir, "community-prices.json").with_clock(clock.clone());
@@ -567,6 +575,7 @@ impl Engine {
             icon_base: options.icon_base.unwrap_or_else(|| "gorn-icon://item/".into()),
             use_instance_prices: options.instance_prices,
             instance_prices: HashMap::new(),
+            gear_bases,
         })
     }
 
@@ -689,7 +698,10 @@ impl Engine {
         let stored_trade = self.storage.load_trade()?;
         let keys = self.map_keys.clone();
         let is_key = |id: ConfigBaseId| keys.contains(&id);
-        let scan = retro_scan(log_dir, on_progress, crate::pipeline::AnalyzeOptions { is_map_key: Some(&is_key), current: false })?;
+        let bases = &self.gear_bases;
+        let base_of = |id: ConfigBaseId| bases.get(&id).copied();
+        let gear_base: Option<crate::gear::GearBaseLookup> = self.use_instance_prices.then_some(&base_of);
+        let scan = retro_scan(log_dir, on_progress, crate::pipeline::AnalyzeOptions { is_map_key: Some(&is_key), current: false, gear_base })?;
         // Сезон — из ПОСЛЕДНЕГО файла.
         self.season_id = scan.latest_season_id.or_else(|| scan.season_ids.last().copied());
         // Разбор логов точнее сохранённого: при совпадении — свежий.
@@ -804,6 +816,11 @@ impl Engine {
                 }
             }
             let Some(ev) = self.parser.parse(raw) else { continue };
+            // Улика легендарки опознаёт выпавшую базу — раньше, чем её цена ляжет на экземпляр.
+            self.identify_gear(&ev);
+            if matches!(ev, LogEvent::GearIdentity { .. }) {
+                continue;
+            }
             // Пробивка с фильтрами — не событие для счётчиков (как у эталона),
             // но цена экземпляра, если она включена.
             if let LogEvent::FilteredPrice(p) = &ev {
@@ -848,7 +865,7 @@ impl Engine {
                     self.invalidate();
                     self.persist_finished();
                 }
-                LogEvent::FilteredPrice(_) => {}
+                LogEvent::FilteredPrice(_) | LogEvent::GearIdentity { .. } => {}
                 LogEvent::PriceObservation(p) => {
                     let season = self.prices.season();
                     if let Some(record) = self.prices.observe(&p, season) {
@@ -1014,6 +1031,29 @@ impl Engine {
         self.rebuild();
     }
 
+    /// Пробивка или сравнение легендарки: последний выпавший экземпляр её базы
+    /// становится ею — с её названием и ценой. Изменённые забеги истории
+    /// перезаписываются сразу, закрытые нарезкой — при следующей записи.
+    fn identify_gear(&mut self, ev: &LogEvent) {
+        if !self.use_instance_prices {
+            return;
+        }
+        let bases = &self.gear_bases;
+        let base_of = |id: ConfigBaseId| bases.get(&id).copied();
+        let Some((base, unique, ts)) = crate::gear::evidence(ev, &base_of) else { return };
+        let runs = self.segmenter.runs_mut().chain(self.history.iter_mut());
+        let changed = crate::gear::identify(runs, base, unique, ts, &base_of);
+        if changed.is_empty() {
+            return;
+        }
+        let stored: Vec<Run> = self.history.iter().filter(|r| changed.contains(&(r.started_at, r.area_id))).cloned().collect();
+        if !stored.is_empty() {
+            let _ = self.storage.save_runs(&stored, self.season_id);
+        }
+        self.persist_finished();
+        self.rebuild();
+    }
+
     /// Таблица цен сезона; забеги без сезона — текущими ценами.
     fn season_lookup(&self, season: Option<i64>) -> Box<dyn Fn(ConfigBaseId) -> Option<f64> + '_> {
         match season {
@@ -1035,7 +1075,11 @@ impl Engine {
 
     /// Закрытые забеги сразу уходят в базу: лог может ротироваться в любой момент.
     fn persist_finished(&mut self) {
-        let stamp = |r: &Run| format!("{:?}:{}:{}", r.duration_ms, r.drops.len(), r.costs.len());
+        // Сумма номеров — опознанная легендарка меняет состав, а не число строк.
+        let stamp = |r: &Run| {
+            let ids: i64 = r.drops.iter().map(|d| d.config_base_id).sum();
+            format!("{:?}:{}:{}:{ids}", r.duration_ms, r.drops.len(), r.costs.len())
+        };
         let finished: Vec<Run> = self
             .segmenter
             .closed()

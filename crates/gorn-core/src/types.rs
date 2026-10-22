@@ -52,6 +52,8 @@ pub enum LogEvent {
     FilteredPrice(PriceObservation),
     /// Вход персонажем и его профиль.
     PlayerInfo(PlayerInfo),
+    /// Вещь на базе `base_id` — легендарка `unique_id` (сравнение при наведении).
+    GearIdentity { ts: i64, line: i64, base_id: ConfigBaseId, unique_id: ConfigBaseId },
 }
 
 impl LogEvent {
@@ -64,7 +66,8 @@ impl LogEvent {
             | LogEvent::ItemChange { ts, .. }
             | LogEvent::EnterLevel { ts, .. }
             | LogEvent::LevelPath { ts, .. }
-            | LogEvent::LevelIds { ts, .. } => *ts,
+            | LogEvent::LevelIds { ts, .. }
+            | LogEvent::GearIdentity { ts, .. } => *ts,
             LogEvent::PriceObservation(p) | LogEvent::FilteredPrice(p) => p.ts,
             LogEvent::PlayerInfo(p) => p.ts,
         }

@@ -32,7 +32,7 @@ pub fn build(dir: &Path) -> Result<Value, String> {
         .filter_map(|it| it["id"].as_i64())
         .collect();
     let is_key = |id: i64| keys.contains(&id);
-    let mut r = retro_scan(dir, None, AnalyzeOptions { is_map_key: Some(&is_key), current: false }).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut r = retro_scan(dir, None, AnalyzeOptions { is_map_key: Some(&is_key), current: false, gear_base: None }).map_err(|e| format!("{}: {e}", dir.display()))?;
     let bound: Vec<i64> = items
         .iter()
         .filter(|it| p::is_bound_name(it["name"].as_str()) || p::is_bound_name(it["nameRu"].as_str()))

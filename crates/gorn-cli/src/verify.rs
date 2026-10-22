@@ -958,7 +958,7 @@ fn compare_log(rf: &Reference, src: &std::path::Path, current: bool, keys: &std:
     let raw = rf.output(&args)?;
     let theirs: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| format!("{}: {e}", src.display()))?;
     let is_key = |id: i64| keys.contains(&id);
-    let mine = gorn_core::analyze_log_file(src, gorn_core::AnalyzeOptions { is_map_key: Some(&is_key), current }).map_err(|e| e.to_string())?;
+    let mine = gorn_core::analyze_log_file(src, gorn_core::AnalyzeOptions { is_map_key: Some(&is_key), current, gear_base: None }).map_err(|e| e.to_string())?;
     let mine = serde_json::to_value(&mine).map_err(|e| e.to_string())?;
     json_diff(&theirs, &mine, "", out);
     Ok(theirs)
@@ -1051,7 +1051,7 @@ fn check_logs(rf: &Reference, spec: &str) -> Result<bool, String> {
         }
         let out = rf.output(&args)?;
         let theirs: serde_json::Value = serde_json::from_slice(&out).map_err(|e| format!("{}: {e}", f.display()))?;
-        let mine = gorn_core::analyze_log_file(&src, gorn_core::AnalyzeOptions { is_map_key: Some(&is_key), current: *current })
+        let mine = gorn_core::analyze_log_file(&src, gorn_core::AnalyzeOptions { is_map_key: Some(&is_key), current: *current, gear_base: None })
             .map_err(|e| e.to_string())?;
         let mine = serde_json::to_value(&mine).map_err(|e| e.to_string())?;
         if *current {

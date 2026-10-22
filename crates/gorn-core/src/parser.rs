@@ -30,7 +30,11 @@ pub fn date_utc(y: i64, mon0: i64, d: i64, h: i64, mi: i64, s: i64, ms: i64) -> 
 
 /// Дешёвый предфильтр: строка без маркера события не несёт.
 fn may_carry_event(raw: &str) -> bool {
-    raw.contains("BagMgr@") || raw.contains("ItemChange@") || raw.contains("LevelMgr") || raw.contains("PlayerIdTrace@")
+    raw.contains("BagMgr@")
+        || raw.contains("ItemChange@")
+        || raw.contains("LevelMgr")
+        || raw.contains("PlayerIdTrace@")
+        || raw.contains("SetPlayerEquipment")
 }
 
 fn may_socket_marker(raw: &str) -> bool {
@@ -160,6 +164,14 @@ impl EventParser {
                 level_type: digits(&m[2]),
                 level_id: digits(&m[3]),
             });
+        }
+        if let Some(m) = p.gear_identity.captures(raw) {
+            // GoldId=0 — вещь не легендарка: опознавать нечего.
+            let unique_id = digits(&m[2]);
+            if unique_id == 0 {
+                return None;
+            }
+            return Some(LogEvent::GearIdentity { ts: ts?, line, base_id: digits(&m[1]), unique_id });
         }
         if let Some(m) = p.player_login.captures(raw) {
             // Id остаётся строкой: в double не влезает.
