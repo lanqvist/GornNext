@@ -442,6 +442,8 @@ pub fn replay(dir: &Path, data: &Path, files: &[String], budget: f64, rounds: Op
             width: img.as_ref().map(|i| i.width).unwrap_or(1920),
             height: img.as_ref().map(|i| i.height).unwrap_or(1080),
             budget_ms: budget,
+            settled: s["settled"].as_bool(),
+            events: gorn_prison::logevents::compact(&lines),
         };
         adv.replies.clear();
         let frame = img.as_ref().map(|i| i.frame());

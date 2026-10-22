@@ -108,6 +108,8 @@ pub fn run(dir: &Path, from: &str, to: &str, budget: f64, stop: StopRule, quick:
                     width: 1920,
                     height: 1080,
                     budget_ms: budget,
+                    settled: None,
+                    events: vec![],
                 };
                 let t0 = Clock::now();
                 adv.handle(&shot, None);
@@ -158,6 +160,8 @@ pub fn run(dir: &Path, from: &str, to: &str, budget: f64, stop: StopRule, quick:
             width: img.as_ref().map(|i| i.width).unwrap_or(1920),
             height: img.as_ref().map(|i| i.height).unwrap_or(1080),
             budget_ms: budget,
+            settled: saved["settled"].as_bool(),
+            events: gorn_prison::logevents::compact(&lines),
         };
         prev_kind = kind;
         adv.replies.clear();

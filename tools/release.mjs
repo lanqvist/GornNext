@@ -2,9 +2,12 @@
 //
 //   set TAURI_SIGNING_PRIVATE_KEY=%USERPROFILE%\.tauri\gorn-next.key
 //   set TAURI_SIGNING_PRIVATE_KEY_PASSWORD=
-//   set CARGO_TARGET_DIR=target\dist
+//   set CARGO_TARGET_DIR=%CD%\target\dist
 //   ui\node_modules\.bin\tauri build
 //   node tools/release.mjs [--notes "что нового"] [--publish]
+//
+// CARGO_TARGET_DIR — полным путём: tauri собирает из app\, и относительный
+// путь уводит установщик в app\target\dist.
 //
 // Без --publish файлы только складываются в target/dist/release-v<версия>;
 // с --publish — релиз v<версия> на GitHub (gh), он же становится latest:

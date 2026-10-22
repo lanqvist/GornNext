@@ -47,7 +47,11 @@ CREATE TABLE IF NOT EXISTS fact (
   rounds    INTEGER,
   ms        REAL,
   -- Все ходы решателя: code, mean, gapSe, rounds, pruned, shown.
-  options   TEXT NOT NULL
+  options   TEXT NOT NULL,
+  -- Этап 8: экран успокоился к снимку (0 — посреди анимации, NULL — неизвестно)
+  -- и события лога при кадре массивом JSON (`logevents::compact`).
+  settled   INTEGER,
+  events    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_fact_run ON fact(run_id, ts);
 ";
@@ -76,7 +80,14 @@ impl Journal {
         let db = Connection::open(path)?;
         db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
         db.execute_batch(SCHEMA)?;
-        db.execute_batch("PRAGMA user_version = 1")?;
+        // Журнал версии 1 (этап 7) — без колонок этапа 8.
+        let has = |col: &str| -> rusqlite::Result<bool> {
+            db.query_row("SELECT COUNT(*) FROM pragma_table_info('fact') WHERE name = ?", [col], |r| r.get::<_, i64>(0)).map(|n| n > 0)
+        };
+        if !has("settled")? {
+            db.execute_batch("ALTER TABLE fact ADD COLUMN settled INTEGER; ALTER TABLE fact ADD COLUMN events TEXT;")?;
+        }
+        db.execute_batch("PRAGMA user_version = 2")?;
         Ok(Journal { db, app: app.to_string() })
     }
 
@@ -108,8 +119,8 @@ impl Journal {
             }
         };
         self.db.execute(
-            "INSERT INTO fact (run_id, ts, shot, day, step, warden, storage, state, key, instant, advised, best, done, rounds, ms, options)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO fact (run_id, ts, shot, day, step, warden, storage, state, key, instant, advised, best, done, rounds, ms, options, settled, events)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 run,
                 ts,
@@ -127,6 +138,8 @@ impl Journal {
                 f["rounds"].as_i64(),
                 f["ms"].as_f64(),
                 f["options"].to_string(),
+                f["settled"].as_bool().map(i64::from),
+                f["events"].as_array().map(|_| f["events"].to_string()),
             ],
         )?;
         // Цель и орудия уточняются по ходу забега — у забега последние известные.
@@ -140,3 +153,32 @@ impl Journal {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn journal_v1_gets_stage8_columns() {
+        let path = std::env::temp_dir().join(format!("gorn-facts-v1-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            // Журнал этапа 7: fact без settled и events.
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(&SCHEMA.replace(",\n  -- Этап 8: экран успокоился к снимку (0 — посреди анимации, NULL — неизвестно)\n  -- и события лога при кадре массивом JSON (`logevents::compact`).\n  settled   INTEGER,\n  events    TEXT", ""))
+                .unwrap();
+            db.execute_batch("PRAGMA user_version = 1").unwrap();
+            let n: i64 = db.query_row("SELECT COUNT(*) FROM pragma_table_info('fact') WHERE name = 'settled'", [], |r| r.get(0)).unwrap();
+            assert_eq!(n, 0);
+        }
+        let j = Journal::open(&path, "test").unwrap();
+        let f = json!({ "fresh": true, "day": 0, "state": [0], "options": [], "settled": false, "events": ["click:Btn_S16Board_RouteCell"] });
+        j.add(&f, 1).unwrap();
+        let (s, e): (Option<i64>, Option<String>) = j.db.query_row("SELECT settled, events FROM fact", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(s, Some(0));
+        assert_eq!(e.as_deref(), Some(r#"["click:Btn_S16Board_RouteCell"]"#));
+        drop(j);
+        let _ = std::fs::remove_file(&path);
+    }
+}

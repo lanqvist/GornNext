@@ -82,6 +82,11 @@ pub struct Shot {
     pub height: usize,
     /// Сколько мс решатель проигрывает варианты после первого совета.
     pub budget_ms: f64,
+    /// Экран успокоился к снимку; false — снят посреди анимации, None —
+    /// неизвестно (ручной снимок, кадр без снимка, старые кадры).
+    pub settled: Option<bool>,
+    /// События лога при кадре (`logevents::compact`).
+    pub events: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -571,6 +576,8 @@ impl OwnAdvisor {
             "rounds": res.rounds,
             "ms": ms,
             "options": options,
+            "settled": msg.settled,
+            "events": msg.events,
         });
         if let Some(f) = self.facts.as_mut() {
             f(v);

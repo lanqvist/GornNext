@@ -82,13 +82,22 @@ struct Fact {
     /// Ходы решателя: код, среднее призм к концу.
     options: Vec<(i32, f64)>,
     storage: i64,
+    /// Экран успокоился к снимку (None — неизвестно, журнал до этапа 8).
+    settled: Option<bool>,
 }
 
 fn load(db: &Path) -> Result<Vec<Fact>, String> {
     let c = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| format!("{}: {e}", db.display()))?;
-    let mut st = c
-        .prepare("SELECT run_id, ts, key, day, state, advised, options, storage FROM fact ORDER BY run_id, ts, id")
-        .map_err(|e| e.to_string())?;
+    // Колонка этапа 8; в журнале постарше её нет.
+    let has_settled: bool = c
+        .query_row("SELECT COUNT(*) FROM pragma_table_info('fact') WHERE name = 'settled'", [], |r| r.get::<_, i64>(0))
+        .map(|n| n > 0)
+        .unwrap_or(false);
+    let sql = format!(
+        "SELECT run_id, ts, key, day, state, advised, options, storage, {} FROM fact ORDER BY run_id, ts, id",
+        if has_settled { "settled" } else { "NULL" }
+    );
+    let mut st = c.prepare(&sql).map_err(|e| e.to_string())?;
     let tag = db.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let rows = st
         .query_map([], |r| {
@@ -101,12 +110,13 @@ fn load(db: &Path) -> Result<Vec<Fact>, String> {
                 r.get::<_, Option<i64>>(5)?,
                 r.get::<_, String>(6)?,
                 r.get::<_, Option<i64>>(7)?,
+                r.get::<_, Option<i64>>(8)?,
             ))
         })
         .map_err(|e| e.to_string())?;
     let mut out = vec![];
     for row in rows {
-        let (run, ts, key, day, state, advised, options, storage) = row.map_err(|e| e.to_string())?;
+        let (run, ts, key, day, state, advised, options, storage, settled) = row.map_err(|e| e.to_string())?;
         let m: Vec<i32> = serde_json::from_str(&state).map_err(|e| e.to_string())?;
         if m.len() != SIZE {
             continue; // позиция другой версии раскладки
@@ -128,6 +138,7 @@ fn load(db: &Path) -> Result<Vec<Fact>, String> {
                 .filter_map(|o| Some((o["code"].as_i64()? as i32, o["mean"].as_f64()?)))
                 .collect(),
             storage: storage.unwrap_or(0),
+            settled: settled.map(|v| v != 0),
         });
     }
     Ok(out)
@@ -282,6 +293,8 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
     let (mut pairs, mut exact, mut near, mut far, mut followed, mut gaps) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
     // Не совпало только сочетание: каждое поле по отдельности движок даёт.
     let mut rare = 0usize;
+    // Переходы с кадром посреди анимации — не в счёт.
+    let mut unsettled = 0usize;
     // Пропущено одно решение: (первый ход, второй ход) → сколько раз.
     let mut skipped: BTreeMap<(String, String), usize> = BTreeMap::new();
     let mut details: Vec<String> = vec![];
@@ -311,6 +324,12 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
         for w in fs.windows(2) {
             let (a, b) = (&w[0], &w[1]);
             pairs += 1;
+            // Кадр снят посреди анимации — доска могла быть ещё старой: не
+            // ошибка модели правил, учиться на таком переходе нельзя.
+            if a.settled == Some(false) || b.settled == Some(false) {
+                unsettled += 1;
+                continue;
+            }
             let mut best: Option<Pair> = None;
             let mut sim_arrivals: Vec<(Arrival, i32)> = vec![];
             for (i, &(code, _)) in a.options.iter().enumerate() {
@@ -452,7 +471,7 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
 
     if json_out {
         let v = json!({
-            "runs": by_run.len(), "complete": runs_done, "pairs": pairs, "exact": exact, "rare": rare, "near": near, "far": far, "gaps": gaps,
+            "runs": by_run.len(), "complete": runs_done, "pairs": pairs, "exact": exact, "rare": rare, "unsettled": unsettled, "near": near, "far": far, "gaps": gaps,
             "followed": followed, "loglik": loglik,
             "arrivals": seen.keys().chain(expect.keys()).collect::<std::collections::BTreeSet<_>>().into_iter()
                 .map(|k| json!({ "from": if k.0 == Arrival::Door { "door" } else { "replace" }, "tier": k.1,
@@ -470,11 +489,14 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
     println!("Журнал: забегов {}, доиграно {runs_done}, переходов между решениями {pairs}", by_run.len());
     println!();
     println!("Переходы (ход — тот, что лучше всех объясняет следующий кадр):");
+    if unsettled > 0 {
+        println!("  кадр посреди анимации     {unsettled} ({:.0} %) — не в счёт ниже", pct(unsettled, pairs));
+    }
     println!("  пропуск решений между     {gaps} ({:.0} %) — не в счёт ниже", pct(gaps, pairs));
     for ((m1, m2), n) in &skipped {
         println!("    из них «{m1}», затем без кадра «{m2}»: {n}");
     }
-    let pairs = pairs - gaps;
+    let pairs = pairs - gaps - unsettled;
     println!("  объяснены движком точно   {exact} ({:.0} %)", pct(exact, pairs));
     println!("  редкое сочетание          {rare} ({:.0} %) — каждое поле движок даёт, всё вместе не выпало", pct(rare, pairs));
     println!("  близко (≤ 3 поля мимо)    {near} ({:.0} %)", pct(near, pairs));

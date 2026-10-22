@@ -51,6 +51,7 @@ impl Shots {
             "theme": shot.theme,
             "day": shot.day.map(|(c, m)| json!({ "cur": c, "max": m })),
             "lines": shot.lines,
+            "settled": shot.settled,
             "hints": [],
         });
         write_info(&base, &info);
@@ -118,12 +119,14 @@ fn write_png(path: &Path, img: &Image) -> Result<(), String> {
 // ── очистка ─────────────────────────────────────────────────────────────────
 
 const HOUR: Duration = Duration::from_secs(3600);
-/// Картинка кадра с подсказкой живёт 2 часа, сбоев и ручных — 7 дней, описания — 30 дней.
-const HINT_PNG: Duration = Duration::from_secs(2 * 3600);
+/// Картинка кадра с подсказкой живёт 2 суток (спорные переходы журнала фактов
+/// проверяются по ней на следующий день — этап 8), сбоев и ручных — 7 дней,
+/// описания — 30 дней.
+const HINT_PNG: Duration = Duration::from_secs(48 * 3600);
 const MISS_PNG: Duration = Duration::from_secs(7 * 24 * 3600);
 const JSON_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
-/// Сверх потолка удаляются самые старые картинки.
-const MAX_BYTES: u64 = 1 << 30;
+/// Сверх потолка удаляются самые старые картинки (~1100 кадров, 10–12 забегов).
+const MAX_BYTES: u64 = 2 << 30;
 
 #[derive(PartialEq, Eq)]
 enum Outcome {

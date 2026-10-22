@@ -6,6 +6,7 @@
 //! когда картинка последний раз заметно менялась. Кадр для подсказки берётся,
 //! как только экран успокоился после хода (`grab`), — как `renderer/capture.ts`.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -180,6 +181,8 @@ pub struct ScreenStream {
     /// HMONITOR открытого потока.
     pub monitor: Option<isize>,
     opened_at: Instant,
+    /// Последний grab: экран к снимку не менялся stable (иначе — посреди анимации).
+    settled: AtomicBool,
 }
 
 impl Default for ScreenStream {
@@ -189,6 +192,7 @@ impl Default for ScreenStream {
             control: None,
             monitor: None,
             opened_at: Instant::now(),
+            settled: AtomicBool::new(true),
         }
     }
 }
@@ -271,11 +275,20 @@ impl ScreenStream {
         let Some(img) = s.latest.clone() else {
             return Err(Miss::Silent);
         };
+        self.settled.store(s.changed_at.is_none_or(|c| Instant::now() - c >= stable), Ordering::Relaxed);
         let at = s.latest_at.unwrap();
         if at < asked && asked - at > ok_age {
             return Err(Miss::Stale);
         }
         Ok(img)
+    }
+}
+
+impl ScreenStream {
+    /// Успокоился ли экран к последнему снимку: false — снят посреди анимации
+    /// (ждали дольше max), учиться на таком кадре нельзя.
+    pub fn last_settled(&self) -> bool {
+        self.settled.load(Ordering::Relaxed)
     }
 }
 

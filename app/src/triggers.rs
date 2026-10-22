@@ -126,6 +126,8 @@ pub struct PrisonShot {
     /// День по логу: последняя строка «check cur=N max=M».
     pub day: Option<(i32, i32)>,
     pub lines: Vec<String>,
+    /// Экран успокоился к снимку (ставится после снимка; None — не снимали).
+    pub settled: Option<bool>,
 }
 
 struct Burst {
@@ -323,6 +325,7 @@ impl PrisonTriggers {
             theme,
             day: self.day,
             lines: b.lines,
+            settled: None,
         })
     }
 }

@@ -8,6 +8,7 @@ pub mod actions;
 pub mod adapter;
 pub mod advisor;
 pub mod hint;
+pub mod logevents;
 pub mod model;
 pub mod policy;
 pub mod recognize;

@@ -297,6 +297,7 @@ impl Assist {
             theme: None,
             day: self.triggers.last_day(),
             lines: vec![],
+            settled: None,
         };
         self.capture(shot, true);
     }
@@ -403,6 +404,9 @@ impl Assist {
         }
         self.last_posted = Some(hash);
         let mut s = shot;
+        if !manual {
+            s.settled = Some(self.stream.last_settled());
+        }
         if late {
             s.kind = ShotKind::Board;
         }
@@ -483,6 +487,8 @@ impl Assist {
                 .map(|f| f.height)
                 .unwrap_or((display.h) as usize),
             budget_ms: SOLVE_BUDGET_MS,
+            settled: shot.settled,
+            events: gorn_prison::logevents::compact(&shot.lines),
         };
         crate::log(&format!(
             "[тюрьма] кадр {id} ({kind}{})",
