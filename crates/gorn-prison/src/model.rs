@@ -279,7 +279,8 @@ pub struct Params {
     // по умолчанию — нынешнее толкование.
     /// «Рог»: едоки в случайном порядке (иначе — по номерам камер).
     pub horn_random_order: bool,
-    /// «Рог»: едоки — те, у кого цель есть до первого укуса (иначе — проверка на ходу).
+    /// «Рог»: едоки — те, у кого цель есть до первого укуса (иначе — проверка на
+    /// ходу, правило до 22.10: по ходу Рога новые цели не появляются в счёт).
     pub horn_eaters_snapshot: bool,
     /// Укусы «Рога» запускают орудия Пожирания (Плеть, Пила, Дева).
     pub horn_devour_tools: bool,
@@ -370,7 +371,9 @@ pub const DEFAULT_PARAMS: Params = Params {
     blacklist_before_open: true,
 
     horn_random_order: false,
-    horn_eaters_snapshot: false,
+    // «все узники с целью Пожирания» — до первого укуса [журнал фактов 20–21.10:
+    // проверка на ходу не объясняет 2 перехода, rules-check +15,3].
+    horn_eaters_snapshot: true,
     horn_devour_tools: true,
     bestow_gain: 1,
     devour_tools_first_bite: false,

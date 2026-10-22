@@ -757,7 +757,8 @@ impl Ctx<'_> {
         -self.k.val[u(tt)] + self.rise_v(te, self.base_gain(be, te, false, tt, bt == RAT)) - self.k.val[u(te)]
     }
 
-    /// Ценность подарка по доске — без пробного применения.
+    /// Ценность подарка по доске — без пробного применения. «Рог» — по доске до
+    /// первого укуса: кусают те, у кого цель уже есть (правило движка с 22.10).
     fn gift_value(&mut self, g: i32) -> f64 {
         self.ensure_chain();
         let m = self.m;

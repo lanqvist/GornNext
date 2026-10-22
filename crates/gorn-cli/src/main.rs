@@ -41,16 +41,17 @@ gorn-cli play [--seeds N=800] [--from K=0] [--mode new|flat|old|fixed] [--rounds
               [--threads T=1] [--solver-threads S=1] [--quiet] [--model new|old]
     самоигра с решателем (сиды 777000+g), как prison-solve-bench --play; fixed — без срока;
     --model old — решатель считает по прежней модели правил (замена завершает день, «Чёрный список»
-    после открытия двери), игра — по нынешней
+    после открытия двери, «Рог» с проверкой цели на ходу), игра — по нынешней
 gorn-cli fit [--db a.db,b.db] [--samples N=2000] [--iters K=3] [--out params-learned.json] [--synth N]
     подгонка шансов движка по журналу фактов: апостериорные счёты бросков в розыгрышах, давших
     ровно наблюдённое (EM); --synth — забеги по известным шансам, проверка, что fit их находит
 gorn-cli rules-check [--db a.db,b.db] [--samples N=3000] [--synth N --truth вариант,…]
     варианты «[догадок]» правил против журнала фактов: сумма ln отношения правдоподобий
     переходов (те же случайные числа); --synth — забеги по варианту-истине, проверка
-gorn-cli live-ab [--db a.db,b.db] [--rounds R=300] [--ref-rounds RR=5000] [--threads T=ядра]
+gorn-cli live-ab [--db a.db,b.db] [--rounds R=300] [--ref-rounds RR=5000] [--threads T=ядра] [--old вариант,…]
     A/B моделей правил на позициях живых забегов: ход прежней и нынешней модели (R раундов),
-    расхождения — глубокой оценкой по нынешним правилам (RR раундов, без отсечения)
+    расхождения — глубокой оценкой по нынешним правилам (RR раундов, без отсечения);
+    --old — прежняя модель: варианты rules-check (по умолчанию все правки 22.10)
 gorn-cli solve-bench [--games 12] [--every 2] [--positions N] [--min 256] [--max R] [--cap 300]
               [--threads S=1] [--rate [--stride 5]] [--regret [--ref файл] [--ref-rounds 20000] [--ref-threads 14]]
     советы на позициях самоигры, как prison-solve-bench; 580 позиций аудита: --games 18 --positions 580
@@ -354,7 +355,36 @@ fn main() -> ExitCode {
                         vec![d.join("prison-facts-history.db"), d.join("prison-facts.db")]
                     }
                 };
-                liveab::run(&dbs, num(&o, "rounds", 300)? as u64, num(&o, "ref-rounds", 5000)? as u64, num(&o, "threads", cores())? as usize)?;
+                liveab::run(
+                    &dbs,
+                    num(&o, "rounds", 300)? as u64,
+                    num(&o, "ref-rounds", 5000)? as u64,
+                    num(&o, "threads", cores())? as usize,
+                    o.get("old").map(String::as_str).unwrap_or(rulescheck::LEGACY),
+                )?;
+                Ok(true)
+            }
+            "snapshot-runs" => {
+                // Снимок движка для crates/gorn-prison/tests/data/runs.txt: те же
+                // режимы и сиды, итоги — нынешним движком (эталон gorn-tli не меняется).
+                let path = args.get(1).ok_or("snapshot-runs <runs.txt>")?;
+                let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+                let mut runner = gorn_prison::runs::Runner::new(&gorn_prison::DEFAULT_PARAMS, gorn_prison::default_weights());
+                let (mut out, mut changed) = (String::new(), 0);
+                for line in text.lines().filter(|l| !l.trim().is_empty()) {
+                    let f: Vec<&str> = line.split_whitespace().collect();
+                    let mode = gorn_prison::runs::Mode::parse(f[0]).ok_or(format!("режим: {line}"))?;
+                    let g: u32 = f[1].parse().map_err(|_| format!("сид: {line}"))?;
+                    let s = runner.run_hash(mode, g);
+                    let new = format!("{} {g} {} {} {} {}", mode.name(), s.steps, s.score, s.h1, s.h2);
+                    if new != line.trim() {
+                        changed += 1;
+                    }
+                    out += &new;
+                    out.push('\n');
+                }
+                std::fs::write(path, out).map_err(|e| format!("{path}: {e}"))?;
+                println!("{path}: изменилось {changed}");
                 Ok(true)
             }
             "debug-move" => {

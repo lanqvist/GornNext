@@ -21,25 +21,38 @@ use crate::fit::{pairs_from_facts, synth_pairs, Pair};
 use crate::learn::{diff, visible};
 
 /// Вариант правила: имя, что меняет, как включить.
-struct Variant {
-    name: &'static str,
-    about: &'static str,
-    apply: fn(&mut Params),
+pub(crate) struct Variant {
+    pub(crate) name: &'static str,
+    pub(crate) about: &'static str,
+    pub(crate) apply: fn(&mut Params),
 }
 
-const VARIANTS: [Variant; 11] = [
+/// Прежние толкования до правок 22.10 — «прежняя модель» для live-ab и play.
+pub(crate) const LEGACY: &str = "swap_ends_day,blacklist_after_open,horn_check_on_turn";
+
+/// Нынешние правила с вариантами по именам через запятую.
+pub(crate) fn with_variants(names: &str) -> Result<Params, String> {
+    let mut p = DEFAULT_PARAMS;
+    for name in names.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let v = VARIANTS.iter().find(|v| v.name == name).ok_or(format!("нет варианта {name}"))?;
+        (v.apply)(&mut p);
+    }
+    Ok(p)
+}
+
+pub(crate) const VARIANTS: [Variant; 11] = [
     Variant { name: "swap_ends_day", about: "замена кончает день (до 22.10)", apply: |p| p.swap_then_devour = false },
     Variant { name: "blacklist_after_open", about: "«Чёрный список»: запертые после открытия (до 22.10)", apply: |p| p.blacklist_before_open = false },
-    Variant { name: "horn_random_order", about: "«Рог»: едоки в случайном порядке, не по номерам камер", apply: |p| p.horn_random_order = true },
-    Variant { name: "horn_eaters_snapshot", about: "«Рог»: кусают те, у кого цель была до первого укуса", apply: |p| p.horn_eaters_snapshot = true },
+    Variant { name: "horn_check_on_turn", about: "«Рог»: цель проверяется в свой ход, по номерам камер (до 22.10)", apply: |p| p.horn_eaters_snapshot = false },
     Variant {
-        name: "horn_snapshot_random",
-        about: "«Рог»: едоки до первого укуса, в случайном порядке",
+        name: "horn_check_on_turn_random",
+        about: "«Рог»: цель проверяется в свой ход, едоки в случайном порядке",
         apply: |p| {
-            p.horn_eaters_snapshot = true;
+            p.horn_eaters_snapshot = false;
             p.horn_random_order = true;
         },
     },
+    Variant { name: "horn_random_order", about: "«Рог»: едоки (с целью до первого укуса) в случайном порядке", apply: |p| p.horn_random_order = true },
     Variant { name: "horn_no_devour_tools", about: "укусы «Рога» не запускают Плеть, Пилу, Деву", apply: |p| p.horn_devour_tools = false },
     Variant { name: "bestow_plus2", about: "«Наградить» — +2, не +1", apply: |p| p.bestow_gain = 2 },
     Variant { name: "devour_tools_first_bite", about: "Плеть, Пила, Дева — только после первого укуса", apply: |p| p.devour_tools_first_bite = true },
@@ -92,11 +105,7 @@ fn when(pr: &Pair) -> String {
 pub fn run(dbs: &[PathBuf], samples: u32, synth: Option<u32>, truth: Option<&str>) -> Result<(), String> {
     let pairs = match synth {
         Some(n) => {
-            let mut t = DEFAULT_PARAMS;
-            for name in truth.unwrap_or("").split(',').filter(|s| !s.is_empty()) {
-                let v = VARIANTS.iter().find(|v| v.name == name).ok_or(format!("rules-check: нет варианта {name}"))?;
-                (v.apply)(&mut t);
-            }
+            let t = with_variants(truth.unwrap_or(""))?;
             println!("синтетика: {n} забегов, истина — {}", truth.unwrap_or("нынешние правила"));
             synth_pairs(n, &t)
         }

@@ -1,8 +1,8 @@
-//! Снимки, снятые tools/reference.mts: tests/data/rng.txt — `rng <сид> 1 16`
-//! эталона на TS (gorn-tli); tests/data/runs.txt — `runs <режим> <сид> 1 hash`
-//! движка с правилами 22.10 (замена, «Чёрный список»; в gorn-tli их нет —
-//! эталон больше не меняется, снимок — страж движка GornNext). Проходит без
-//! node и без соседнего репозитория.
+//! tests/data/rng.txt — снимок эталона на TS (gorn-tli, tools/reference.mts
+//! `rng <сид> 1 16`); tests/data/runs.txt — снимок движка GornNext (`gorn-cli
+//! snapshot-runs tests/data/runs.txt`): правила с 22.10 расходятся с эталоном,
+//! который больше не меняется. Переснимать — только при намеренной правке
+//! правил. Проходит без node и без соседнего репозитория.
 
 use gorn_prison::rng::{Label, Rng};
 use gorn_prison::runs::{Mode, Runner, Summary};

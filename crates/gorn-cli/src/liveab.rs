@@ -60,10 +60,12 @@ fn evaluate(s: &State, seed: u32, rounds: u64, p: &Params) -> Vec<(i32, f64)> {
     res.options.iter().map(|o| (o.code, o.mean)).collect()
 }
 
-pub fn run(dbs: &[PathBuf], rounds: u64, ref_rounds: u64, threads: usize) -> Result<(), String> {
+/// old — варианты прежней модели (имена `rules-check` через запятую).
+pub fn run(dbs: &[PathBuf], rounds: u64, ref_rounds: u64, threads: usize, old: &str) -> Result<(), String> {
     let pos = positions(dbs)?;
     let truth = DEFAULT_PARAMS;
-    let old = Params { swap_then_devour: false, blacklist_before_open: false, ..DEFAULT_PARAMS };
+    println!("прежняя модель — нынешние правила с вариантами: {old}");
+    let old = crate::rulescheck::with_variants(old)?;
     let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().map_err(|e| e.to_string())?;
     let t0 = std::time::Instant::now();
     // (ход прежней, ход нынешней, разница нынешняя − прежняя по глубокой оценке)

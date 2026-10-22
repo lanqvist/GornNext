@@ -1291,7 +1291,9 @@ pub fn take_gift(s: &mut State, r: &mut Rng, p: &Params, gift: i32) {
                 open_random(s, r, p);
             }
         }
-        // Медный боевой рог: каждый с целью кусает один раз
+        // Медный боевой рог: каждый, у кого цель была до первого укуса, кусает один
+        // раз, по номерам камер [журнал фактов 21.10 21:50:02 — волк 4 не съел
+        // крысу 4, ставшую ею тем же Рогом].
         1 => {
             // Кто может кусать: все узники или только те, у кого цель была до первого укуса.
             let mut eaters = inmate_mask(s);
@@ -1452,4 +1454,43 @@ fn start_board(s: &mut State, r: &mut Rng, p: &Params) {
         }
     }
     top_up_events(s, r, p);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::DEFAULT_PARAMS;
+
+    fn put(s: &mut State, c: usize, beast: i32, tier: i32) {
+        s.m[LOCK + c] = 0;
+        s.m[BEAST + c] = beast;
+        s.m[TIER + c] = tier;
+    }
+
+    /// Журнал фактов 21.10 21:50:02: мамонт 3 съел волка 3 и мог стать крысой 4 —
+    /// волк 4 рядом цели до Рога не имел и не кусает.
+    #[test]
+    fn horn_eaters_are_fixed_before_first_bite() {
+        let p = DEFAULT_PARAMS;
+        for seed in 0..200 {
+            let mut s = State::new();
+            let mut r = Rng::new(seed);
+            new_run(&mut s, &mut r, &p, RunSetup { start: 0, objective: -1, tools: 0, start_pick: false });
+            for c in 1..CELLS {
+                s.m[LOCK + c] = 1;
+                s.m[TIER + c] = -1;
+                s.m[BEAST + c] = -1;
+                s.m[EVT + c] = 0;
+            }
+            put(&mut s, 7, MAMMOTH, 3);
+            put(&mut s, 8, WOLF, 4);
+            put(&mut s, 11, LION, 2);
+            put(&mut s, 14, WOLF, 3);
+            s.m[PICK_GIFTS] = 1;
+            take_gift(&mut s, &mut r, &p, 1);
+            assert_eq!((s.m[BEAST + 8], s.m[TIER + 8]), (WOLF, 4), "сид {seed}");
+            assert_eq!(s.m[TIER + 14], -1);
+            assert_eq!(s.m[TIER + 7], 4);
+        }
+    }
 }

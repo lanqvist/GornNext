@@ -132,7 +132,12 @@ pub fn play_game_model(g: u32, mode: PlayMode, p: &Params, model: &Params, pool:
 /// old_model — решатель считает по прежней модели правил (замена, «Чёрный список»), игра — по нынешней.
 pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: usize, quiet: bool, old_model: bool) {
     let p = &DEFAULT_PARAMS;
-    let model = &Params { swap_then_devour: !old_model, blacklist_before_open: !old_model, ..DEFAULT_PARAMS };
+    let model = &Params {
+        swap_then_devour: !old_model,
+        blacklist_before_open: !old_model,
+        horn_eaters_snapshot: !old_model,
+        ..DEFAULT_PARAMS
+    };
     let solver_pool =
         (solver_threads > 1).then(|| rayon::ThreadPoolBuilder::new().num_threads(solver_threads).build().unwrap());
     let t0 = Clock::now();
