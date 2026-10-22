@@ -274,6 +274,25 @@ pub struct Params {
     /// «Чёрный список» считает запертых до открытия двери; false — прежняя
     /// модель: после открытия (только для A/B самоигрой).
     pub blacklist_before_open: bool,
+
+    // Варианты «[догадок]» правил для `gorn-cli rules-check` (этап 8, шаг 3);
+    // по умолчанию — нынешнее толкование.
+    /// «Рог»: едоки в случайном порядке (иначе — по номерам камер).
+    pub horn_random_order: bool,
+    /// «Рог»: едоки — те, у кого цель есть до первого укуса (иначе — проверка на ходу).
+    pub horn_eaters_snapshot: bool,
+    /// Укусы «Рога» запускают орудия Пожирания (Плеть, Пила, Дева).
+    pub horn_devour_tools: bool,
+    /// «Наградить»: на сколько повышается случайный узник.
+    pub bestow_gain: i32,
+    /// Плеть, Пила, Дева — только после первого укуса (не в цепочке).
+    pub devour_tools_first_bite: bool,
+    /// «Ошейник» и на первом укусе, не только в цепочке.
+    pub collar_first_bite: bool,
+    /// «Клетка»: новый узник той же редкости, что съеденный (иначе — по шансам двери).
+    pub cage_same_tier: bool,
+    /// «Железная дева»: узник по шансам двери (иначе — редкости едока).
+    pub revenge_door_tier: bool,
 }
 
 pub const DEFAULT_PARAMS: Params = Params {
@@ -349,4 +368,13 @@ pub const DEFAULT_PARAMS: Params = Params {
 
     swap_then_devour: true,
     blacklist_before_open: true,
+
+    horn_random_order: false,
+    horn_eaters_snapshot: false,
+    horn_devour_tools: true,
+    bestow_gain: 1,
+    devour_tools_first_bite: false,
+    collar_first_bite: false,
+    cage_same_tier: false,
+    revenge_door_tier: false,
 };

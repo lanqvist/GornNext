@@ -461,7 +461,8 @@ pub fn targets(s: &State, e: i32) -> i32 {
 }
 
 /// Укус (одно Пожирание): e съедает t.
-pub fn bite(s: &mut State, r: &mut Rng, p: &Params, e: i32, t: i32, in_chain: bool) {
+/// horn — укус «Рога» (без цепочки).
+pub fn bite(s: &mut State, r: &mut Rng, p: &Params, e: i32, t: i32, in_chain: bool, horn: bool) {
     let eu = u(e);
     let tu = u(t);
     let te = s.m[TIER + eu];
@@ -471,6 +472,8 @@ pub fn bite(s: &mut State, r: &mut Rng, p: &Params, e: i32, t: i32, in_chain: bo
     let bt = if door { s.m[PRE_BEAST + tu] } else { s.m[BEAST + tu] };
     // Намордник (101): «на поле не более 4 узников» — до укуса, считая едока и жертву.
     let field_before = popcount(inmate_mask(s));
+    // Орудия Пожирания (Плеть, Пила, Дева) на этом укусе — варианты rules-check.
+    let tools = !(horn && !p.horn_devour_tools) && !(in_chain && p.devour_tools_first_bite);
 
     let mut gain = 1;
     if door {
@@ -493,10 +496,10 @@ pub fn bite(s: &mut State, r: &mut Rng, p: &Params, e: i32, t: i32, in_chain: bo
     if be == LION && s.has_tool(tool::CROWN) {
         gain += p.crown_bonus;
     }
-    if s.has_tool(tool::WHIP) && chance(r, "whip_chance", p.whip_chance) {
+    if tools && s.has_tool(tool::WHIP) && chance(r, "whip_chance", p.whip_chance) {
         gain += 1;
     }
-    if in_chain && s.has_tool(tool::COLLAR) && chance(r, "collar_chance", p.collar_chance) {
+    if (in_chain || (p.collar_first_bite && !horn)) && s.has_tool(tool::COLLAR) && chance(r, "collar_chance", p.collar_chance) {
         gain += 1;
     }
 
@@ -507,6 +510,10 @@ pub fn bite(s: &mut State, r: &mut Rng, p: &Params, e: i32, t: i32, in_chain: bo
         s.m[FLAGS + tu] = 0;
         s.m[TIER + tu] = -1;
         s.m[BEAST + tu] = -1;
+        if p.cage_same_tier {
+            s.m[PRE_TIER + tu] = tt;
+            s.m[PRE_BEAST + tu] = r.int(4);
+        }
         open_cell(s, r, p, t);
     } else {
         relock(s, r, p, t);
@@ -532,7 +539,9 @@ pub fn bite(s: &mut State, r: &mut Rng, p: &Params, e: i32, t: i32, in_chain: bo
         }
         s.m[BEAST + eu] = nb;
     }
-    after_devour(s, r, p, e);
+    if tools {
+        after_devour(s, r, p, e);
+    }
 }
 
 /// «Ржавая пила» и «Железная дева мстителя»: после каждого Пожирания.
@@ -553,7 +562,7 @@ fn open_food(s: &mut State, r: &mut Rng, p: &Params, e: i32) {
     }
     let be = s.m[BEAST + u(e)];
     let second = SECOND_FOOD[u(be)];
-    s.m[PRE_TIER + u(c)] = s.m[TIER + u(e)];
+    s.m[PRE_TIER + u(c)] = if p.revenge_door_tier { roll_tier(r, &p.door_odds, door_floor(s, c)) } else { s.m[TIER + u(e)] };
     s.m[PRE_BEAST + u(c)] = if second >= 0 && r.int(2) == 1 { second } else { FIRST_FOOD[u(be)] };
     open_cell(s, r, p, c);
 }
@@ -577,14 +586,14 @@ pub fn devour(s: &mut State, r: &mut Rng, p: &Params, t: i32) {
     if !p.jungle_counts_bites {
         progress(s, r, p, objective::JUNGLE, 1);
     }
-    bite(s, r, p, e, t, false);
+    bite(s, r, p, e, t, false, false);
     after_bite(s, e);
 }
 
 /// Укус в цепочке.
 pub fn chain_bite(s: &mut State, r: &mut Rng, p: &Params, t: i32) {
     let e = s.m[CHAIN_EATER];
-    bite(s, r, p, e, t, true);
+    bite(s, r, p, e, t, true, false);
     after_bite(s, e);
 }
 
@@ -927,7 +936,7 @@ pub fn office(s: &mut State, r: &mut Rng, p: &Params, choose: bool) {
     if choose {
         instigate(s, r, p);
     } else {
-        raise_random(s, r, p, 1, 1);
+        raise_random(s, r, p, 1, p.bestow_gain);
     }
     s.m[OFFICE_LEFT] -= 1;
     s.m[NEXT] = if s.m[OFFICE_LEFT] > 0 { P_OFFICE } else { P_MANAGE };
@@ -1284,13 +1293,37 @@ pub fn take_gift(s: &mut State, r: &mut Rng, p: &Params, gift: i32) {
         }
         // Медный боевой рог: каждый с целью кусает один раз
         1 => {
-            for c in 1..C {
-                if s.m[TIER + u(c)] < 0 {
-                    continue;
+            // Кто может кусать: все узники или только те, у кого цель была до первого укуса.
+            let mut eaters = inmate_mask(s);
+            if p.horn_eaters_snapshot {
+                for c in 1..C {
+                    if (eaters >> c) & 1 == 1 && targets(s, c) == 0 {
+                        eaters &= !(1 << c);
+                    }
                 }
-                let t = pick_bit(targets(s, c), r);
-                if t >= 0 {
-                    bite(s, r, p, c, t, false);
+            }
+            if p.horn_random_order {
+                let mut left = eaters;
+                while left != 0 {
+                    let c = pick_bit(left, r);
+                    left &= !(1 << c);
+                    if s.m[TIER + u(c)] < 0 {
+                        continue;
+                    }
+                    let t = pick_bit(targets(s, c), r);
+                    if t >= 0 {
+                        bite(s, r, p, c, t, false, true);
+                    }
+                }
+            } else {
+                for c in 1..C {
+                    if s.m[TIER + u(c)] < 0 || (p.horn_eaters_snapshot && (eaters >> c) & 1 == 0) {
+                        continue;
+                    }
+                    let t = pick_bit(targets(s, c), r);
+                    if t >= 0 {
+                        bite(s, r, p, c, t, false, true);
+                    }
                 }
             }
         }

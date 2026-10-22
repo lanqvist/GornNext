@@ -83,11 +83,13 @@ fn chance_of(p: &Params, name: &str) -> f64 {
     *chance_mut(&mut p.clone(), name)
 }
 
-/// Переход: позиция до, что вышло, ходы-кандидаты.
-struct Pair {
-    a: State,
-    b: State,
-    codes: Vec<i32>,
+/// Переход: позиция до, что вышло, ходы-кандидаты; забег и время факта «до».
+pub(crate) struct Pair {
+    pub(crate) a: State,
+    pub(crate) b: State,
+    pub(crate) codes: Vec<i32>,
+    pub(crate) run: String,
+    pub(crate) ts: i64,
 }
 
 /// Апостериорные счёты.
@@ -118,7 +120,7 @@ impl Counts {
     }
 }
 
-fn pairs_from_facts(dbs: &[PathBuf]) -> Result<Vec<Pair>, String> {
+pub(crate) fn pairs_from_facts(dbs: &[PathBuf]) -> Result<Vec<Pair>, String> {
     let mut facts = vec![];
     for db in dbs.iter().filter(|d| d.exists()) {
         facts.extend(load(db)?);
@@ -130,7 +132,7 @@ fn pairs_from_facts(dbs: &[PathBuf]) -> Result<Vec<Pair>, String> {
         if a.run != b.run || a.settled == Some(false) || b.settled == Some(false) {
             continue;
         }
-        out.push(Pair { a: a.state, b: b.state, codes: a.options.iter().map(|o| o.0).collect() });
+        out.push(Pair { a: a.state, b: b.state, codes: a.options.iter().map(|o| o.0).collect(), run: a.run.clone(), ts: a.ts });
     }
     Ok(out)
 }
@@ -311,7 +313,7 @@ fn synth_truth() -> Params {
 }
 
 /// Забеги мгновенной стратегией по истинным шансам; каждый шаг — «факт».
-fn synth_pairs(n: u32, truth: &Params) -> Vec<Pair> {
+pub(crate) fn synth_pairs(n: u32, truth: &Params) -> Vec<Pair> {
     let w = default_weights();
     let mut inst = Instant::new();
     let mut buf: CodeBuf = [0; 32];
@@ -327,7 +329,7 @@ fn synth_pairs(n: u32, truth: &Params) -> Vec<Pair> {
             if apply_code(&mut s, c, &mut r, truth).is_err() {
                 break;
             }
-            out.push(Pair { a, b: s, codes: buf[..k].to_vec() });
+            out.push(Pair { a, b: s, codes: buf[..k].to_vec(), run: format!("synth#{g}"), ts: out.len() as i64 });
         }
     }
     out

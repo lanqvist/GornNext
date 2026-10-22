@@ -20,6 +20,7 @@ mod frames;
 mod genlog;
 mod reference;
 mod replay;
+mod rulescheck;
 mod report;
 mod solverbench;
 mod tailcheck;
@@ -44,6 +45,9 @@ gorn-cli play [--seeds N=800] [--from K=0] [--mode new|flat|old|fixed] [--rounds
 gorn-cli fit [--db a.db,b.db] [--samples N=2000] [--iters K=3] [--out params-learned.json] [--synth N]
     подгонка шансов движка по журналу фактов: апостериорные счёты бросков в розыгрышах, давших
     ровно наблюдённое (EM); --synth — забеги по известным шансам, проверка, что fit их находит
+gorn-cli rules-check [--db a.db,b.db] [--samples N=3000] [--synth N --truth вариант,…]
+    варианты «[догадок]» правил против журнала фактов: сумма ln отношения правдоподобий
+    переходов (те же случайные числа); --synth — забеги по варианту-истине, проверка
 gorn-cli live-ab [--db a.db,b.db] [--rounds R=300] [--ref-rounds RR=5000] [--threads T=ядра]
     A/B моделей правил на позициях живых забегов: ход прежней и нынешней модели (R раундов),
     расхождения — глубокой оценкой по нынешним правилам (RR раундов, без отсечения)
@@ -323,6 +327,22 @@ fn main() -> ExitCode {
                     num(&o, "iters", 3)?,
                     o.get("out").map(String::as_str),
                     o.get("synth").map(|_| num(&o, "synth", 200)).transpose()?,
+                )?;
+                Ok(true)
+            }
+            "rules-check" => {
+                let dbs: Vec<std::path::PathBuf> = match o.get("db") {
+                    Some(list) => list.split(',').map(std::path::PathBuf::from).collect(),
+                    None => {
+                        let d = std::path::PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("com.gorn.next");
+                        vec![d.join("prison-facts-history.db"), d.join("prison-facts.db")]
+                    }
+                };
+                rulescheck::run(
+                    &dbs,
+                    num(&o, "samples", 3000)?,
+                    o.get("synth").map(|_| num(&o, "synth", 100)).transpose()?,
+                    o.get("truth").map(String::as_str),
                 )?;
                 Ok(true)
             }
