@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState, type CSSProperties } from 'react';
 
 import { tr } from '../core/i18n.js';
 import { RUN, pluralize } from '../core/plural.js';
@@ -6,7 +6,9 @@ import type { DropView, RunView, SessionDropView, Snapshot } from '../main/engin
 import type { OverlayMode } from '../main/settings.js';
 import { Fe, FeIcon } from './components/Fe.js';
 import { ago, clock, NBSP, num } from './format.js';
+import { heatOf, type Heat } from './overlay/heat.js';
 import { Icon } from './overlay/icons.js';
+import { Sparks } from './overlay/Sparks.js';
 import { useNow } from './useNow.js';
 
 type Mode = OverlayMode;
@@ -54,6 +56,7 @@ const DEFAULT_PREFS: GornOverlayPrefs = {
   exaltedFe: 5,
   fontScale: 1,
   goalFe: 0,
+  heat: true,
 };
 
 export function OverlayApp() {
@@ -180,6 +183,7 @@ export function OverlayApp() {
         exaltedFe: s.exaltedFe ?? 5,
         fontScale: s.fontScale ?? 1,
         goalFe: s.goalFe ?? 0,
+        heat: s.heat ?? true,
       });
     });
     const offSnapshot = window.gorn.onSnapshot(setSnapshot);
@@ -211,6 +215,8 @@ export function OverlayApp() {
   // медиана всего сезона копит слабые первые недели и завышала бы процент.
   const norm = snapshot?.norm ?? 0;
   const delta = pace !== null && norm > 0 ? Math.round(((pace - norm) / norm) * 100) : null;
+  // Жар темпа — только на карте и когда темп уже посчитан.
+  const heat = prefs.heat && place === 'map' && delta !== null ? heatOf(delta) : null;
 
   // «Тень» прошлого забега: сколько он имел к этой же секунде. Оценка
   // грубая — по его среднему темпу, дроп на деле сыплется рывками, —
@@ -227,10 +233,17 @@ export function OverlayApp() {
       ref={root}
       className={`ov ov-${mode} ov-${place} ${locked ? 'ov-locked' : 'ov-free'} ${
         locked && dodge ? 'ov-dodge' : ''
-      }`}
-      style={{ zoom: prefs.fontScale }}
+      } ${heat ? 'ov-hot' : ''}`}
+      style={
+        heat
+          ? ({ zoom: prefs.fontScale, '--heat': heat.color, '--glow': heat.glow } as CSSProperties)
+          : { zoom: prefs.fontScale }
+      }
       onMouseMove={locked ? onDodgeMove : undefined}
     >
+      {/* Раскалённая кромка: цвет каления по темпу карты к норме. */}
+      {heat && <i className="ov-ember" aria-hidden="true" />}
+      {heat && <Sparks level={heat.sparks} />}
       {/* Полоска для перетаскивания видна только в разблокированном режиме:
           в заблокированном клики всё равно уходят в игру. */}
       {!locked && (
@@ -301,6 +314,7 @@ export function OverlayApp() {
           run={run}
           elapsed={elapsed}
           delta={delta}
+          heat={heat}
           sessionNet={sessionNet}
           previous={previous}
           snapshot={snapshot}
@@ -341,7 +355,7 @@ export function OverlayApp() {
       {place === 'map' && run && (
         <div className="ov-hero">
           <Fe value={run.netFe} signed />
-          {delta !== null && <Delta value={delta} />}
+          {delta !== null && <Delta value={delta} heat={heat} />}
         </div>
       )}
       {place === 'town' && (
@@ -427,14 +441,15 @@ export function OverlayApp() {
   );
 }
 
-function Delta({ value }: { value: number }) {
+function Delta({ value, heat }: { value: number; heat: Heat | null }) {
+  const title = tr(
+    'Темп этой карты к норме — медиане последних 20 забегов',
+    'This map’s pace vs the norm — the median of the last 20 runs',
+  );
   return (
     <span
-      className={`ov-delta ${value >= 0 ? 'up' : 'down'}`}
-      title={tr(
-        'Темп этой карты к норме — медиане последних 20 забегов',
-        'This map’s pace vs the norm — the median of the last 20 runs',
-      )}
+      className={`ov-delta ${heat ? 'heat' : value >= 0 ? 'up' : 'down'}`}
+      title={heat ? `${title} · ${heat.name}` : title}
     >
       <Icon name={value >= 0 ? 'up' : 'down'} />
       {Math.abs(value)}%
@@ -453,6 +468,7 @@ function StripLine({
   run,
   elapsed,
   delta,
+  heat,
   sessionNet,
   previous,
   snapshot,
@@ -462,6 +478,7 @@ function StripLine({
   run: RunView | null;
   elapsed: number;
   delta: number | null;
+  heat: Heat | null;
   sessionNet: number;
   previous: RunView | null;
   snapshot: Snapshot;
@@ -484,7 +501,7 @@ function StripLine({
           <span className="ov-line-hero">
             <Fe value={run.netFe} signed />
           </span>
-          {delta !== null && <Delta value={delta} />}
+          {delta !== null && <Delta value={delta} heat={heat} />}
         </>
       )}
       {place === 'town' && (

@@ -19,6 +19,8 @@ declare global {
     exaltedFe: number;
     fontScale: number;
     goalFe: number;
+    /** Жар темпа: кромка оверлея цветом каления по темпу карты к норме, искры выше нормы. */
+    heat: boolean;
   }
 
   interface GornOverlayApi {
@@ -35,6 +37,7 @@ declare global {
       jackpotFe: number;
       exaltedFe: number;
       goalFe: number;
+      heat?: boolean;
     }>;
     toggle: () => Promise<boolean>;
     close: () => void;

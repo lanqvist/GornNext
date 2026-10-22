@@ -131,6 +131,7 @@ export function SettingsPanel({
     fontScale: 1,
     opacity: 0.9,
     goalFe: 0,
+    heat: true,
   });
   const [sys, setSys] = useState<GornAppSettings | null>(null);
   const [community, setCommunity] = useState(true);
@@ -159,6 +160,7 @@ export function SettingsPanel({
         fontScale: s.fontScale ?? 1,
         opacity: s.opacity ?? 0.9,
         goalFe: s.goalFe ?? 0,
+        heat: s.heat ?? true,
       });
     });
     refreshSys();
@@ -361,6 +363,21 @@ export function SettingsPanel({
               step={10}
               value={Math.round(prefs.fontScale * 100)}
               onChange={(e) => patch({ fontScale: Number(e.target.value) / 100 })}
+            />
+          </label>
+          <label className="set-row">
+            <span
+              title={tr(
+                'Верхняя кромка оверлея светится цветом каления по темпу карты к норме: вишнёвый — норма, выше — оранжевый, жёлтый, белый, ниже — тёмно-вишнёвый и зола. Выше нормы с кромки срываются искры.',
+                'The overlay’s top edge glows like heated steel by this map’s pace vs the norm: cherry is normal, orange, yellow and white are faster, dark cherry and ash are slower. Above the norm, sparks fly off the edge.',
+              )}
+            >
+              {tr('Жар темпа', 'Pace heat')}
+            </span>
+            <input
+              type="checkbox"
+              checked={prefs.heat}
+              onChange={(e) => patch({ heat: e.target.checked })}
             />
           </label>
           <label className="set-row">

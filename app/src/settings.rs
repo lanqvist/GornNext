@@ -38,7 +38,8 @@ fn defaults(ui: &str) -> Value {
             "jackpotFe": 50,
             "exaltedFe": 5,
             "introShown": false,
-            "goalFe": 0
+            "goalFe": 0,
+            "heat": true
         }
     })
 }

@@ -211,6 +211,7 @@ pub fn prefs_payload(o: &Value) -> Value {
         "exaltedFe",
         "fontScale",
         "goalFe",
+        "heat",
     ] {
         m.insert(k.into(), o[k].clone());
     }
