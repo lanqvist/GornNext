@@ -387,8 +387,19 @@ export function ToastList({ toasts }: { toasts: Toast[] }) {
           )}
           {t.kind === 'jackpot' && (
             <>
-              {t.icon && <img className="ov-toast-icon" src={t.icon} alt="" draggable={false} />}
+              {t.icon && (
+                <img className="ov-toast-icon ov-hot-icon" src={t.icon} alt="" draggable={false} />
+              )}
               <span className="ov-toast-name">{t.name}</span>
+              {/* Цена — клеймом мастера: падает ударом, остывает, с неё — сноп искр. */}
+              <span className="ov-stamp">
+                <Fe value={t.fe} className="ov-toast-fe" />
+                <span className="ov-stamp-sparks" aria-hidden="true">
+                  {Array.from({ length: 8 }, (_, i) => (
+                    <i key={i} />
+                  ))}
+                </span>
+              </span>
             </>
           )}
           {t.kind === 'notable' && (
@@ -405,7 +416,7 @@ export function ToastList({ toasts }: { toasts: Toast[] }) {
               </span>
             </>
           )}
-          {(t.kind === 'pickup' || t.kind === 'notable' || t.kind === 'jackpot') && (
+          {(t.kind === 'pickup' || t.kind === 'notable') && (
             <Fe value={t.fe} signed className="ov-toast-fe" />
           )}
           {t.kind === 'prison' && (

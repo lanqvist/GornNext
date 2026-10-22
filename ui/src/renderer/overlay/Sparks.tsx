@@ -114,5 +114,5 @@ export function Sparks({ level }: { level: 0 | 1 | 2 | 3 }) {
     prevLevel.current = level;
   }, [level]);
 
-  return <canvas ref={canvas} className="ov-sparks" aria-hidden="true" />;
+  return <canvas ref={canvas} className="ov-ember-sparks" aria-hidden="true" />;
 }

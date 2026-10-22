@@ -307,6 +307,159 @@ body {
 .ov-sparks i:nth-child(5) { --dx: -18px; --dy: -52px; animation-delay: 120ms; }
 .ov-sparks i:nth-child(6) { --dx: 30px; --dy: 48px; animation-delay: 20ms; }
 
+/* ── клеймо джекпота ─────────────────────────────────────────────
+   Находка выходит из горна: иконка вспыхивает белым и за секунду остывает
+   через жёлтый и оранжевый, цена падает клеймом, плашка вздрагивает от
+   удара, с клейма летит сноп искр. Всё разовое, 1,4 с, — дальше плашка
+   обычная. Цвета — шкала каления, как у жара темпа в оверлее. */
+
+.ov-toast-jackpot:not(.ov-toast-leaving) {
+  animation:
+    tl-in 260ms cubic-bezier(0.18, 0.9, 0.28, 1.18) both,
+    tl-stamp-shake 170ms linear 560ms;
+}
+
+.ov-hot-icon {
+  animation: tl-cool 1100ms ease-out both;
+}
+
+/* Оранжевая находка — короткая вспышка иконки, без клейма. */
+.ov-toast-notable .ov-toast-icon {
+  animation: tl-cool 700ms ease-out both;
+}
+
+.ov-stamp {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 0 9px 1px;
+  color: #ffd694;
+  border: 2px solid currentColor;
+  border-radius: 7px;
+  outline: 1px solid rgb(255 214 148 / 45%);
+  outline-offset: 2px;
+  background: rgb(30 16 4 / 55%);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 60%);
+  transform: rotate(-4deg);
+  animation:
+    tl-stamp-slam 360ms cubic-bezier(0.2, 0.9, 0.3, 1.25) 240ms both,
+    tl-stamp-cool 1000ms ease-out 600ms both;
+}
+
+.ov-stamp-sparks {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  pointer-events: none;
+}
+
+.ov-stamp-sparks i {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px;
+  border-radius: 50%;
+  background: #fff3d6;
+  box-shadow: 0 0 6px rgb(255 160 50 / 90%);
+  opacity: 0;
+  animation: tl-stamp-spark 620ms ease-out 560ms forwards;
+}
+
+.ov-stamp-sparks i:nth-child(1) { --dx: -46px; --dy: -30px; }
+.ov-stamp-sparks i:nth-child(2) { --dx: 40px; --dy: -36px; animation-delay: 580ms; }
+.ov-stamp-sparks i:nth-child(3) { --dx: -22px; --dy: -44px; animation-delay: 600ms; }
+.ov-stamp-sparks i:nth-child(4) { --dx: 58px; --dy: -14px; }
+.ov-stamp-sparks i:nth-child(5) { --dx: -60px; --dy: -8px; animation-delay: 590ms; }
+.ov-stamp-sparks i:nth-child(6) { --dx: 18px; --dy: -50px; animation-delay: 570ms; }
+.ov-stamp-sparks i:nth-child(7) { --dx: 30px; --dy: 16px; animation-delay: 610ms; }
+.ov-stamp-sparks i:nth-child(8) { --dx: -34px; --dy: 14px; animation-delay: 575ms; }
+
+@keyframes tl-cool {
+  0% {
+    filter: brightness(2.3) saturate(0.4) drop-shadow(0 0 6px #fff3d6) drop-shadow(0 0 14px #ffc93c);
+  }
+  30% {
+    filter: brightness(1.6) saturate(0.8) drop-shadow(0 0 6px #ffc93c) drop-shadow(0 0 12px #ff7a1a);
+  }
+  65% {
+    filter: brightness(1.2) drop-shadow(0 0 5px #b3261e);
+  }
+  100% {
+    filter: drop-shadow(0 1px 3px rgb(0 0 0 / 80%));
+  }
+}
+
+@keyframes tl-stamp-slam {
+  0% {
+    opacity: 0;
+    transform: scale(2.6) rotate(-16deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(0.9) rotate(-3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-4deg);
+  }
+}
+
+@keyframes tl-stamp-cool {
+  0% {
+    color: #fff3d6;
+    border-color: #fff3d6;
+    text-shadow:
+      0 0 10px #ffc93c,
+      0 0 22px #ff7a1a;
+  }
+  50% {
+    color: #ffc93c;
+  }
+  100% {
+    color: #ffd694;
+  }
+}
+
+@keyframes tl-stamp-shake {
+  25% {
+    transform: translate(2px, 1px);
+  }
+  50% {
+    transform: translate(-2px, -1px);
+  }
+  75% {
+    transform: translate(1px, -1px);
+  }
+}
+
+@keyframes tl-stamp-spark {
+  0% {
+    opacity: 1;
+    background: #fff3d6;
+    transform: translate(0, 0);
+  }
+  60% {
+    opacity: 0.9;
+    background: #ffc93c;
+    transform: translate(var(--dx), var(--dy));
+  }
+  100% {
+    opacity: 0;
+    background: #ff7a1a;
+    transform: translate(calc(var(--dx) * 1.15), calc(var(--dy) + 22px));
+  }
+}
+
+/* Стенд плашек: всё в покое, клеймо уже стоит. */
+.tl-preview .ov-toast-jackpot:not(.ov-toast-leaving),
+.tl-preview .ov-hot-icon,
+.tl-preview .ov-toast-icon,
+.tl-preview .ov-stamp,
+.tl-preview .ov-stamp-sparks i {
+  animation: none;
+}
+
 @keyframes tl-spark {
   0% {
     opacity: 1;
@@ -373,9 +526,17 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .ov-sparks i,
-  .ov-coins i {
+  .ov-coins i,
+  .ov-stamp-sparks i {
     animation: none;
     opacity: 0;
+  }
+
+  .ov-toast-jackpot:not(.ov-toast-leaving),
+  .ov-hot-icon,
+  .ov-toast-notable .ov-toast-icon,
+  .ov-stamp {
+    animation: none;
   }
 }
 

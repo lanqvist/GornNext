@@ -82,7 +82,7 @@ body {
   pointer-events: none;
 }
 
-.ov-sparks {
+.ov-ember-sparks {
   position: absolute;
   top: 0;
   left: 0;
