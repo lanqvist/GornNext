@@ -1504,7 +1504,7 @@ dependencies = [
 
 [[package]]
 name = "gorn-app"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "gorn-core",
@@ -1528,7 +1528,7 @@ dependencies = [
 
 [[package]]
 name = "gorn-cli"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "gorn-core",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "gorn-core"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "indexmap 2.14.2",
@@ -1555,7 +1555,7 @@ dependencies = [
 
 [[package]]
 name = "gorn-prison"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "rayon",
  "serde_json",
