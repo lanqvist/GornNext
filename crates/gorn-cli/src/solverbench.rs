@@ -95,7 +95,12 @@ pub struct Game {
 }
 
 /// Забег g (сид 777000+g, тема g % 5): мгновенной стратегией и с решателем.
+/// Игра идёт по p, решатель считает по model (A/B модели правил на тех же сидах).
 pub fn play_game(g: u32, mode: PlayMode, p: &Params, pool: Option<&ThreadPool>) -> Game {
+    play_game_model(g, mode, p, p, pool)
+}
+
+pub fn play_game_model(g: u32, mode: PlayMode, p: &Params, model: &Params, pool: Option<&ThreadPool>) -> Game {
     let w = default_weights();
     let mut inst = Instant::new();
     let mut buf: CodeBuf = [0; 32];
@@ -108,7 +113,7 @@ pub fn play_game(g: u32, mode: PlayMode, p: &Params, pool: Option<&ThreadPool>) 
         let mut mv: u32 = 0;
         while s.m[PHASE] != P_END {
             let c = if use_solver && legal_codes(&s, &mut buf) > 1 {
-                choose(&s, g.wrapping_mul(1000).wrapping_add(mv), mode, p, pool)
+                choose(&s, g.wrapping_mul(1000).wrapping_add(mv), mode, model, pool)
             } else {
                 inst.code(&s, p, w)
             };
@@ -124,15 +129,17 @@ pub fn play_game(g: u32, mode: PlayMode, p: &Params, pool: Option<&ThreadPool>) 
 }
 
 /// `gorn-cli play`: самоигра N забегов; threads — забегов параллельно, solver_threads — пул на поиск.
-pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: usize, quiet: bool) {
+/// old_model — решатель считает по прежней модели правил (замена, «Чёрный список»), игра — по нынешней.
+pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: usize, quiet: bool, old_model: bool) {
     let p = &DEFAULT_PARAMS;
+    let model = &Params { swap_then_devour: !old_model, blacklist_before_open: !old_model, ..DEFAULT_PARAMS };
     let solver_pool =
         (solver_threads > 1).then(|| rayon::ThreadPoolBuilder::new().num_threads(solver_threads).build().unwrap());
     let t0 = Clock::now();
     let games: Vec<Game> = if threads == 1 {
         (from..from + n)
             .map(|g| {
-                let r = play_game(g, mode, p, solver_pool.as_ref());
+                let r = play_game_model(g, mode, p, model, solver_pool.as_ref());
                 if !quiet {
                     println!("{} {} {}", r.g, r.instant, r.solver);
                 }
@@ -142,7 +149,7 @@ pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: u
     } else {
         let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
         let mut v: Vec<Game> = pool.install(|| {
-            (from..from + n).into_par_iter().with_max_len(1).map(|g| play_game(g, mode, p, solver_pool.as_ref())).collect()
+            (from..from + n).into_par_iter().with_max_len(1).map(|g| play_game_model(g, mode, p, model, solver_pool.as_ref())).collect()
         });
         v.sort_by_key(|r| r.g);
         if !quiet {

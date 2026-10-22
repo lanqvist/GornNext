@@ -68,3 +68,33 @@ pub fn gifts(file: &str) -> Result<(), String> {
     println!("code {}", inst.code(&s, &DEFAULT_PARAMS, default_weights()));
     Ok(())
 }
+
+/// `gorn-cli debug-move <state.json> <код> <n> [камеры через запятую]`: ход из
+/// позиции n раз (скрытое — заново, как у `learn`) и распределение исходов:
+/// камеры (зверь/редкость/замок), фаза, день, призмы.
+pub fn moves(file: &str, code: i32, n: u32, cells: &[usize]) -> Result<(), String> {
+    use gorn_prison::state::{BEAST, LOCK, TIER};
+    let text = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
+    let arr: Vec<i32> = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let mut s0 = State::new();
+    s0.m.copy_from_slice(&arr);
+    let p = &DEFAULT_PARAMS;
+    let mut hist: std::collections::BTreeMap<String, u32> = Default::default();
+    for k in 0..n {
+        let mut s = s0;
+        let mut r = Rng::new(mix(k * 7919 + 1, 0x51ed));
+        redeterminize(&mut s, &mut r, false, p);
+        apply_code(&mut s, code, &mut r, p).map_err(|e| e.to_string())?;
+        let mut key = format!("ф{} д{} п{}", s.m[PHASE], s.m[DAY], s.m[STORAGE]);
+        for &c in cells {
+            key += &format!(" {c}:{}/{}/{}", s.m[BEAST + c], s.m[TIER + c], s.m[LOCK + c]);
+        }
+        *hist.entry(key).or_default() += 1;
+    }
+    let mut v: Vec<_> = hist.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1));
+    for (k, c) in v {
+        println!("{:>7.3} %  {k}", c as f64 * 100.0 / n as f64);
+    }
+    Ok(())
+}

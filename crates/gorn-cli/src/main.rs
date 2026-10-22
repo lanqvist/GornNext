@@ -13,6 +13,7 @@ mod dbcheck;
 mod enginecheck;
 mod facts;
 mod learn;
+mod liveab;
 mod debugtrace;
 mod frames;
 mod genlog;
@@ -35,8 +36,13 @@ gorn-cli bench [--selfplay N=200000] [--threads T=0] [--ts] [--tli ../gorn-tli]
     самоигра (один поток и T потоков, 0 — все ядра); --ts — затем то же в эталоне TS
 gorn-cli selfplay [--seeds N=200000] [--from K=0] [--mode instant|random] [--threads T=1]
 gorn-cli play [--seeds N=800] [--from K=0] [--mode new|flat|old|fixed] [--rounds R=400]
-              [--threads T=1] [--solver-threads S=1] [--quiet]
-    самоигра с решателем (сиды 777000+g), как prison-solve-bench --play; fixed — без срока
+              [--threads T=1] [--solver-threads S=1] [--quiet] [--model new|old]
+    самоигра с решателем (сиды 777000+g), как prison-solve-bench --play; fixed — без срока;
+    --model old — решатель считает по прежней модели правил (замена завершает день, «Чёрный список»
+    после открытия двери), игра — по нынешней
+gorn-cli live-ab [--db a.db,b.db] [--rounds R=300] [--ref-rounds RR=5000] [--threads T=ядра]
+    A/B моделей правил на позициях живых забегов: ход прежней и нынешней модели (R раундов),
+    расхождения — глубокой оценкой по нынешним правилам (RR раундов, без отсечения)
 gorn-cli solve-bench [--games 12] [--every 2] [--positions N] [--min 256] [--max R] [--cap 300]
               [--threads S=1] [--rate [--stride 5]] [--regret [--ref файл] [--ref-rounds 20000] [--ref-threads 14]]
     советы на позициях самоигры, как prison-solve-bench; 580 позиций аудита: --games 18 --positions 580
@@ -186,6 +192,11 @@ fn main() -> ExitCode {
                     num(&o, "threads", 1)? as usize,
                     num(&o, "solver-threads", 1)? as usize,
                     o.contains_key("quiet"),
+                    match o.get("model").map(String::as_str) {
+                        None | Some("new") => false,
+                        Some("old") => true,
+                        Some(m) => return Err(format!("--model: {m}")),
+                    },
                 );
                 Ok(true)
             }
@@ -278,6 +289,7 @@ fn main() -> ExitCode {
                     o.contains_key("json"),
                     o.get("detail").map(String::as_str),
                     o.get("gift-chains").map(|_| num(&o, "gift-chains", 2000)).transpose()?.map(u64::from),
+                    num(&o, "samples", learn::SAMPLES)?,
                 )?;
                 Ok(true)
             }
@@ -291,6 +303,26 @@ fn main() -> ExitCode {
                     return Err("debug-trace <state.json> <seed> <rounds>".into());
                 }
                 debugtrace::run(a[0], a[1].parse().map_err(|_| "seed")?, a[2].parse().map_err(|_| "rounds")?)?;
+                Ok(true)
+            }
+            "live-ab" => {
+                let dbs: Vec<std::path::PathBuf> = match o.get("db") {
+                    Some(list) => list.split(',').map(std::path::PathBuf::from).collect(),
+                    None => {
+                        let d = std::path::PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("com.gorn.next");
+                        vec![d.join("prison-facts-history.db"), d.join("prison-facts.db")]
+                    }
+                };
+                liveab::run(&dbs, num(&o, "rounds", 300)? as u64, num(&o, "ref-rounds", 5000)? as u64, num(&o, "threads", cores())? as usize)?;
+                Ok(true)
+            }
+            "debug-move" => {
+                let a: Vec<&String> = args[1..].iter().collect();
+                if a.len() < 3 {
+                    return Err("debug-move <state.json> <код> <n> [камеры]".into());
+                }
+                let cells: Vec<usize> = a.get(3).map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or_default();
+                debugtrace::moves(a[0], a[1].parse().map_err(|_| "код")?, a[2].parse().map_err(|_| "n")?, &cells)?;
                 Ok(true)
             }
             "audit" => {

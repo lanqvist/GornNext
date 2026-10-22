@@ -24,9 +24,9 @@ use gorn_prison::state::*;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 
-/// Розыгрышей на ход.
-const SAMPLES: u32 = 300;
-/// Розыгрышей на пару ходов (проверка пропущенного решения).
+/// Розыгрышей на ход по умолчанию (`--samples`).
+pub const SAMPLES: u32 = 300;
+/// Розыгрышей на пару ходов (проверка пропущенного решения), не меньше; с `--samples` — десятая часть.
 const SAMPLES2: u32 = 60;
 
 /// Камера для распечатки: зверь, редкость, замок («·» — пусто, «?» — заперта, неизвестно кто).
@@ -38,12 +38,12 @@ fn cell(s: &State, c: usize) -> String {
 
 /// Пропущенное решение: два хода подряд (первый — из вариантов факта, второй —
 /// любой легальный) дают ровно наблюдённое. Возвращает ходы и долю розыгрышей.
-fn two_step(a: &State, b: &State, codes: &[i32], fields: &[usize], seed: u32) -> Option<(i32, i32, f64)> {
+fn two_step(a: &State, b: &State, codes: &[i32], fields: &[usize], seed: u32, samples: u32) -> Option<(i32, i32, f64)> {
     let p = &DEFAULT_PARAMS;
     let mut best: Option<(i32, i32, f64)> = None;
     for (i, &c1) in codes.iter().enumerate() {
         let mut hits: BTreeMap<i32, u32> = BTreeMap::new();
-        for k in 0..SAMPLES2 {
+        for k in 0..samples {
             let mut r = Rng::new(gorn_prison::rng::mix_pair(k * 104_729 + 3, seed ^ ((i as u32) << 20)));
             let mut s = *a;
             redeterminize(&mut s, &mut r, false, p);
@@ -61,7 +61,7 @@ fn two_step(a: &State, b: &State, codes: &[i32], fields: &[usize], seed: u32) ->
             }
         }
         for (c2, h) in hits {
-            let f = h as f64 / SAMPLES2 as f64;
+            let f = h as f64 / samples as f64;
             if best.is_none_or(|x| f > x.2) {
                 best = Some((c1, c2, f));
             }
@@ -188,6 +188,14 @@ struct Pair {
     /// Поля, не совпавшие у ближайшего розыгрыша, и что он дал.
     fields: Vec<usize>,
     closest: State,
+    /// Поля, чьего наблюдённого значения не дал ни один розыгрыш хода: пусто —
+    /// каждое поле по отдельности движок даёт, не совпало лишь сочетание.
+    unsupported: Vec<usize>,
+}
+
+/// Бит значения поля для маски «какие значения встречались».
+fn vbit(v: i32) -> u64 {
+    1u64 << (v + 2).clamp(0, 63)
 }
 
 /// Цепочки подарков: подарок, после которого по фактам шли ещё подарки того же
@@ -251,7 +259,7 @@ fn gift_chains(by_run: &BTreeMap<String, Vec<Fact>>, rounds: u64) {
     println!("  подарков с остатком ≥ 2: {n}, совет сменился бы в {changed}, потеря в сумме {loss:.3} призм");
 }
 
-pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option<u64>) -> Result<(), String> {
+pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option<u64>, samples: u32) -> Result<(), String> {
     let p = &DEFAULT_PARAMS;
     let fields = visible();
     let mut facts = vec![];
@@ -272,6 +280,8 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
         return Ok(());
     }
     let (mut pairs, mut exact, mut near, mut far, mut followed, mut gaps) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+    // Не совпало только сочетание: каждое поле по отдельности движок даёт.
+    let mut rare = 0usize;
     // Пропущено одно решение: (первый ход, второй ход) → сколько раз.
     let mut skipped: BTreeMap<(String, String), usize> = BTreeMap::new();
     let mut details: Vec<String> = vec![];
@@ -310,13 +320,17 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
                 let mut closest = a.state;
                 let mut arr: Vec<(Arrival, i32)> = vec![];
                 let mut legal = true;
-                for k in 0..SAMPLES {
+                let mut support = vec![0u64; fields.len()];
+                for k in 0..samples {
                     let mut r = Rng::new(gorn_prison::rng::mix_pair(k * 7919 + 1, (i as u32) << 16 ^ pairs as u32));
                     let mut s = a.state;
                     redeterminize(&mut s, &mut r, false, p);
                     if apply_code(&mut s, code, &mut r, p).is_err() {
                         legal = false;
                         break;
+                    }
+                    for (j, &f) in fields.iter().enumerate() {
+                        support[j] |= vbit(s.m[f]);
                     }
                     let d = diff(&s, &b.state, &fields);
                     if d.is_empty() {
@@ -335,10 +349,11 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
                 let cand = Pair {
                     code,
                     followed: code == a.advised,
-                    exact: hits as f64 / SAMPLES as f64,
+                    exact: hits as f64 / samples as f64,
                     min_diff,
                     fields: miss,
                     closest,
+                    unsupported: fields.iter().enumerate().filter(|&(j, &f)| support[j] & vbit(b.state.m[f]) == 0).map(|(_, &f)| f).collect(),
                 };
                 let better = match &best {
                     None => true,
@@ -363,7 +378,7 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
             // в тот же день (кадр не снят): два хода подряд.
             if pr.exact == 0.0 {
                 let codes: Vec<i32> = a.options.iter().map(|o| o.0).collect();
-                if let Some((c1, c2, _)) = two_step(&a.state, &b.state, &codes, &fields, pairs as u32) {
+                if let Some((c1, c2, _)) = two_step(&a.state, &b.state, &codes, &fields, pairs as u32, SAMPLES2.max(samples / 10)) {
                     gaps += 1;
                     *skipped
                         .entry((gorn_prison::actions::describe(c1).split(' ').next().unwrap_or("").to_string(), gorn_prison::actions::describe(c2).split(' ').next().unwrap_or("").to_string()))
@@ -379,33 +394,41 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
                     *seen.entry((k, t)).or_default() += 1.0;
                 }
                 for (k, t) in &sim_arrivals {
-                    *expect.entry((*k, *t)).or_default() += 1.0 / SAMPLES as f64;
+                    *expect.entry((*k, *t)).or_default() += 1.0 / samples as f64;
                 }
+            } else if pr.unsupported.is_empty() {
+                rare += 1;
             } else if pr.min_diff <= 3 {
                 near += 1;
             } else {
                 far += 1;
             }
             if pr.exact == 0.0 {
-                for &f in &pr.fields {
+                for &f in &pr.unsupported {
                     *field_miss.entry(field_name(f)).or_default() += 1;
                 }
                 let mv = gorn_prison::actions::describe(pr.code);
                 if detail.is_some_and(|d| mv.contains(d)) {
                     let mut t = format!(
-                        "{run} день {} фаза {} надзиратель {} призм {} подарков {} — {mv} (совет {}):\n",
+                        "{run} день {} фаза {} надзиратель {} призм {} подарков {} — {mv} (совет {}) ts {} → {}:\n",
                         a.day,
                         a.state.m[PHASE],
                         a.state.m[WARDEN],
                         a.state.m[STORAGE],
                         a.state.m[PICK_GIFTS],
-                        gorn_prison::actions::describe(a.advised)
+                        gorn_prison::actions::describe(a.advised),
+                        a.ts,
+                        b.ts
                     );
                     for (name, st) in [("до   ", &a.state), ("движок", &pr.closest), ("вышло", &b.state)] {
                         let cells: Vec<String> = (1..CELLS).map(|c| format!("{:>5}", cell(st, c))).collect();
                         t += &format!("    {name} н{:<2} ф{} {}\n", st.m[WARDEN], st.m[PHASE], cells.join(""));
                     }
                     t += &format!("    не совпало: {}", pr.fields.iter().map(|&f| field_name(f)).collect::<Vec<_>>().join(", "));
+                    if !pr.unsupported.is_empty() {
+                        t += &format!("
+    движок не даёт: {}", pr.unsupported.iter().map(|&f| field_name(f)).collect::<Vec<_>>().join(", "));
+                    }
                     details.push(t);
                 }
                 if unexplained.len() < 40 {
@@ -429,7 +452,7 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
 
     if json_out {
         let v = json!({
-            "runs": by_run.len(), "complete": runs_done, "pairs": pairs, "exact": exact, "near": near, "far": far, "gaps": gaps,
+            "runs": by_run.len(), "complete": runs_done, "pairs": pairs, "exact": exact, "rare": rare, "near": near, "far": far, "gaps": gaps,
             "followed": followed, "loglik": loglik,
             "arrivals": seen.keys().chain(expect.keys()).collect::<std::collections::BTreeSet<_>>().into_iter()
                 .map(|k| json!({ "from": if k.0 == Arrival::Door { "door" } else { "replace" }, "tier": k.1,
@@ -453,6 +476,7 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
     }
     let pairs = pairs - gaps;
     println!("  объяснены движком точно   {exact} ({:.0} %)", pct(exact, pairs));
+    println!("  редкое сочетание          {rare} ({:.0} %) — каждое поле движок даёт, всё вместе не выпало", pct(rare, pairs));
     println!("  близко (≤ 3 поля мимо)    {near} ({:.0} %)", pct(near, pairs));
     println!("  не объяснены              {far} ({:.0} %)", pct(far, pairs));
     println!("  ход совпал с советом      {followed} ({:.0} %)", pct(followed, pairs));
@@ -495,7 +519,7 @@ pub fn run(dbs: &[PathBuf], json_out: bool, detail: Option<&str>, chains: Option
     }
     if !field_miss.is_empty() {
         println!();
-        println!("Поля, где движок не дал наблюдённого (у ближайших розыгрышей):");
+        println!("Поля, чьего наблюдённого значения движок не дал ни в одном розыгрыше:");
         let mut v: Vec<_> = field_miss.into_iter().collect();
         v.sort_by(|a, b| b.1.cmp(&a.1));
         for (f, n) in v.iter().take(15) {
