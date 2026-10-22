@@ -365,6 +365,12 @@ pub fn preset(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
 
 /// Открыть запертую камеру: узник — закреплённый или по шансам двери.
 pub fn open_cell(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
+    open_cell_counted(s, r, p, c, true);
+}
+
+/// Открыть камеру; count — засчитать её цели «Открыть камеры» (дверь обхода
+/// засчитывается раньше, по клику).
+fn open_cell_counted(s: &mut State, r: &mut Rng, p: &Params, c: i32, count: bool) {
     let cu = u(c);
     if s.m[LOCK + cu] != 1 {
         return;
@@ -379,7 +385,9 @@ pub fn open_cell(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
     }
     s.m[STAT_OPENED] += 1;
     place(s, r, p, c, beast, tier);
-    progress(s, r, p, objective::DOORS, 1);
+    if count {
+        progress(s, r, p, objective::DOORS, 1);
+    }
 }
 
 /// Открыть случайную запертую камеру; −1 — запертых нет.
@@ -846,6 +854,26 @@ pub fn end_day(s: &mut State) {
 pub fn patrol(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
     let from = s.m[WARDEN];
     let steps = dist(from, cell);
+    let door = cell != OFFICE && s.m[LOCK + u(cell)] == 1;
+    if p.reward_on_click {
+        // Цель засчитывается по клику на дверь: выполнена — сначала награда,
+        // потом тот же обход (с новым орудием). Повторный вход сюда цели уже
+        // не двигает: выполненная цель снимается (objective_repeat выключен).
+        let picks = s.m[PICK_TOOLS];
+        progress(s, r, p, objective::WALK, steps);
+        if door {
+            progress(s, r, p, objective::DOORS, 1);
+        }
+        if cell != OFFICE && s.m[EVT + u(cell)] != 0 {
+            progress(s, r, p, objective::CURRENTS, 1);
+        }
+        if s.m[PICK_TOOLS] > picks {
+            s.m[DOORS] = cell;
+            s.m[DOORS_N] = 1;
+            s.m[NEXT] = P_PATROL;
+            return;
+        }
+    }
     if s.m[CHAIN_REACTION] == 1 {
         s.m[CHAIN_REACTION] = 0;
         for k in 1..steps {
@@ -854,11 +882,13 @@ pub fn patrol(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
     }
     s.m[WARDEN] = cell;
     s.m[STAT_STEPS] += steps;
-    progress(s, r, p, objective::WALK, steps);
+    if !p.reward_on_click {
+        progress(s, r, p, objective::WALK, steps);
+    }
 
-    if cell != OFFICE && s.m[LOCK + u(cell)] == 1 {
+    if door {
         let locked_before = popcount(locked_mask(s));
-        open_cell(s, r, p, cell);
+        open_cell_counted(s, r, p, cell, !p.reward_on_click);
         door_tools(s, r, p, cell, locked_before);
     }
     if s.has_tool(tool::SHORTCHAIN) && steps <= p.shortchain_steps && chance(r, "shortchain_chance", p.shortchain_chance) {
@@ -872,6 +902,10 @@ pub fn patrol(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
 
 /// «Крысиная тропа»: переход без шагов; дверь открывается, орудия обхода не срабатывают.
 pub fn ratway(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
+    // «Волнения» — по клику на камеру с «!», как у обхода [догадка: тропой не замерено].
+    if p.reward_on_click && cell != OFFICE && s.m[EVT + u(cell)] != 0 {
+        progress(s, r, p, objective::CURRENTS, 1);
+    }
     s.m[WARDEN] = cell;
     open_cell(s, r, p, cell);
     arrive(s, r, p, cell);
@@ -965,7 +999,9 @@ pub fn event_decision(s: &mut State, r: &mut Rng, p: &Params, accept: bool) {
     if accept && ev >= 0 {
         s.m[STAT_EVENTS] += 1;
         run_event(s, r, p, c, ev);
-        progress(s, r, p, objective::CURRENTS, 1);
+        if !p.reward_on_click {
+            progress(s, r, p, objective::CURRENTS, 1);
+        }
     }
     top_up_events(s, r, p);
 }
@@ -1522,5 +1558,26 @@ mod tests {
             assert_eq!(s.m[TIER + 14], -1);
             assert_eq!(s.m[TIER + 7], 4);
         }
+    }
+
+    /// Журнал фактов 20–22.10: «Скрытые волнения» выполняются по клику на дверь
+    /// с «!» — выбор орудия раньше хода надзирателя, потом тот же обход.
+    #[test]
+    fn objective_reward_comes_on_door_click() {
+        let p = DEFAULT_PARAMS;
+        let mut s = State::new();
+        let mut r = Rng::new(3);
+        new_run(&mut s, &mut r, &p, RunSetup { start: 0, objective: objective::CURRENTS, tools: 0, start_pick: false });
+        s.m[WARDEN] = 3;
+        s.m[OBJ_PROGRESS] = p.objective_target[objective::CURRENTS as usize] - 1;
+        s.m[LOCK + 5] = 1;
+        s.m[EVT + 5] = 1;
+        patrol(&mut s, &mut r, &p, 5);
+        assert_eq!((s.m[WARDEN], s.m[PICK_TOOLS], s.m[OBJECTIVE_ID]), (3, 1, -1));
+        assert_eq!((s.m[NEXT], s.m[DOORS_N], s.m[DOORS]), (P_PATROL, 1, 5));
+        assert_eq!(s.m[LOCK + 5], 1);
+        take_tool(&mut s, tool::KEYS as i32);
+        patrol(&mut s, &mut r, &p, 5);
+        assert_eq!((s.m[WARDEN], s.m[PICK_TOOLS], s.m[LOCK + 5], s.m[NEXT]), (5, 0, 0, P_EVENT));
     }
 }

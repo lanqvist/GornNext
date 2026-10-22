@@ -1,7 +1,7 @@
 //! Память забега: JSON того же вида, что у эталона, читается обратно без потерь;
 //! испорченное сохранение — чистый забег.
 
-use gorn_prison::adapter::{blank_memory, load_memory, PrisonAdapter, Step};
+use gorn_prison::adapter::{blank_memory, load_memory, DecisionMem, PrisonAdapter, Step};
 use serde_json::json;
 
 #[test]
@@ -12,6 +12,7 @@ fn memory_roundtrip() {
     a.mem.step = Step::Manage;
     a.mem.storage = 3;
     a.mem.objective = Some(2);
+    a.mem.decision = Some(DecisionMem { consume: true, replace: false, end: true, hunt: false, after_chain: true });
     let j = a.mem.to_json();
     assert_eq!(load_memory(&j), a.mem);
     assert_eq!(j["tools"], json!(["keys", "maul"]));

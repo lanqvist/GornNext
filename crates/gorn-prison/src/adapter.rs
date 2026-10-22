@@ -16,8 +16,8 @@ use serde_json::{json, Map, Value};
 
 use crate::actions::{legal_codes, CodeBuf, A_DEVOUR, A_END, A_HUNT, A_SWAP};
 use crate::model::{
-    event, start_event, tool, tool_index, Params, CELLS, DEFAULT_PARAMS, GIFT_IDS, OBJECTIVE_IDS, OFFICE, START_EVENT_IDS,
-    SUPREME, TOOL_IDS,
+    event, start_event, tool, tool_index, Params, CELLS, DEFAULT_PARAMS, GIFT_IDS, LION, OBJECTIVE_IDS, OFFICE,
+    START_EVENT_IDS, SUPREME, TOOL_IDS,
 };
 use crate::rng::Rng;
 use crate::rules::{new_run, office_rounds, targets, RunSetup};
@@ -173,6 +173,8 @@ pub struct DecisionMem {
     pub replace: bool,
     pub end: bool,
     pub hunt: bool,
+    /// Ряд вернулся после «Отменить» посреди цепочки: Пожирание в этот день уже было.
+    pub after_chain: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -300,6 +302,9 @@ impl RunMemory {
                     if d.hunt {
                         o.insert("hunt".into(), json!(true));
                     }
+                    if d.after_chain {
+                        o.insert("afterChain".into(), json!(true));
+                    }
                     Value::Object(o)
                 }
             },
@@ -401,6 +406,7 @@ pub fn load_memory(x: &Value) -> RunMemory {
         replace: truthy(d.get("replace").unwrap_or(&Value::Null)),
         end: truthy(d.get("end").unwrap_or(&Value::Null)),
         hunt: truthy(d.get("hunt").unwrap_or(&Value::Null)),
+        after_chain: truthy(d.get("afterChain").unwrap_or(&Value::Null)),
     });
     let assumed = g("assumed")
         .as_array()
@@ -554,6 +560,12 @@ pub struct PrisonAdapter {
     /// Призмы, ожидаемые на следующем просмотре доски в цепочке
     /// (None — доску в этой цепочке ещё не смотрели).
     chain_storage: Option<i32>,
+    /// Хранилище до окна подарков (начало цепочки) и сколько подарков в ней
+    /// взято: каждая новая Призматическая — выбор, так что остаток не меньше
+    /// (призмы на доске − до окна − взятые). Две призмы разом (капкан, цепочка
+    /// Пожирания) — два выбора [журнал фактов 22.10: 10 из 10, остаток был 1].
+    chain_base: Option<i32>,
+    chain_taken: i32,
     /// Сколько новых Призматических даст показанный подарок (предсказание движка).
     pub gift_prediction: i32,
     /// Последняя доска снята по кнопке «посмотреть доску» из окна подарков.
@@ -577,6 +589,8 @@ impl PrisonAdapter {
             chain_gifts: false,
             chain_day: -1,
             chain_storage: None,
+            chain_base: None,
+            chain_taken: 0,
             gift_prediction: 0,
             board_viewed: false,
         }
@@ -699,9 +713,14 @@ impl PrisonAdapter {
             m.doors = vec![];
             m.decision = None;
         } else if let Some(Decision::Manage { consume, replace, end, hunt }) = v.decision {
+            // «Отменить» на экране цепочки после укуса возвращает ряд «Пожирание /
+            // Завершить» в тот же день [кадры 22.10 215354 → 215355: 8 из 8]; дальше
+            // по движку день кончен. Тот же ряд на следующих кадрах — тот же признак.
+            let after_chain = (m.step == Step::Chain && !m.first_bite)
+                || (m.step == Step::Manage && m.decision.is_some_and(|d| d.after_chain));
             m.step = Step::Manage;
             m.doors = vec![];
-            m.decision = Some(DecisionMem { consume, replace, end, hunt });
+            m.decision = Some(DecisionMem { consume, replace, end, hunt, after_chain });
         } else if !v.doors.is_empty() {
             m.step = Step::Patrol;
             let w = m.warden;
@@ -726,7 +745,12 @@ impl PrisonAdapter {
                 continue;
             }
             let h = m.hunt_at.filter(|h| h.1 < m.day);
-            m.marks.push(Mark { cell: n, lion: h.map(|h| h.0).unwrap_or(-1), day: h.map(|h| h.1).unwrap_or(m.day - 1) });
+            // Экран выбора добычи не сняли: метил лев надзирателя — утром надзиратель
+            // ещё у него [журнал фактов 22.10: 15 из 15 новых меток].
+            let w = m.warden;
+            let lion_here = w != n && m.cells.get(w as usize).is_some_and(|c| c.kind() == CellK::Inmate && c.b == Some(LION));
+            let lion = h.map(|h| h.0).unwrap_or(if lion_here { w } else { -1 });
+            m.marks.push(Mark { cell: n, lion, day: h.map(|h| h.1).unwrap_or(m.day - 1) });
             if h.is_some() {
                 m.hunt_at = None;
             }
@@ -1001,6 +1025,7 @@ impl PrisonAdapter {
         if self.mem.gifts > 0 {
             self.mem.gifts -= 1;
         }
+        self.chain_taken += 1;
         // Взятый подарок даст ещё Призматических — столько же выборов следом.
         if self.chain_gifts && self.gift_prediction > 0 {
             self.mem.gifts += self.gift_prediction;
@@ -1034,6 +1059,10 @@ impl PrisonAdapter {
                         }
                     }
                 }
+                if let Some(base) = self.chain_base {
+                    let owed = s.min(self.p.storage) - base - self.chain_taken;
+                    self.mem.gifts = self.mem.gifts.max(owed);
+                }
             }
             return;
         }
@@ -1042,6 +1071,10 @@ impl PrisonAdapter {
             self.mem.gifts = 0;
             self.chain_day = self.mem.day;
             self.chain_storage = None;
+            // Утренние призмы — с начала дня, остальные — с последней доски до окна.
+            let m = &self.mem;
+            self.chain_base = Some(if after == Cause::Morning { m.day_storage } else { m.storage });
+            self.chain_taken = 0;
         }
         if after == Cause::Morning {
             // Утренний Призматический уже в хранилище.
@@ -1077,6 +1110,13 @@ impl PrisonAdapter {
             Step::Wait => return Position::No { problem: "сокровищница: доска за окном ещё не видна", fallback: None },
             Step::Patrol if m.doors.is_empty() => return Position::No { problem: "нет дверей", fallback: None },
             Step::Pick if m.offer.is_empty() => return Position::No { problem: "нет карт выбора", fallback: None },
+            Step::Manage if m.decision.is_some_and(|d| d.after_chain) => {
+                // Цепочку прервали — у движка это конец Пожирания и дня.
+                return Position::No {
+                    problem: "цепочку прервали — день кончается",
+                    fallback: Some(crate::actions::code(A_END, 0)),
+                };
+            }
             Step::Chain => {
                 if m.cells.get(m.warden as usize).map(CellMemory::kind) != Some(CellK::Inmate) {
                     return Position::No { problem: "нет едока", fallback: None };

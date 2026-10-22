@@ -45,9 +45,10 @@ pub(crate) fn with_variants(names: &str) -> Result<Params, String> {
     Ok(p)
 }
 
-pub(crate) const VARIANTS: [Variant; 11] = [
+pub(crate) const VARIANTS: [Variant; 12] = [
     Variant { name: "swap_ends_day", about: "замена кончает день (до 22.10)", apply: |p| p.swap_then_devour = false },
     Variant { name: "blacklist_after_open", about: "«Чёрный список»: запертые после открытия (до 22.10)", apply: |p| p.blacklist_before_open = false },
+    Variant { name: "reward_after_move", about: "цель засчитывается после хода надзирателя, «Волнения» — по «Принять» (до вечера 22.10)", apply: |p| p.reward_on_click = false },
     Variant { name: "horn_check_on_turn", about: "«Рог»: цель проверяется в свой ход, по номерам камер (до 22.10)", apply: |p| p.horn_eaters_snapshot = false },
     Variant {
         name: "horn_check_on_turn_random",
