@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use gorn_prison::hint::HintMark;
+use gorn_prison::hint::{Hint, HintMark, Plate};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
@@ -21,6 +21,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     ShowWindow, GWL_EXSTYLE, HWND_TOPMOST, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNOACTIVATE,
     WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
+
+/// Плашка под карточкой: отступ и высота с запасом (CSS-пиксели).
+const PLATE_GAP: f64 = 14.0;
+const PLATE_H: f64 = 84.0;
 
 /// «Смотрю…» без подсказки дольше этого — убрать.
 const THINKING_MAX: Duration = Duration::from_secs(20);
@@ -219,55 +223,52 @@ impl ArrowLayer {
     }
 
     /// Подсказка в пикселях кадра (fw × fh) → окно на мониторе d.
-    pub fn show(
-        &mut self,
-        d: &Display,
-        text: &str,
-        marks: &[HintMark],
-        fw: usize,
-        fh: usize,
-        live: bool,
-        phase: &str,
-    ) {
+    pub fn show(&mut self, d: &Display, hint: &Hint, fw: usize, fh: usize, live: bool, phase: &str) {
         // кадр → пиксели монитора → CSS-пиксели окна
         let sx = d.w as f64 / fw as f64 / d.scale;
         let sy = d.h as f64 / fh as f64 / d.scale;
         let pt = |p: [f64; 2]| [p[0] * sx, p[1] * sy];
-        let mut out = vec![];
-        let (mut ys, mut xs) = (vec![], vec![]);
-        for m in marks {
-            match m {
-                HintMark::Arrow { from, to } => {
-                    let (f, t) = (pt(*from), pt(*to));
-                    ys.push(f[1].min(t[1]));
-                    xs.push(t[0]);
-                    out.push(json!({ "kind": "arrow", "from": f, "to": t }));
+        let bx = |b: &[f64; 4]| [b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy];
+        let marks: Vec<Value> = hint
+            .marks
+            .iter()
+            .map(|m| match m {
+                HintMark::Arrow { from, to, step } => {
+                    json!({ "kind": "arrow", "from": pt(*from), "to": pt(*to), "step": step })
                 }
-                HintMark::Ring { at, r } => {
-                    let a = pt(*at);
-                    ys.push(a[1] - r * sx);
-                    xs.push(a[0]);
-                    out.push(json!({ "kind": "ring", "at": a, "r": r * sx }));
+                HintMark::Ring { at, r, step } => {
+                    json!({ "kind": "ring", "at": pt(*at), "r": r * sx, "step": step })
                 }
-                HintMark::Box(b) => {
-                    let (p0, p1) = (pt([b[0], b[1]]), pt([b[2], b[3]]));
-                    ys.push(p0[1]);
-                    xs.push((p0[0] + p1[0]) / 2.0);
-                    out.push(json!({ "kind": "box", "box": [p0[0], p0[1], p1[0], p1[1]] }));
+                HintMark::Box { b, step } => json!({ "kind": "box", "box": bx(b), "step": step }),
+                HintMark::Path { points } => {
+                    json!({ "kind": "path", "points": points.iter().map(|p| pt(*p)).collect::<Vec<_>>() })
+                }
+            })
+            .collect();
+        let (cw, ch) = (d.w as f64 / d.scale, d.h as f64 / d.scale);
+        let plate = match hint.plate {
+            // Под карточкой; у нижнего края экрана — над ней.
+            Some(Plate::Card(b)) => {
+                let [x0, y0, x1, y1] = bx(&b);
+                let x = (x0 + x1) / 2.0;
+                if y1 + PLATE_GAP + PLATE_H <= ch {
+                    json!({ "at": [x, y1 + PLATE_GAP], "anchor": "top", "card": x1 - x0 })
+                } else {
+                    json!({ "at": [x, y0 - PLATE_GAP], "anchor": "bottom", "card": x1 - x0 })
                 }
             }
-        }
-        let (cw, ch) = (d.w as f64 / d.scale, d.h as f64 / d.scale);
-        let anchor = if xs.is_empty() {
-            [cw / 2.0, ch * 0.12]
-        } else {
-            [
-                xs[0],
-                (ys.iter().cloned().fold(f64::INFINITY, f64::min) - 18.0).max(40.0),
-            ]
+            Some(Plate::Yard { at, anchor }) => json!({ "at": pt(at), "anchor": anchor.name() }),
+            None => json!({ "at": [cw / 2.0, ch * 0.12], "anchor": "top" }),
         };
-        let payload =
-            json!({ "text": text, "marks": out, "live": live, "phase": phase, "anchor": anchor });
+        let payload = json!({
+            "title": hint.title,
+            "sub": hint.sub,
+            "twoSteps": hint.two_steps(),
+            "marks": marks,
+            "plate": plate,
+            "live": live,
+            "phase": phase,
+        });
         self.present(d, payload);
     }
 
@@ -276,7 +277,16 @@ impl ArrowLayer {
     /// экрана получает свежие кадры (в сам кадр окно не попадает).
     pub fn thinking(&mut self, d: &Display) {
         let (cw, ch) = (d.w as f64 / d.scale, d.h as f64 / d.scale);
-        let payload = json!({ "text": "", "marks": [], "live": false, "phase": "instant", "anchor": [cw / 2.0, ch * 0.1], "thinking": true });
+        let payload = json!({
+            "title": "",
+            "sub": "",
+            "twoSteps": false,
+            "marks": [],
+            "plate": { "at": [cw / 2.0, ch * 0.1], "anchor": "top" },
+            "live": false,
+            "phase": "instant",
+            "thinking": true,
+        });
         self.present(d, payload);
         self.think_until = Some(Instant::now() + THINKING_MAX);
     }

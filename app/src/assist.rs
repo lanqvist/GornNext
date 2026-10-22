@@ -597,15 +597,14 @@ impl Assist {
             if let Some(d) = self.display {
                 match &r {
                     Reply::Hint {
-                        text,
-                        marks,
+                        hint,
                         w,
                         h,
                         live,
                         phase,
                         ..
                     } => {
-                        self.layer.show(&d, text, marks, *w, *h, *live, phase);
+                        self.layer.show(&d, hint, *w, *h, *live, phase);
                         self.stale_at = Some(Instant::now() + STALE);
                     }
                     Reply::Settled { live, .. } => self.layer.settle(*live),

@@ -133,13 +133,25 @@ declare global {
     };
   }
 
-  /** Подсказка в тюрьме в координатах окна стрелок (см. main/prison/arrowLayer.ts). */
+  /**
+   * Подсказка в тюрьме в координатах окна стрелок (см. app/src/overlay.rs).
+   * Шаг метки: 1 — жать сейчас, 2 — следующий клик того же хода, 0 — только показать.
+   */
   interface GornPrisonHint {
-    text: string;
-    marks: Array<{ kind: 'arrow'; from: number[]; to: number[] } | { kind: 'ring'; at: number[]; r: number } | { kind: 'box'; box: number[] }>;
+    title: string;
+    sub: string;
+    /** Ход из двух кликов: на метках и плашке — номера шагов. */
+    twoSteps: boolean;
+    marks: Array<
+      | { kind: 'arrow'; from: [number, number]; to: [number, number]; step: number }
+      | { kind: 'ring'; at: [number, number]; r: number; step: number }
+      | { kind: 'box'; box: [number, number, number, number]; step: number }
+      | { kind: 'path'; points: Array<[number, number]> }
+    >;
+    /** Плашка: точка и чем она к ней пристёгнута; card — ширина карточки над/под плашкой. */
+    plate: { at: [number, number]; anchor: 'top' | 'bottom' | 'center'; card?: number };
     live: boolean;
     phase: 'instant' | 'final';
-    anchor: number[];
     /** Ход сделан, новая подсказка считается. */
     thinking?: boolean;
   }

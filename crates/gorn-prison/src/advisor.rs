@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 use crate::actions::{describe, A_TOOL};
 use crate::adapter::{Cause, Position, PrisonAdapter, Step};
-use crate::hint::{hint, HintContext, HintMark};
+use crate::hint::{hint, Hint, HintContext};
 use crate::policy::{default_weights, Instant};
 use crate::recognize::{default_geometry, read, reroll_box, treasure_boxes, Frame, Geometry, ReadOptions};
 use crate::solver::{state_key, SolveCache, SolveOptions, SolveStep, StopRule, STOP_DEFAULTS};
@@ -91,7 +91,7 @@ pub struct Shot {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reply {
-    Hint { id: u64, phase: &'static str, w: usize, h: usize, text: String, marks: Vec<HintMark>, live: bool },
+    Hint { id: u64, phase: &'static str, w: usize, h: usize, hint: Hint, live: bool },
     Settled { id: u64, live: bool },
     Clear { id: u64 },
     /// Память забега после кадра — сохранить.
@@ -103,9 +103,11 @@ pub enum Reply {
 impl Reply {
     pub fn to_json(&self) -> Value {
         match self {
-            Reply::Hint { id, phase, w, h, text, marks, live } => json!({
-                "type": "hint", "id": id, "phase": phase, "frame": { "w": w, "h": h }, "text": text,
-                "marks": marks.iter().map(HintMark::to_json).collect::<Vec<_>>(), "live": live,
+            Reply::Hint { id, phase, w, h, hint, live } => json!({
+                "type": "hint", "id": id, "phase": phase, "frame": { "w": w, "h": h }, "text": hint.text,
+                "title": hint.title, "sub": hint.sub,
+                "marks": hint.marks.iter().map(|m| m.to_json()).collect::<Vec<_>>(),
+                "plate": hint.plate.map(|p| p.to_json()), "live": live,
             }),
             Reply::Settled { id, live } => json!({ "type": "settled", "id": id, "live": live }),
             Reply::Clear { id } => json!({ "type": "clear", "id": id }),
@@ -310,8 +312,7 @@ impl OwnAdvisor {
                     phase: "final",
                     w,
                     h,
-                    text: TREASURE_ASK.into(),
-                    marks: vec![],
+                    hint: Hint::plain(TREASURE_ASK),
                     live: false,
                 });
                 return;
@@ -352,7 +353,7 @@ impl OwnAdvisor {
             // Неузнанная карта не глушит совет по двум остальным и по «Обновить».
             let known = p.cards.iter().filter(|c| c.is_some()).count();
             if known < 2 {
-                self.reply(Reply::Hint { id: msg.id, phase: "final", w, h, text: PICK_UNKNOWN.into(), marks: vec![], live: false });
+                self.reply(Reply::Hint { id: msg.id, phase: "final", w, h, hint: Hint::plain(PICK_UNKNOWN), live: false });
                 return;
             }
             // Хоткей на стартовом выборе (день 0 по логу) — тоже начало забега.
@@ -390,8 +391,7 @@ impl OwnAdvisor {
         match self.adapter.position() {
             Position::No { fallback, .. } => {
                 if let Some(c) = fallback {
-                    let hn = hint(c, &ctx);
-                    self.reply(Reply::Hint { id: msg.id, phase: "final", w, h, text: hn.text, marks: hn.marks, live: false });
+                    self.reply(Reply::Hint { id: msg.id, phase: "final", w, h, hint: hint(c, &ctx), live: false });
                 } else {
                     self.reply(Reply::Clear { id: msg.id });
                 }
@@ -616,10 +616,14 @@ impl OwnAdvisor {
             }
         }
         let reason = if c == instant_code { short_reason(instant_text, c) } else { String::new() };
-        let parts: Vec<&str> = [ctx.reason.as_str(), reason.as_str(), note].into_iter().filter(|s| !s.is_empty()).collect();
+        let parts: Vec<&str> = [ctx.reason.as_str(), reason.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
         let ctx2 = HintContext { reason: parts.join(" · "), ..ctx.clone() };
-        let hn = hint(c, &ctx2);
-        self.reply(Reply::Hint { id: msg.id, phase, w, h, text: hn.text, marks: hn.marks, live });
+        let mut hn = hint(c, &ctx2);
+        // «Уточнено» — только в журнал: на экране смену хода видно по вспышке.
+        if !note.is_empty() {
+            hn.text = format!("{} · {note}", hn.text);
+        }
+        self.reply(Reply::Hint { id: msg.id, phase, w, h, hint: hn, live });
     }
 }
 
@@ -708,8 +712,8 @@ pub fn move_key(text: &str) -> String {
 pub fn last_hint(replies: &[Reply]) -> String {
     let mut text = String::new();
     for r in replies {
-        if let Reply::Hint { text: t, .. } = r {
-            text = t.clone();
+        if let Reply::Hint { hint, .. } = r {
+            text = hint.text.clone();
         }
     }
     text
