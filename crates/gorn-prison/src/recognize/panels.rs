@@ -11,6 +11,8 @@ const TOOL_MIN: f64 = 0.75;
 /// Контраст места орудия, ниже которого там фон: у иконок на своих кадрах — от 5,1.
 const BLANK_CONTRAST: f64 = 4.5;
 const OBJECTIVE_MIN: f64 = 0.8;
+/// Занятое место хранилища — от 0,58 (и в просмотре тюрьмы); фон — до 0,3.
+const FILLED_MIN: f64 = 0.4;
 /// Заголовок «Призматический узник» на обычной доске — 0,8 и выше.
 const HEADER_MIN: f64 = 0.6;
 
@@ -55,7 +57,9 @@ pub fn read_chromatic(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> i32
         sample_into(frame, geo, chromatic_slot(i), 12, 16, 3, &mut buf);
         normalize(&mut buf);
         let s = scores_by_label(&buf, &t.chromatic);
-        *f = get(&s, "filled").unwrap_or(-2.0) > get(&s, "empty").unwrap_or(-2.0);
+        let fill = get(&s, "filled").unwrap_or(-2.0);
+        // Без порога фон за скрытой панелью (21:9) иногда чуть ближе к «занято».
+        *f = fill >= FILLED_MIN && fill > get(&s, "empty").unwrap_or(-2.0);
     }
     // Хранилище заполняется по порядку: пустое место, за которым два занятых подряд, — занято.
     for i in (0..=7).rev() {
@@ -63,7 +67,8 @@ pub fn read_chromatic(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> i32
             filled[i] = true;
         }
     }
-    let n = filled.iter().filter(|&&f| f).count() as i32;
+    // Одинокое занятое после пустого — отблеск (свеча, вспышка нового узника).
+    let n = filled.iter().take_while(|&&f| f).count() as i32;
     if n == 0 && head < HEADER_MIN {
         -1
     } else {
