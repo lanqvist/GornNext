@@ -58,6 +58,7 @@ if (tauri) {
       query: (query) => call('prices:query', query),
       setExcluded: (id, excluded) => call('items:setExcluded', id, excluded),
     },
+    bag: { query: () => call('bag:query') },
     setMinDropFe: (value) => call('settings:setMinDropFe', value),
     getUiLanguage: () => call('settings:uiLanguage'),
     setUiLanguage: (language) => call('settings:setUiLanguage', language),

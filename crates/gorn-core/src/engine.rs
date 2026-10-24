@@ -108,6 +108,36 @@ pub struct BagView {
     pub top: Vec<BagItemView>,
 }
 
+/// Слот сумки с ценой: как в игре, по страницам и номерам слотов.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BagSlotView {
+    pub slot_id: i64,
+    /// Предмет есть в справочнике. Вне его — то, чем нельзя торговать:
+    /// ни названия, ни иконки, ни цены сообщества.
+    pub known: bool,
+    #[serde(flatten)]
+    pub item: DropView,
+}
+
+/// Страница сумки: 100 снаряжение, 101 навыки, 102 валюта, 103 прочее; 1, 2… — тайник.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BagPageView {
+    pub page_id: i64,
+    pub value_fe: f64,
+    /// Занятых слотов без цены (кроме непродаваемого вне справочника): на них оценка страницы занижена.
+    pub unpriced: usize,
+    pub slots: Vec<BagSlotView>,
+}
+
+/// Сумка по слотам — вкладка «Сумка» пульта (по запросу, не в каждом срезе).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BagGrid {
+    pub pages: Vec<BagPageView>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunView {
@@ -844,6 +874,7 @@ impl Engine {
                     }
                 }
                 LogEvent::BagInit { page_id, slot_id, config_base_id, num, .. } => self.inventory.apply_init(page_id, slot_id, config_base_id, num),
+                LogEvent::BagReset { page_id, .. } => self.inventory.apply_reset(page_id),
                 LogEvent::BagAdd { page_id, slot_id, config_base_id, .. } => self.inventory.apply_add(page_id, slot_id, config_base_id),
                 LogEvent::BagRemove { ts, page_id, slot_id, .. } => {
                     if let Some(d) = self.inventory.apply_remove(ts, page_id, slot_id, Some(&km)) {
@@ -1369,6 +1400,41 @@ impl Engine {
                 .map(|i| BagItemView { name: self.display_name(i.config_base_id), icon: self.icon(i.config_base_id), config_base_id: i.config_base_id, qty: i.qty, total_fe: i.total_fe })
                 .collect(),
         })
+    }
+
+    /// Сумка по слотам с ценой каждого: за штуку и за стопку.
+    pub fn query_bag(&self) -> BagGrid {
+        self.sync_feed_updates();
+        let mut pages: Vec<BagPageView> = vec![];
+        for (page_id, slot_id, id, qty) in self.inventory.occupied() {
+            if pages.last().is_none_or(|p| p.page_id != page_id) {
+                pages.push(BagPageView { page_id, value_fe: 0.0, unpriced: 0, slots: vec![] });
+            }
+            let page = pages.last_mut().unwrap();
+            let picked = self.pick_price(id, self.season_id);
+            let unit = picked.map(|p| p.fe);
+            let known = self.items.contains_key(&id);
+            match unit {
+                Some(u) => page.value_fe += u * qty as f64,
+                // Вне справочника — непродаваемое (ресурсы сезона, связанное): оценку не занижает.
+                None if !known => {}
+                None => page.unpriced += 1,
+            }
+            page.slots.push(BagSlotView {
+                slot_id,
+                known,
+                item: DropView {
+                    config_base_id: id,
+                    name: self.display_name(id),
+                    icon: self.icon(id),
+                    qty,
+                    unit_fe: unit,
+                    total_fe: unit.map(|u| u * qty as f64),
+                    price_source: picked.map(|p| p.source),
+                },
+            });
+        }
+        BagGrid { pages }
     }
 
     /// Цены с историей своих пробивок: пустой запрос — что падает, по влиянию, плюс исключённое.

@@ -150,6 +150,9 @@ impl EventParser {
                 slot_id: digits(&m[4]),
             });
         }
+        if let Some(m) = p.item_reset.captures(raw) {
+            return Some(LogEvent::BagReset { ts: ts?, line, page_id: digits(&m[1]) });
+        }
         if let Some(m) = p.enter_level.captures(raw) {
             return Some(LogEvent::EnterLevel { ts: ts?, line, area_id: digits(&m[1]) });
         }

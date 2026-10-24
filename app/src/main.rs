@@ -287,6 +287,9 @@ async fn gorn(
             tr.call(move |e| serde_json::to_value(e.query_prices(&q)).unwrap_or(Value::Null))
                 .unwrap_or(json!([]))
         }
+        "bag:query" => tr
+            .call(|e| serde_json::to_value(e.query_bag()).unwrap_or(Value::Null))
+            .unwrap_or(Value::Null),
         "items:setExcluded" => {
             let Some(id) = a0.as_i64() else {
                 return Ok(json!(st.settings.lock().unwrap().excluded()));

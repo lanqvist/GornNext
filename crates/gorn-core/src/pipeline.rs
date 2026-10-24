@@ -150,6 +150,7 @@ pub fn analyze_bytes(bytes: &[u8], opts: AnalyzeOptions) -> AnalysisResult {
                 }
             }
             LogEvent::BagInit { page_id, slot_id, config_base_id, num, .. } => inventory.apply_init(page_id, slot_id, config_base_id, num),
+            LogEvent::BagReset { page_id, .. } => inventory.apply_reset(page_id),
             LogEvent::BagAdd { page_id, slot_id, config_base_id, .. } => inventory.apply_add(page_id, slot_id, config_base_id),
             LogEvent::BagRemove { ts, page_id, slot_id, .. } => {
                 if let Some(d) = inventory.apply_remove(ts, page_id, slot_id, km) {

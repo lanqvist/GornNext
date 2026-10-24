@@ -1,4 +1,4 @@
-import type { PriceRow, Snapshot } from '../main/engine.js';
+import type { BagGrid, PriceRow, Snapshot } from '../main/engine.js';
 
 /**
  * Демонстрационный срез для разработки интерфейса в браузере,
@@ -439,3 +439,38 @@ export const demoPrices: PriceRow[] = [
     `${CDN}/Item/128/UI_Item_chuhuolingshaV3_Icon_128.webp`),
   priceRow(261010, 'Неизвестный предмет', null, null, [], 1),
 ];
+
+/** Сумка по слотам: страница «Прочее» как на экране «Мой прилавок» (слоты 4–6 и 14–45). */
+const COMPASS = `${CDN}/Compass/128/UI_Compass_MonsterNormal_1_1_Icon_128.webp`;
+const bagSlot = (slotId: number, name: string, qty: number, unitFe: number | null, icon: string | null = COMPASS) => ({
+  slotId,
+  known: unitFe !== null,
+  ...drop(slotId + 10_000, name, qty, unitFe, icon, unitFe === null ? null : 'community'),
+});
+const misc = [
+  { ...bagSlot(3, 'id 502100', 510, null, null), known: false },
+  bagSlot(4, 'Маяк Пустотных земель (метка времени 8)', 2, 42, null),
+  bagSlot(5, 'Маяк Громовых пустошей (метка времени 8)', 6, 21, null),
+  bagSlot(6, 'Дальний космос — Маяк', 8, 22, null),
+  ...[24, 2, 8, 23, 2, 14, 17].map((q, i) => bagSlot(14 + i, 'Компас', q, [0.4, 12, 3.1, 0.9, 55, 1.2, 0.3][i]!)),
+  ...[12, 2, 30].map((q, i) => bagSlot(22 + i, 'Компас', q, [2.2, 140, 0.5][i]!)),
+  ...[3, 1, 7, 3, 4, 1, 8, 2, 4, 73, 6, 4, 10, 2].map((q, i) => bagSlot(26 + i, 'Компас', q, i === 4 ? null : [1, 600, 0.8, 4, 6][i % 5]!)),
+  ...[1, 1, 4, 1, 4, 3].map((q, i) => bagSlot(40 + i, 'Карта', q, [75, 17, 5, 4, 2, 6][i]!, null)),
+];
+const pageOf = (pageId: number, slots: typeof misc) => ({
+  pageId,
+  valueFe: slots.reduce((a, s) => a + (s.totalFe ?? 0), 0),
+  unpriced: slots.filter((s) => s.totalFe === null && s.known).length,
+  slots,
+});
+export const demoBag: BagGrid = {
+  pages: [
+    pageOf(102, [
+      { slotId: 1, known: true, ...drop(100300, 'Первопламя', 9_999, 1, null, 'own') },
+      { slotId: 2, known: true, ...drop(100300, 'Первопламя', 857, 1, null, 'own') },
+      { slotId: 3, known: true, ...drop(100200, 'Flame Sand', 208, 0.12, `${CDN}/Item/128/UI_Item_chuhuolingshaV3_Icon_128.webp`) },
+      { slotId: 9, known: true, ...drop(200029, 'Precious Ember', 795, 6.4, `${CDN}/Ash/128/UI_Ash_20StonelowYOUZHI_Icon_128.webp`) },
+    ]),
+    pageOf(103, misc),
+  ],
+};

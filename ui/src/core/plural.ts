@@ -43,6 +43,8 @@ export const ITEM = {
   many: 'предметов',
   en: ['item', 'items'],
 } as const;
+/** Слоты сумки: «без цены 3 слота». */
+export const SLOT = { one: 'слот', few: 'слота', many: 'слотов', en: ['slot', 'slots'] } as const;
 export const FIND = { one: 'находка', few: 'находки', many: 'находок', en: ['find', 'finds'] } as const;
 /** Заходы в тюрьму: «за 4 захода», «за 11 заходов». */
 export const VISIT = {

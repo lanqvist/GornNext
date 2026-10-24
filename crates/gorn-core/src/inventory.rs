@@ -51,6 +51,18 @@ impl InventoryTracker {
         self.slots.insert(slot_key(page, slot), SlotState { config_base_id: Some(id), qty: num });
     }
 
+    /// ItemChange@ Reset — страница сейчас перепишется целиком: всё, что о ней
+    /// известно, — уже не там. Без этого после «Упорядочить» и смены персонажа
+    /// предметы остаются и в старых слотах — сумка считается вдвойне.
+    pub fn apply_reset(&mut self, page: i64) {
+        let prefix = format!("{page}:");
+        for (k, v) in self.slots.iter_mut() {
+            if k.starts_with(&prefix) {
+                *v = SlotState { config_base_id: None, qty: 0 };
+            }
+        }
+    }
+
     /// Слот очищен: что там лежало, знаем только из своего состояния.
     pub fn apply_remove(&mut self, ts: i64, page: i64, slot: i64, is_map_key: Option<MapKeyLookup>) -> Option<ItemDelta> {
         let key = slot_key(page, slot);
@@ -117,6 +129,21 @@ impl InventoryTracker {
         for (k, v) in entries {
             self.slots.insert(k.clone(), v.clone());
         }
+    }
+
+    /// Занятые слоты (страница, слот, предмет, количество) по порядку страниц и слотов.
+    pub fn occupied(&self) -> Vec<(i64, i64, ConfigBaseId, i64)> {
+        let mut out: Vec<_> = self
+            .slots
+            .iter()
+            .filter_map(|(k, s)| {
+                let (page, slot) = k.split_once(':')?;
+                let id = s.config_base_id.filter(|_| s.qty > 0)?;
+                Some((page.parse().ok()?, slot.parse().ok()?, id, s.qty))
+            })
+            .collect();
+        out.sort_unstable_by_key(|&(page, slot, ..)| (page, slot));
+        out
     }
 
     /// Текущее содержимое сумки — для оценки нетворса.

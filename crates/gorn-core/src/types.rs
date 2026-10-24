@@ -34,6 +34,9 @@ pub enum LogEvent {
     BagInit { ts: i64, line: i64, page_id: i64, slot_id: i64, config_base_id: ConfigBaseId, num: i64 },
     /// BagMgr@:RemoveBagItem — слот очищен.
     BagRemove { ts: i64, line: i64, page_id: i64, slot_id: i64 },
+    /// ItemChange@ Reset — страница сумки сейчас перепишется целиком (вход
+    /// персонажем, «Упорядочить»): всё, что в ней было, — уже не там.
+    BagReset { ts: i64, line: i64, page_id: i64 },
     /// ItemChange@ Add — новый экземпляр предмета лёг в слот.
     BagAdd { ts: i64, line: i64, page_id: i64, slot_id: i64, config_base_id: ConfigBaseId, num: i64 },
     /// ItemChange@ ProtoName=X start|end.
@@ -62,6 +65,7 @@ impl LogEvent {
             LogEvent::BagModify { ts, .. }
             | LogEvent::BagInit { ts, .. }
             | LogEvent::BagRemove { ts, .. }
+            | LogEvent::BagReset { ts, .. }
             | LogEvent::BagAdd { ts, .. }
             | LogEvent::ItemChange { ts, .. }
             | LogEvent::EnterLevel { ts, .. }

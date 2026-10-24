@@ -86,6 +86,27 @@ export interface PriceRow {
 }
 
 /** Стоимость сумки для интерфейса. */
+/** Слот сумки с ценой: за штуку (unitFe) и за стопку (totalFe). */
+export interface BagSlotView extends DropView {
+  slotId: number;
+  /** Предмет есть в справочнике. Вне его — то, чем нельзя торговать: ни названия, ни иконки, ни цены. */
+  known: boolean;
+}
+
+/** Страница сумки: 100 снаряжение, 101 навыки, 102 материалы, 103 прочее; ниже 100 — тайник. */
+export interface BagPageView {
+  pageId: number;
+  valueFe: number;
+  /** Занятых слотов без цены (непродаваемое вне справочника не считается). */
+  unpriced: number;
+  slots: BagSlotView[];
+}
+
+/** Сумка по слотам — по запросу `bag:query`, не в каждом срезе. */
+export interface BagGrid {
+  pages: BagPageView[];
+}
+
 export interface BagView {
   valueFe: number;
   feCash: number;

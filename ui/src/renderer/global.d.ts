@@ -1,6 +1,6 @@
 import type { UiLanguage } from '../core/i18n.js';
 import type { RetroScanProgress } from '../core/retroScan.js';
-import type { PriceRow, RunQueryResult, Snapshot } from '../main/engine.js';
+import type { BagGrid, PriceRow, RunQueryResult, Snapshot } from '../main/engine.js';
 import type { OverlayMode } from '../main/settings.js';
 import type { UpdateState } from '../main/updater.js';
 
@@ -57,7 +57,7 @@ declare global {
   type NameLanguage = 'ru' | 'en' | 'both';
 
   /** Вкладки пульта — как PanelTab в main/panel.ts. */
-  type GornPanelTab = 'run' | 'session' | 'prices' | 'maps';
+  type GornPanelTab = 'run' | 'session' | 'prices' | 'maps' | 'bag';
 
   interface GornApi {
     getSnapshot: () => Promise<Snapshot | null>;
@@ -74,6 +74,9 @@ declare global {
     prices: {
       query: (query: string) => Promise<PriceRow[]>;
       setExcluded: (configBaseId: number, excluded: boolean) => Promise<number[]>;
+    };
+    bag: {
+      query: () => Promise<BagGrid | null>;
     };
     setMinDropFe: (value: number) => Promise<number>;
     getUiLanguage: () => Promise<UiLanguage>;

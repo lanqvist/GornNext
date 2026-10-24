@@ -1,8 +1,9 @@
 import { memo, useEffect, useRef, useState } from 'react';
 
 import { tr } from '../core/i18n.js';
-import { RUN, VISIT, pluralize } from '../core/plural.js';
-import type { DropView, PriceRow, RunView, Snapshot } from '../main/engine.js';
+import { RUN, SLOT, VISIT, pluralize } from '../core/plural.js';
+import { FE_ID } from '../core/types.js';
+import type { BagGrid, BagPageView, BagSlotView, DropView, PriceRow, RunView, Snapshot } from '../main/engine.js';
 import { Fe, FeIcon } from './components/Fe.js';
 import { ItemIcon } from './components/ui.js';
 import { ago, clock, copyText, duration, num } from './format.js';
@@ -15,6 +16,7 @@ const TABS: Array<[Tab, () => string]> = [
   ['session', () => tr('Сессия', 'Session')],
   ['prices', () => tr('Цены', 'Prices')],
   ['maps', () => tr('Карты', 'Maps')],
+  ['bag', () => tr('Сумка', 'Bag')],
 ];
 
 /** Пороги ступеней ценности — те же, что в оверлее (явные из настроек либо авто). */
@@ -142,6 +144,8 @@ export function PanelApp() {
           <SessionTab snapshot={snapshot} />
         ) : tab === 'prices' ? (
           <PricesTab snapshot={snapshot} openSeq={openSeq} />
+        ) : tab === 'bag' ? (
+          <BagTab snapshot={snapshot} tiers={t} />
         ) : (
           <MapsTab snapshot={snapshot} />
         )}
@@ -155,7 +159,7 @@ export function PanelApp() {
           <kbd>Ctrl+Alt+F</kbd> {tr('цены', 'prices')}
         </span>
         <span>
-          <kbd>1</kbd>–<kbd>4</kbd> {tr('вкладки', 'tabs')}
+          <kbd>1</kbd>–<kbd>{TABS.length}</kbd> {tr('вкладки', 'tabs')}
         </span>
         <span>
           <kbd>Esc</kbd> {tr('в игру', 'back to game')}
@@ -390,6 +394,150 @@ const SessionTab = memo(function SessionTab({ snapshot }: { snapshot: Snapshot }
     </div>
   );
 });
+
+/* ── Сумка ───────────────────────────────────────────────────── */
+
+/** Название страницы сумки — как вкладки сумки в игре; ниже 100 — тайник. */
+function pageName(id: number): string {
+  switch (id) {
+    case 100:
+      return tr('Снаряжение', 'Gear');
+    case 101:
+      return tr('Навыки', 'Skills');
+    case 102:
+      return tr('Материалы', 'Materials');
+    case 103:
+      return tr('Прочее', 'Misc');
+    default:
+      return id < 100 ? tr(`Тайник ${id}`, `Stash ${id}`) : tr(`Страница ${id}`, `Page ${id}`);
+  }
+}
+
+/** Цена стопки в клетке: коротко, клетка узкая. */
+function short(fe: number): string {
+  if (fe >= 10_000) return `${num(fe / 1000, fe >= 100_000 ? 0 : 1)}k`;
+  return num(fe, fe >= 10 || fe === 0 ? 0 : fe >= 1 ? 1 : 2);
+}
+
+function slotTip(s: BagSlotView): string {
+  if (!s.known && s.unitFe === null) {
+    return tr(
+      `Предмет ${s.configBaseId}: им нельзя торговать — в справочнике его нет, в оценку не входит.`,
+      `Item ${s.configBaseId}: not tradeable — not in the catalogue, not in the estimate.`,
+    );
+  }
+  const lines = [s.name];
+  if (s.unitFe === null) lines.push(tr('цены нет — пробей на бирже', 'no price — check it on the market'));
+  else {
+    const src =
+      s.priceSource === 'own'
+        ? tr('своя пробивка', 'own check')
+        : s.priceSource === 'community'
+          ? tr('цена сообщества', 'community price')
+          : tr('не учитывается', 'ignored');
+    lines.push(`${num(s.qty)} × ${num(s.unitFe, s.unitFe >= 10 ? 0 : 2)} = ${num(s.totalFe ?? 0)} ФЕ · ${src}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Сумка по слотам из лога: слоты стоят в том же порядке, что в игре (слева
+ * направо, сверху вниз), пустые — тоже. Число в углу — сколько в стопке,
+ * полоска снизу — цена стопки; при наведении — за штуку.
+ */
+function BagTab({ snapshot, tiers }: { snapshot: Snapshot; tiers: Tiers }) {
+  const [grid, setGrid] = useState<BagGrid | null>(null);
+  const [page, setPage] = useState<number | null>(null);
+  const [byPrice, setByPrice] = useState(false);
+
+  // Сумка меняется вместе со срезом: новый срез — новый запрос.
+  const key = `${snapshot.lastActivityAt}:${snapshot.bag?.valueFe ?? 0}:${snapshot.diagnostics.pricedItems}:${snapshot.diagnostics.communityPrices}`;
+  useEffect(() => {
+    if (window.gorn) void window.gorn.bag.query().then(setGrid);
+    else if (import.meta.env.DEV) void import('./demo.js').then((m) => setGrid(m.demoBag));
+  }, [key]);
+
+  if (!grid) return <p className="pn-empty">{tr('Читаю сумку…', 'Reading the bag…')}</p>;
+  if (grid.pages.length === 0) {
+    return (
+      <p className="pn-empty">
+        {tr(
+          'Сумка ещё не видна в логе — она появляется после входа персонажем.',
+          'The bag is not in the log yet — it shows up after you log in.',
+        )}
+      </p>
+    );
+  }
+  const bagPages = grid.pages.filter((p) => p.pageId >= 100);
+  const stash = grid.pages.filter((p) => p.pageId < 100);
+  const sum = (ps: BagPageView[]) => ps.reduce((a, p) => a + p.valueFe, 0);
+  // По умолчанию — самая дорогая страница сумки без ФЕ на руках: это деньги, а не добро.
+  const goods = (p: BagPageView) => p.slots.reduce((a, s) => a + (s.configBaseId === FE_ID ? 0 : s.totalFe ?? 0), 0);
+  const fallback = [...bagPages].sort((a, b) => goods(b) - goods(a))[0] ?? grid.pages[0]!;
+  const cur = grid.pages.find((p) => p.pageId === page) ?? fallback;
+
+  const cells: Array<BagSlotView | null> = [];
+  if (byPrice) {
+    cells.push(...[...cur.slots].sort((a, b) => (b.totalFe ?? -1) - (a.totalFe ?? -1)));
+  } else {
+    const last = cur.slots.length > 0 ? cur.slots[cur.slots.length - 1]!.slotId : -1;
+    const at = new Map(cur.slots.map((s) => [s.slotId, s]));
+    for (let i = 0; i <= last; i++) cells.push(at.get(i) ?? null);
+  }
+
+  return (
+    <div className="pn-bag">
+      <div className="pn-bag-head">
+        <nav className="pn-bag-pages">
+          {grid.pages.map((p) => (
+            <button key={p.pageId} className={p.pageId === cur.pageId ? 'on' : ''} onClick={() => setPage(p.pageId)}>
+              <span>{pageName(p.pageId)}</span>
+              <Fe value={p.valueFe} />
+            </button>
+          ))}
+        </nav>
+        <div className="pn-bag-total">
+          <span>
+            {tr('в сумке', 'in bag')} <Fe value={sum(bagPages)} />
+          </span>
+          {stash.length > 0 && (
+            <span className="pn-muted">
+              {tr('в тайнике', 'in stash')} <Fe value={sum(stash)} />
+            </span>
+          )}
+          <button className="pn-bag-sort" onClick={() => setByPrice((v) => !v)}>
+            {byPrice ? tr('как в игре', 'game order') : tr('по цене', 'by price')}
+          </button>
+        </div>
+      </div>
+      {cur.unpriced > 0 && (
+        <p className="pn-hint">
+          {tr(
+            `Без цены ${pluralize(cur.unpriced, SLOT)} (в клетке «?») — оценка страницы занижена.`,
+            `${pluralize(cur.unpriced, SLOT)} without a price (marked “?”) — the page estimate is low.`,
+          )}
+        </p>
+      )}
+      <ul className="pn-bag-grid">
+        {cells.map((s, i) =>
+          s === null ? (
+            <li key={`e${i}`} className="empty" />
+          ) : (
+            <li key={s.slotId} className={`t-${tierOf(s.totalFe, tiers)}`} title={slotTip(s)}>
+              {!s.known && s.unitFe === null ? (
+                <span className="pn-bag-nosale">{tr('Не для продажи', 'Not for sale')}</span>
+              ) : (
+                <ItemIcon src={s.icon} />
+              )}
+              {s.qty > 1 && <span className="pn-bag-qty">{num(s.qty)}</span>}
+              <span className="pn-bag-fe">{s.totalFe !== null ? short(s.totalFe) : s.known ? '?' : '—'}</span>
+            </li>
+          ),
+        )}
+      </ul>
+    </div>
+  );
+}
 
 /* ── Цены ────────────────────────────────────────────────────── */
 

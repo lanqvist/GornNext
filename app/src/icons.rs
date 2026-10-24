@@ -91,27 +91,40 @@ pub fn get(id: i64) -> Option<Vec<u8>> {
     got
 }
 
+/// Справочник ссылается на `cdn.tlidb.com/UI/Textures/…`, а часть картинок
+/// CDN переложил в `cdn.tlidb.com/UIV2/…`: по старому адресу — 403.
+fn moved_url(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://cdn.tlidb.com/UI/Textures/")?;
+    Some(format!("https://cdn.tlidb.com/UIV2/{rest}"))
+}
+
 fn download(c: &Cache, id: i64, file: &Path) -> Option<Vec<u8>> {
     let Some(url) = c.sources.get(&id) else {
         c.failed.lock().unwrap().insert(id);
         return None;
     };
-    match ureq::get(url).timeout(Duration::from_secs(15)).call() {
-        Ok(res) => {
-            let mut data = vec![];
-            std::io::Read::read_to_end(&mut res.into_reader(), &mut data).ok()?;
-            if !is_webp(&data) {
-                return None;
+    let urls = std::iter::once(url.clone()).chain(moved_url(url));
+    let mut missing = true;
+    for u in urls {
+        match ureq::get(&u).timeout(Duration::from_secs(15)).call() {
+            Ok(res) => {
+                let mut data = vec![];
+                std::io::Read::read_to_end(&mut res.into_reader(), &mut data).ok()?;
+                if !is_webp(&data) {
+                    return None;
+                }
+                let _ = write_atomic(file, &data);
+                return Some(data);
             }
-            let _ = write_atomic(file, &data);
-            Some(data)
+            // Нет файла (у CDN это и 403): пробуем следующий адрес.
+            Err(ureq::Error::Status(403 | 404 | 410, _)) => {}
+            Err(_) => missing = false,
         }
-        Err(ureq::Error::Status(404 | 410, _)) => {
-            c.failed.lock().unwrap().insert(id);
-            None
-        }
-        Err(_) => None,
     }
+    if missing {
+        c.failed.lock().unwrap().insert(id);
+    }
+    None
 }
 
 fn write_atomic(file: &Path, data: &[u8]) -> std::io::Result<()> {
