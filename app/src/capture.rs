@@ -39,10 +39,24 @@ pub struct Image {
     pub width: usize,
     pub height: usize,
     pub data: Vec<u8>,
+    /// Размер всего кадра: у вырезанного (`ScreenStream::set_crop`) он больше
+    /// width × height, у целого — тот же.
+    pub full: (usize, usize),
+    /// Где в кадре левый верхний угол вырезанного.
+    pub origin: (usize, usize),
+}
+
+impl Image {
+    /// Целый кадр (не вырезанный).
+    pub fn whole(width: usize, height: usize, data: Vec<u8>) -> Image {
+        Image { width, height, data, full: (width, height), origin: (0, 0) }
+    }
 }
 
 #[derive(Default)]
 struct Shared {
+    /// Брать из кадра только этот прямоугольник: x0, y0, x1, y1 в долях высоты кадра.
+    crop: Option<[f64; 4]>,
     latest: Option<Arc<Image>>,
     latest_at: Option<Instant>,
     changed_at: Option<Instant>,
@@ -74,7 +88,18 @@ impl GraphicsCaptureApiHandler for Handler {
         _c: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
         let now = Instant::now();
-        let fb = frame.buffer()?;
+        let crop = self.shared.lock().unwrap().crop;
+        let (fw, fh) = (frame.width(), frame.height());
+        // Вырезанное копируется с видеокарты одно — целый кадр 3440×1440 не читается.
+        let cut = crop.map(|c| {
+            let px = |v: f64, max: u32| ((v * fh as f64).round().max(0.0) as u32).min(max);
+            let (x0, y0) = (px(c[0], fw - 1), px(c[1], fh - 1));
+            (x0, y0, px(c[2], fw).max(x0 + 1), px(c[3], fh).max(y0 + 1))
+        });
+        let fb = match cut {
+            Some((x0, y0, x1, y1)) => frame.buffer_crop(x0, y0, x1, y1)?,
+            None => frame.buffer()?,
+        };
         let (w, h) = (fb.width() as usize, fb.height() as usize);
         let raw = fb.as_nopadding_buffer(&mut self.scratch);
         // Отпечаток 64×36 по точкам сетки (BGRA: B, G, R).
@@ -108,13 +133,21 @@ impl GraphicsCaptureApiHandler for Handler {
             s.sig = sig;
             let boosted = s.boost_until.is_some_and(|b| now < b);
             (
-                boosted || s.latest.is_none() || s.frames % IDLE_EVERY == 0,
+                // Вырезанное мало — переводится каждый кадр.
+                boosted || cut.is_some() || s.latest.is_none() || s.frames % IDLE_EVERY == 0,
                 changed,
             )
         };
         let _ = changed;
         if convert {
-            let img = Arc::new(downscale_bgra(raw, w, h));
+            let img = Arc::new(match cut {
+                Some((x0, y0, ..)) => Image {
+                    full: (fw as usize, fh as usize),
+                    origin: (x0 as usize, y0 as usize),
+                    ..bgra_to_rgba(raw, w, h)
+                },
+                None => downscale_bgra(raw, w, h),
+            });
             let mut s = self.shared.lock().unwrap();
             s.latest = Some(img);
             s.latest_at = Some(now);
@@ -126,6 +159,17 @@ impl GraphicsCaptureApiHandler for Handler {
         self.shared.lock().unwrap().closed = true;
         Ok(())
     }
+}
+
+/// BGRA → RGBA без уменьшения.
+fn bgra_to_rgba(raw: &[u8], w: usize, h: usize) -> Image {
+    let mut data = vec![255u8; w * h * 4];
+    for i in 0..w * h {
+        data[i * 4] = raw[i * 4 + 2];
+        data[i * 4 + 1] = raw[i * 4 + 1];
+        data[i * 4 + 2] = raw[i * 4];
+    }
+    Image::whole(w, h, data)
 }
 
 /// BGRA → RGBA, уменьшение в целое число раз (среднее по квадрату) до высоты ≤ MAX_HEIGHT.
@@ -160,11 +204,7 @@ fn downscale_bgra(raw: &[u8], w: usize, h: usize) -> Image {
             }
         }
     }
-    Image {
-        width: ow,
-        height: oh,
-        data,
-    }
+    Image::whole(ow, oh, data)
 }
 
 /// Почему grab не дал кадра.
@@ -185,6 +225,8 @@ pub struct ScreenStream {
     opened_at: Instant,
     /// Последний grab: экран к снимку не менялся stable (иначе — посреди анимации).
     settled: AtomicBool,
+    /// Вырезать из кадра (переносится и в заново открытый поток).
+    crop: Option<[f64; 4]>,
 }
 
 impl Default for ScreenStream {
@@ -195,6 +237,7 @@ impl Default for ScreenStream {
             monitor: None,
             opened_at: Instant::now(),
             settled: AtomicBool::new(true),
+            crop: None,
         }
     }
 }
@@ -209,7 +252,7 @@ impl ScreenStream {
             return Ok(());
         }
         self.stop();
-        let shared: Arc<Mutex<Shared>> = Arc::default();
+        let shared = Arc::new(Mutex::new(Shared { crop: self.crop, ..Default::default() }));
         let settings = Settings::new(
             Monitor::from_raw_hmonitor(hmonitor as *mut std::ffi::c_void),
             CursorCaptureSettings::WithoutCursor,
@@ -234,6 +277,31 @@ impl ScreenStream {
             let _ = c.stop();
         }
         self.monitor = None;
+    }
+
+    /// Брать из кадра только прямоугольник x0, y0, x1, y1 в долях высоты кадра
+    /// (None — целый кадр). С видеокарты копируется только он, отпечаток
+    /// «экран изменился» — тоже по нему.
+    pub fn set_crop(&mut self, crop: Option<[f64; 4]>) {
+        if self.crop == crop {
+            return;
+        }
+        self.crop = crop;
+        let mut s = self.shared.lock().unwrap();
+        s.crop = crop;
+        s.latest = None;
+        s.latest_at = None;
+        s.sig.clear();
+    }
+
+    /// Последний кадр не старше max_age — без ожидания и без ускорения.
+    pub fn latest(&self, max_age: Duration) -> Option<Arc<Image>> {
+        let s = self.shared.lock().unwrap();
+        if s.closed {
+            return None;
+        }
+        s.latest_at.filter(|t| t.elapsed() <= max_age)?;
+        s.latest.clone()
     }
 
     /// Экран вот-вот сменится: каждый кадр — в RGBA несколько секунд.

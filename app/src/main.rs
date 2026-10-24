@@ -13,6 +13,7 @@ mod layers;
 mod overlay;
 mod settings;
 mod shots;
+mod stall;
 mod tracker;
 mod updater;
 mod triggers;
@@ -740,8 +741,19 @@ fn main() {
             let (ltx, lrx) = std::sync::mpsc::channel::<Vec<String>>();
             tracker.forward_lines(ltx);
             let tx_log = tx.clone();
+            // Цены на прилавке: строки лога — те же, что у подсказок в тюрьме.
+            let (stx, srx) = std::sync::mpsc::channel::<stall::Event>();
+            let stall = stall::Stall::new(app.handle().clone(), tracker.clone());
+            std::thread::Builder::new()
+                .name("горн-прилавок".into())
+                .spawn(move || stall.run(srx))?;
+            let stx_ready = stx.clone();
+            app.listen("stall:ready", move |_| {
+                let _ = stx_ready.send(stall::Event::Ready);
+            });
             std::thread::spawn(move || {
                 for lines in lrx {
+                    let _ = stx.send(stall::Event::Lines(lines.clone()));
                     if tx_log.send(Event::Lines(lines)).is_err() {
                         break;
                     }

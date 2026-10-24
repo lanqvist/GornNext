@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Окна Горна: события моста window.gorn (вызовы идут командой gorn)",
-  "windows": ["main", "overlay", "toasts", "panel", "prison", "arrows"],
+  "windows": ["main", "overlay", "toasts", "panel", "prison", "arrows", "stall"],
   "permissions": ["core:event:default", "core:window:allow-start-dragging"]
 }
