@@ -123,8 +123,14 @@ pub fn roll_tier(r: &mut Rng, odds: &TierOdds, floor: i32) -> i32 {
 
 #[inline]
 fn door_floor(s: &State, c: i32) -> i32 {
+    door_floor_hook(s, c, true)
+}
+
+/// Нижняя граница редкости за дверью; hook — действует ли «Крюк отбора».
+#[inline]
+fn door_floor_hook(s: &State, c: i32, hook: bool) -> i32 {
     let floor = if s.m[FLAGS + u(c)] & F_VIS_RARE != 0 { 2 } else { 0 };
-    if s.has_tool(tool::HOOK) && floor < 1 {
+    if hook && s.has_tool(tool::HOOK) && floor < 1 {
         1
     } else {
         floor
@@ -365,12 +371,12 @@ pub fn preset(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
 
 /// Открыть запертую камеру: узник — закреплённый или по шансам двери.
 pub fn open_cell(s: &mut State, r: &mut Rng, p: &Params, c: i32) {
-    open_cell_counted(s, r, p, c, true);
+    open_cell_counted(s, r, p, c, true, true);
 }
 
 /// Открыть камеру; count — засчитать её цели «Открыть камеры» (дверь обхода
-/// засчитывается раньше, по клику).
-fn open_cell_counted(s: &mut State, r: &mut Rng, p: &Params, c: i32, count: bool) {
+/// засчитывается раньше, по клику); hook — «Крюк отбора» поднимает редкость.
+fn open_cell_counted(s: &mut State, r: &mut Rng, p: &Params, c: i32, count: bool, hook: bool) {
     let cu = u(c);
     if s.m[LOCK + cu] != 1 {
         return;
@@ -378,7 +384,7 @@ fn open_cell_counted(s: &mut State, r: &mut Rng, p: &Params, c: i32, count: bool
     let mut tier = s.m[PRE_TIER + cu];
     let mut beast = s.m[PRE_BEAST + cu];
     if tier < 0 {
-        let floor = door_floor(s, c);
+        let floor = door_floor_hook(s, c, hook);
         tier = roll_tier(r, &p.door_odds, floor);
         trace::record(Draw { what: What::Door, cell: c, value: tier, floor });
         beast = r.int(4);
@@ -888,7 +894,7 @@ pub fn patrol(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
 
     if door {
         let locked_before = popcount(locked_mask(s));
-        open_cell_counted(s, r, p, cell, !p.reward_on_click);
+        open_cell_counted(s, r, p, cell, !p.reward_on_click, true);
         door_tools(s, r, p, cell, locked_before);
     }
     if s.has_tool(tool::SHORTCHAIN) && steps <= p.shortchain_steps && chance(r, "shortchain_chance", p.shortchain_chance) {
@@ -1333,10 +1339,15 @@ pub fn take_tool(s: &mut State, t: i32) {
 pub fn take_gift(s: &mut State, r: &mut Rng, p: &Params, gift: i32) {
     s.m[PICK_GIFTS] -= 1;
     match gift {
-        // Трёхглавое кольцо
+        // Трёхглавое кольцо: «открыть до 3 случайных камер, без других эффектов» —
+        // «Крюк отбора» на них не действует [журнал фактов 22–24.10: с Крюком
+        // Обычные из кольца 24 из 57, из дверей обхода 0 из 12].
         0 => {
             for _ in 0..p.ring_opens {
-                open_random(s, r, p);
+                let c = pick_bit(locked_mask(s), r);
+                if c >= 0 {
+                    open_cell_counted(s, r, p, c, true, p.ring_hook);
+                }
             }
         }
         // Медный боевой рог: каждый, у кого цель была до первого укуса, кусает один
@@ -1579,5 +1590,26 @@ mod tests {
         take_tool(&mut s, tool::KEYS as i32);
         patrol(&mut s, &mut r, &p, 5);
         assert_eq!((s.m[WARDEN], s.m[PICK_TOOLS], s.m[LOCK + 5], s.m[NEXT]), (5, 0, 0, P_EVENT));
+    }
+
+    /// «Трёхглавое кольцо» — «без других эффектов»: «Крюк отбора» на открытые им
+    /// камеры не действует [журнал фактов 22–24.10: Обычные 24 из 57].
+    #[test]
+    fn ring_ignores_hook() {
+        let mut commons = [0; 2];
+        for (i, ring_hook) in [false, true].into_iter().enumerate() {
+            let p = Params { ring_hook, ..DEFAULT_PARAMS };
+            for seed in 0..300 {
+                let mut s = State::new();
+                let mut r = Rng::new(seed);
+                new_run(&mut s, &mut r, &p, RunSetup { start: 0, objective: -1, tools: 1 << tool::HOOK, start_pick: false });
+                let locked: Vec<usize> = (1..CELLS).filter(|&c| s.m[LOCK + c] == 1 && s.m[PRE_TIER + c] < 0).collect();
+                s.m[PICK_GIFTS] = 1;
+                take_gift(&mut s, &mut r, &p, 0);
+                commons[i] += locked.iter().filter(|&&c| s.m[LOCK + c] == 0 && s.m[TIER + c] == 0).count();
+            }
+        }
+        assert!(commons[0] > 100, "без Крюка Обычных {}", commons[0]);
+        assert_eq!(commons[1], 0);
     }
 }

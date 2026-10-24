@@ -863,13 +863,20 @@ impl PrisonAdapter {
     pub fn log_day(&mut self, d: Option<(i32, i32)>) {
         self.day_from_log = d.is_some_and(|d| d.1 > 0);
         let Some((cur, max)) = d.filter(|d| d.1 > 0) else { return };
+        // cur — номер дня с единицы; 0 — выбор орудий перед первым днём.
+        let day = 0.max((max - 1).min(cur - 1));
+        // День ушёл назад — это новый забег, начало которого Горн не видел (открыт
+        // посреди забега): память прошлого не годится [журнал фактов 24.10 10:07 —
+        // дни 0–6 с хранилищем 8 и орудиями прошлого забега].
+        if day + 1 < self.mem.day {
+            self.start_run();
+            self.mem.run_start = false;
+        }
         let m = &mut self.mem;
         m.day_limit = max;
         if max == self.p.iron_law_days && m.start == start_event::NONE {
             m.start = start_event::IRONLAW;
         }
-        // cur — номер дня с единицы; 0 — выбор орудий перед первым днём.
-        let day = 0.max((max - 1).min(cur - 1));
         if day > m.day {
             m.day_storage = m.storage;
             self.fresh_day = true;
@@ -1026,9 +1033,9 @@ impl PrisonAdapter {
             self.mem.gifts -= 1;
         }
         self.chain_taken += 1;
-        // Взятый подарок даст ещё Призматических — столько же выборов следом.
+        // Взятый подарок даст ещё Призматических — выборов следом по каждому.
         if self.chain_gifts && self.gift_prediction > 0 {
-            self.mem.gifts += self.gift_prediction;
+            self.mem.gifts += self.gift_prediction * self.gifts_per_prism();
             self.chain_storage = self.chain_storage.map(|c| c + self.gift_prediction);
         }
         // Выборы кончились — цепочка закрыта: призмы до следующего окна не в счёт.
@@ -1038,15 +1045,21 @@ impl PrisonAdapter {
         self.gift_prediction = 0;
     }
 
+    /// Выборов в сокровищнице за одного Призматического: при «Расточительности» — несколько.
+    fn gifts_per_prism(&self) -> i32 {
+        if self.mem.start == start_event::ABUNDANCE { self.p.abundance_gifts } else { 1 }
+    }
+
     /// Сокровищница. view — доска за окном уже видна; иначе after — что к ней привело.
     pub fn treasure(&mut self, view: bool, after: Cause) {
         if view {
             self.mem.step = Step::Gift;
             self.mem.gifts = self.mem.gifts.max(1);
             if self.chain_gifts {
-                // Доска за окном: призм больше ожидаемого — столько же выборов
-                // прибавилось, меньше (только по настоящему просмотру) — подарок
+                // Доска за окном: призм больше ожидаемого — выборов прибавилось
+                // по каждому, меньше (только по настоящему просмотру) — подарок
                 // не дал предсказанного. Первый просмотр в цепочке — отсчёт.
+                let per = self.gifts_per_prism();
                 let s = self.mem.storage;
                 match self.chain_storage {
                     None if self.board_viewed => self.chain_storage = Some(s),
@@ -1054,13 +1067,13 @@ impl PrisonAdapter {
                     Some(prev) => {
                         let delta = s - prev;
                         if delta > 0 || (delta < 0 && self.board_viewed) {
-                            self.mem.gifts = (self.mem.gifts + delta).max(1);
+                            self.mem.gifts = (self.mem.gifts + delta * per).max(1);
                             self.chain_storage = Some(s);
                         }
                     }
                 }
                 if let Some(base) = self.chain_base {
-                    let owed = s.min(self.p.storage) - base - self.chain_taken;
+                    let owed = (s.min(self.p.storage) - base) * per - self.chain_taken;
                     self.mem.gifts = self.mem.gifts.max(owed);
                 }
             }
@@ -1090,6 +1103,7 @@ impl PrisonAdapter {
                 self.mem.resume_after = after;
             }
         }
+        let per = self.gifts_per_prism();
         let m = &mut self.mem;
         let w = m.warden as usize;
         if after == Cause::Swap && m.cells.get(w).is_some_and(|c| c.kind() == CellK::Inmate) {
@@ -1098,7 +1112,7 @@ impl PrisonAdapter {
         }
         // Окно снова открылось, а выборы за прошлого призматического не кончились — счёт не сбрасывать.
         if m.gifts <= 0 {
-            m.gifts = if m.start == start_event::ABUNDANCE { self.p.abundance_gifts } else { 1 };
+            m.gifts = per;
         }
         m.step = Step::Wait;
     }

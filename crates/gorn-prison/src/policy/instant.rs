@@ -81,6 +81,8 @@ pub struct Instant {
     door_new: f64,
     /// Открыть случайную запертую дверь: новый узник минус потерянная дверь.
     open_v: f64,
+    /// То же для «Трёхглавого кольца» — без «Крюка отбора».
+    ring_open_v: f64,
     crown: bool,
     skewer: bool,
     maul: bool,
@@ -160,6 +162,7 @@ impl Instant {
             avg_rise: 0.0,
             door_new: 0.0,
             open_v: 0.0,
+            ring_open_v: 0.0,
             crown: false,
             skewer: false,
             maul: false,
@@ -382,6 +385,13 @@ impl Ctx<'_> {
             k.door_new += k.p_door[t] * k.val[t];
         }
         k.open_v = k.door_new - self.w[W_DOOR] * k.frac;
+        k.ring_open_v = k.open_v;
+        if hook && !self.p.ring_hook {
+            let mut p_ring = [0.0; 6];
+            normalize(&mut p_ring, &self.p.door_odds, 0);
+            let ring_new: f64 = (0..6).map(|t| p_ring[t] * k.val[t]).sum();
+            k.ring_open_v = ring_new - self.w[W_DOOR] * k.frac;
+        }
         k.cage_bonus = if cage { self.p.cage_chance * k.door_new } else { 0.0 };
         self.fill_chain();
         self.k.swap_ready = false;
@@ -770,7 +780,7 @@ impl Ctx<'_> {
         let p = self.p;
         let mut v = 0.0;
         match g {
-            0 => return self.k.locked_count.min(p.ring_opens) as f64 * (self.k.open_v + self.w[W_RING]),
+            0 => return self.k.locked_count.min(p.ring_opens) as f64 * (self.k.ring_open_v + self.w[W_RING]),
             1 => {
                 for c in 1..C {
                     if m[TIER + u(c)] < 0 {

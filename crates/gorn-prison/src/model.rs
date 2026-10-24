@@ -303,6 +303,9 @@ pub struct Params {
     pub cage_same_tier: bool,
     /// «Железная дева»: узник по шансам двери (иначе — редкости едока).
     pub revenge_door_tier: bool,
+    /// «Трёхглавое кольцо» открывает с «Крюком отбора» (не ниже Необычной);
+    /// иначе — по шансам двери без Крюка (правило с 24.10).
+    pub ring_hook: bool,
 }
 
 pub const DEFAULT_PARAMS: Params = Params {
@@ -393,4 +396,5 @@ pub const DEFAULT_PARAMS: Params = Params {
     collar_first_bite: false,
     cage_same_tier: false,
     revenge_door_tier: false,
+    ring_hook: false,
 };

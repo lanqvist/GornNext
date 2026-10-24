@@ -265,9 +265,12 @@ impl OwnAdvisor {
         if msg.kind == ShotKind::Instruments && msg.fresh {
             self.adapter.start_run();
         }
-        // Окно сокровищницы закрылось после «Подтвердить» — подарок взят.
+        // Окно сокровищницы закрылось после «Подтвердить» — подарок взят. Доска за
+        // окном уже другая: следующий подарок — снова после просмотра доски
+        // [журнал фактов 22–24.10: по прежней доске совет расходился в 7 из 15].
         if msg.treasure_closed && !msg.treasure_view {
             self.adapter.gift_taken();
+            self.board_behind_treasure = false;
         }
         // День — по логу (главный источник), экран — запасной.
         self.adapter.log_day(msg.day);
