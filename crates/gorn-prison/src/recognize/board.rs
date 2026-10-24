@@ -271,7 +271,7 @@ pub fn read_board(frame: &Frame, geo: &Geometry, t: &Templates) -> BoardView {
         door_cards: vec![],
         decision_cards: vec![],
         decision_kinds: vec![],
-        cancel: chain.then(|| box_to_frame(geo, CANCEL)),
+        cancel: chain.then(|| box_to_frame(&geo.right(), CANCEL)),
     };
     // На экране цепочки панели скрыты; видна строка дней — читаем и панели.
     let days_left = read_days(frame, geo, &t.digits);

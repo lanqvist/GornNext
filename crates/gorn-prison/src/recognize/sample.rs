@@ -26,6 +26,30 @@ pub struct Geometry {
     pub score: f64,
 }
 
+impl Geometry {
+    /// Ширина кадра сверх 16:9 на каждую сторону, px кадра. Доска и карточки
+    /// остаются по центру, а панели игра прижимает к краям экрана (21:9).
+    /// Меньше пикселя (1366×768) не считается: там всё как у 16:9.
+    fn side_pad(&self) -> f64 {
+        let pad = (self.width as f64 - self.height as f64 * 16.0 / 9.0) / 2.0;
+        if pad >= 1.0 {
+            pad
+        } else {
+            0.0
+        }
+    }
+
+    /// Геометрия панели у левого края экрана (цель, орудия).
+    pub fn left(&self) -> Geometry {
+        Geometry { tx: self.tx - self.side_pad(), ..*self }
+    }
+
+    /// Геометрия панели у правого края экрана (хранилище, «Отменить»).
+    pub fn right(&self) -> Geometry {
+        Geometry { tx: self.tx + self.side_pad(), ..*self }
+    }
+}
+
 pub type Box4 = [f64; 4];
 
 /// `Math.round` из JS: ближайшее целое, половина — вверх.

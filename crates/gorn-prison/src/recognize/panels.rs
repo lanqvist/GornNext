@@ -1,4 +1,5 @@
 //! Панели вокруг доски: орудия слева, хранилище призматических справа, цель.
+//! Игра прижимает их к краям экрана: на 21:9 — `Geometry::left` / `right`.
 //! Перенос `recognize/panels.ts`.
 
 use super::layout::{chromatic_slot, tool_slot, CHROMATIC_HEADER, OBJECTIVE, TOOL_SLOTS};
@@ -7,6 +8,8 @@ use super::templates::{get, nearest, scores_by_label, ScreensTemplate};
 use crate::model::TOOL_IDS;
 
 const TOOL_MIN: f64 = 0.75;
+/// Контраст места орудия, ниже которого там фон: у иконок на своих кадрах — от 5,1.
+const BLANK_CONTRAST: f64 = 4.5;
 const OBJECTIVE_MIN: f64 = 0.8;
 /// Заголовок «Призматический узник» на обычной доске — 0,8 и выше.
 const HEADER_MIN: f64 = 0.6;
@@ -19,13 +22,16 @@ pub fn panel_tool_ids(t: &ScreensTemplate) -> Vec<&'static str> {
 /// Места панели орудий слева направо: орудие или None — иконка без эталона.
 /// Первое пустое место — конец списка.
 pub fn read_tool_slots(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> Vec<Option<String>> {
+    let geo = &geo.left();
     let mut out = vec![];
     let mut buf = [0.0f32; 12 * 18 * 3];
     for i in 0..TOOL_SLOTS {
         sample_into(frame, geo, tool_slot(i), 12, 18, 3, &mut buf);
-        normalize(&mut buf);
+        let contrast = normalize(&mut buf);
         let (label, score) = nearest(&buf, &t.tools);
-        if label == "empty" {
+        // Эталон пустого места — фон за ним на 16:9; на 21:9 за местом другой
+        // кусок фона. Неузнанное и блёклое место — тоже пустое.
+        if label == "empty" || (score < TOOL_MIN && contrast < BLANK_CONTRAST) {
             break;
         }
         out.push((score >= TOOL_MIN && TOOL_IDS.contains(&label)).then(|| label.to_string()));
@@ -35,6 +41,7 @@ pub fn read_tool_slots(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> Ve
 
 /// Призматических в хранилище; −1 — панель скрыта.
 pub fn read_chromatic(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> i32 {
+    let geo = &geo.right();
     let mut head_buf = [0.0f32; 92 * 20];
     sample_into(frame, geo, CHROMATIC_HEADER, 92, 20, 1, &mut head_buf);
     normalize(&mut head_buf);
@@ -66,6 +73,7 @@ pub fn read_chromatic(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> i32
 
 /// Цель забега; None — не узнана.
 pub fn read_objective(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> Option<String> {
+    let geo = &geo.left();
     let mut buf = [0.0f32; 80 * 15];
     sample_into(frame, geo, OBJECTIVE, 80, 15, 1, &mut buf);
     if normalize(&mut buf) < 3.0 {
