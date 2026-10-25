@@ -2,7 +2,8 @@
 //! испорченное сохранение — чистый забег.
 
 use gorn_prison::adapter::{blank_memory, load_memory, Cause, DecisionMem, PrisonAdapter, Step};
-use gorn_prison::model::start_event;
+use gorn_prison::model::{start_event, tool, CELLS};
+use gorn_prison::view::{BoardAt, BoardView, CellKind, CellView};
 use serde_json::json;
 
 #[test]
@@ -46,6 +47,41 @@ fn day_going_back_starts_new_run() {
     a.log_day(Some((5, 20)));
     a.log_day(Some((4, 20)));
     assert_eq!((a.mem.day, a.mem.storage), (3, 2));
+}
+
+/// Когти ставят «Царапину» и в первое утро, сразу после выбора: выбор орудий
+/// («день 0») и первая доска («день 1») оба дают день 0 (журнал фактов #43,
+/// 25.10 11:51: синяя царапина на №13 первой доски).
+#[test]
+fn claws_scratch_on_first_board() {
+    let mut a = PrisonAdapter::new(None);
+    a.start_run();
+    a.log_day(Some((1, 20)));
+    a.mem.tools = vec![tool::CLAWS];
+    let mut cells: Vec<CellView> = (0..CELLS).map(|_| CellView::new(CellKind::Locked)).collect();
+    cells[0] = CellView::new(CellKind::Empty);
+    cells[12].shown_tier = Some(1);
+    let at = BoardAt { cells: vec![], door_cards: vec![], decision_cards: vec![], decision_kinds: vec![], cancel: None };
+    let v = BoardView {
+        cells,
+        warden: Some(0),
+        days_left: None,
+        doors: vec![],
+        decision: None,
+        chain: None,
+        tools: vec![],
+        tool_slots: None,
+        chromatic: -1,
+        objective: None,
+        at,
+    };
+    a.board(&v);
+    assert!(a.mem.cells[12].scratch && a.mem.cells[12].shown == Some(1));
+    // Та же доска позже в этот день — не утро: новых царапин нет.
+    let mut later = v.clone();
+    later.cells[5].shown_tier = Some(0);
+    a.board(&later);
+    assert!(a.mem.cells[12].scratch && !a.mem.cells[5].scratch);
 }
 
 /// «Расточительность»: за каждого нового Призматического в цепочке — по 3

@@ -19,6 +19,7 @@ mod debugtrace;
 mod frames;
 mod genlog;
 mod reference;
+mod protos;
 mod replay;
 mod rulescheck;
 mod report;
@@ -62,6 +63,10 @@ gorn-cli tune --report [--runs 20000] [--threads T=0]
 gorn-cli replay ПАПКА [--budget 1000] [--from ЧЧММСС] [--to ЧЧММСС] [--rounds R] [--diffs файл.md] [--json]
     свой путь подсказок на сохранённых кадрах против прежнего, как prison-replay.ts;
     --rounds — решатель без срока (детерминированно), --json — строка на кадр
+gorn-cli protos ПАПКА|PNG [--from ЧЧММСС] [--to ЧЧММСС] [--slot N=0 | --cell N | --cells] [--label ид]
+    эталоны с кадров доски: места панели орудий (узнанное, сходство, контраст), портрет
+    камеры N (класс, сходство, редкость) или все портреты; --label — ещё и эталон строкой
+    JSON: место --slot — для screens.json (tools), --cell — для cells.json (beasts)
 gorn-cli audit [--new] [--days 2] [--budget 600] [--quiet-min 10] [--run ЧЧММСС] [--shots ПАПКА] [--out ПАПКА] [--no-keep]
     аудит забегов по кадрам Горна, как prison-audit.ts: отчёты в gorn-prison-data/audits
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
@@ -87,7 +92,7 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
             i += 1;
             continue;
         };
-        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain");
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain" | "cells");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -268,6 +273,25 @@ fn main() -> ExitCode {
                     o.get("rounds").map(|_| num(&o, "rounds", 0)).transpose()?.map(|r| r as u64),
                     o.get("diffs").map(String::as_str),
                     o.contains_key("json"),
+                )?;
+                Ok(true)
+            }
+            "protos" => {
+                let path = match o.get("_") {
+                    Some(d) => std::path::PathBuf::from(d),
+                    None => return Err("protos: папка кадров (день Горна) или PNG".into()),
+                };
+                let target = match o.get("cell") {
+                    Some(_) => protos::Target::Cell(num(&o, "cell", 0)? as usize),
+                    None if o.contains_key("cells") => protos::Target::Cells,
+                    None => protos::Target::Slot(num(&o, "slot", 0)? as usize),
+                };
+                protos::report(
+                    &path,
+                    o.get("from").map(String::as_str).unwrap_or("000000"),
+                    o.get("to").map(String::as_str).unwrap_or("999999"),
+                    target,
+                    o.get("label").map(String::as_str),
                 )?;
                 Ok(true)
             }

@@ -619,6 +619,9 @@ impl PrisonAdapter {
         }
         self.panel_tools(v);
         let m = &mut self.mem;
+        // Первая доска забега — тоже утро: выбор орудий («день 0») и первый
+        // день оба дают день 0 [журнал фактов #43: царапина Когтей на первой доске].
+        let first_board = m.run_start;
         if v.chromatic >= 0 {
             m.storage = v.chromatic.max(m.storage_floor);
         }
@@ -629,7 +632,7 @@ impl PrisonAdapter {
         m.theme_fresh = false;
         m.offer = vec![];
         // Утренняя доска: день только начался, на ней ещё ничего не нажато.
-        let morning = self.fresh_day || m.day > day_before;
+        let morning = self.fresh_day || m.day > day_before || first_board;
 
         let ratway = v.decision == Some(Decision::Ratway);
         if !v.doors.is_empty() || v.chain.is_some() || (v.decision.is_some() && !ratway) {
