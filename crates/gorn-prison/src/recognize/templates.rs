@@ -120,6 +120,8 @@ pub struct ScreensTemplate {
     pub gifts: Vec<Proto>,
     /// Метка «Добыча» на портрете (None — эталона нет).
     pub prey: Option<Vec<f32>>,
+    /// Метка «Бивень» (Щипцы) на портрете — то же место, что у «Добычи».
+    pub tusk: Option<Vec<f32>>,
 }
 
 /// Все эталоны (читаются один раз на процесс).
@@ -190,6 +192,7 @@ pub fn templates() -> &'static Templates {
             chromatic_header: vecs(&s["chromaticHeader"]),
             gifts: protos(&s["gifts"]),
             prey: s["prey"].as_str().map(unpack),
+            tusk: s["tusk"].as_str().map(unpack),
         };
         Templates { board, cells, screens, digits }
     })

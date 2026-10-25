@@ -44,6 +44,8 @@ pub struct CellView {
     pub tier_unknown: Option<bool>,
     /// Метка «Добыча».
     pub prey: Option<bool>,
+    /// Метка «Бивень» (Щипцы); None — эталона нет.
+    pub tusk: Option<bool>,
 }
 
 impl CellView {
@@ -58,6 +60,7 @@ impl CellView {
             shown_tier: None,
             tier_unknown: None,
             prey: None,
+            tusk: None,
         }
     }
 
@@ -87,6 +90,9 @@ impl CellView {
         }
         if let Some(v) = self.prey {
             m.insert("prey".into(), json!(v));
+        }
+        if let Some(v) = self.tusk {
+            m.insert("tusk".into(), json!(v));
         }
         Value::Object(m)
     }

@@ -22,7 +22,7 @@ use crate::model::{
 use crate::rng::Rng;
 use crate::rules::{new_run, office_rounds, targets, RunSetup};
 use crate::state::*;
-use crate::view::{BoardView, CellKind, Decision, PickView};
+use crate::view::{BoardView, CellKind, CellView, Decision, PickView};
 
 /// Что ждём от игрока по последнему понятому экрану.
 /// hunt — «Выберите цель» после «Выслеживания»: добыча для льва надзирателя.
@@ -115,6 +115,8 @@ pub struct CellMemory {
     pub shown: Option<i32>,
     /// Метка «Царапины» («Грязные когти»).
     pub scratch: bool,
+    /// Метка «Бивень» (Щипцы) на камере с узником.
+    pub tusk: bool,
 }
 
 impl CellMemory {
@@ -162,6 +164,9 @@ impl CellMemory {
         }
         if self.scratch {
             m.insert("scratch".into(), json!(true));
+        }
+        if self.tusk {
+            m.insert("tusk".into(), json!(true));
         }
         Value::Object(m)
     }
@@ -378,6 +383,7 @@ pub fn load_memory(x: &Value) -> RunMemory {
                 if let (Some(b), Some(t)) = (int_in(f("b"), 0, 3), int_in(f("t"), 0, SUPREME as i64)) {
                     let mut c = CellMemory::inmate(b, t);
                     c.ev = truthy(f("ev"));
+                    c.tusk = truthy(f("tusk"));
                     return c;
                 }
             }
@@ -492,6 +498,13 @@ pub fn theme_by_voice(voice: i32) -> Option<i32> {
         4 => Some(start_event::CAGEFIGHT),
         _ => None,
     }
+}
+
+/// «Бивень» на камере с узником: виден на портрете или был у прежнего узника —
+/// метка сходит, только когда камера пустеет, и переживает Замену [клиент,
+/// глоссарий 16000113]; на тёмных кадрах значок читается хуже.
+fn tusk_kept(was: &CellMemory, seen: &CellView) -> bool {
+    seen.tusk == Some(true) || (was.kind() == CellK::Inmate && was.tusk)
 }
 
 fn beast_no(b: Option<u8>) -> i32 {
@@ -663,6 +676,7 @@ impl PrisonAdapter {
                     let mut cell =
                         CellMemory::inmate(b, if keep { was.t.unwrap() } else { (c.tier.unwrap_or(0) as i32).min(SUPREME) });
                     cell.ev = c.event == Some(true);
+                    cell.tusk = tusk_kept(&was, c);
                     m.cells[n] = cell;
                 }
                 CellKind::Locked => {
@@ -768,6 +782,7 @@ impl PrisonAdapter {
         let walked = m.step == Step::Patrol && m.doors.contains(&warden);
         let known = after || walked;
         let was = m.cells[warden as usize].clone();
+        let was_cells = m.cells.clone();
         let mut eaten = 0;
         for (n, c) in v.cells.iter().enumerate() {
             if n as i32 == OFFICE || n as i32 == warden {
@@ -827,6 +842,12 @@ impl PrisonAdapter {
                 continue;
             }
             m.cells[n] = CellMemory::inmate(if seen_beast.is_some() { beast_no(seen_beast) } else { c.b.unwrap_or(0) }, tier);
+        }
+        // «Бивень» сходит, только когда камера пустеет: съеденные уже заперты.
+        for (n, c) in v.cells.iter().enumerate() {
+            if n as i32 != OFFICE && m.cells[n].kind() == CellK::Inmate {
+                m.cells[n].tusk = tusk_kept(&was_cells[n], c);
+            }
         }
         m.warden = warden;
         m.step = Step::Chain;
@@ -1221,6 +1242,9 @@ impl PrisonAdapter {
                 CellK::Inmate => {
                     x[BEAST + c] = cell.b.unwrap();
                     x[TIER + c] = cell.t.unwrap();
+                    if cell.tusk && (tools >> tool::TONGS) & 1 == 1 {
+                        x[FLAGS + c] = F_TUSK;
+                    }
                 }
                 _ => {}
             }

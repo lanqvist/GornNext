@@ -5,6 +5,7 @@
 use super::cards::{card_box, card_centers, classify_card, read_door_number};
 use super::cells::{
     border_color, chain_jaw_share, color_share, event_share, face_vec, glow, is_gold, jaw_vec, lock_score, prey_vec, FACE_LEN, NB,
+    PREY_LEN,
 };
 use super::layout::{portrait, CANCEL, CELL_R, CHAIN_BANNER, DAYS, HEADER, HEADER_H, HEADER_W, WARDEN};
 use super::panels::{read_chromatic, read_objective, read_tool_slots};
@@ -24,6 +25,9 @@ const JAW_MIN: f64 = 0.63;
 const CHAIN_JAW_MIN: f64 = 0.05;
 const WARDEN_MIN: f64 = 0.12;
 const PREY_MIN: f64 = 0.7;
+/// «Бивень»: с меткой 0.94–1.00 (на экране цепочки 0.74–0.98), без неё ≤ 0.45
+/// [кадры 25.10 20:21–20:23, забег #52].
+const TUSK_MIN: f64 = 0.7;
 /// Яркость рамки портрета, ниже которой редкость считается не нарисованной.
 const DARK_BORDER: f64 = 0.3;
 
@@ -248,16 +252,18 @@ pub fn read_board(frame: &Frame, geo: &Geometry, t: &Templates) -> BoardView {
     let chain = is_chain(frame, geo);
     let mut header = if chain { None } else { read_header(frame, geo, &t.screens) };
     let mut cells = read_cells(frame, geo, &t.cells, chain);
-    // Метка «Добыча»: прицел внизу портрета.
-    if let Some(prey) = &t.screens.prey {
-        let mut buf = [0.0f32; 16 * 18 * 3];
-        for (n, c) in cells.iter_mut().enumerate() {
-            if c.kind == CellKind::Inmate {
-                prey_vec(frame, geo, n, &mut buf);
-                if dot(&buf, prey) >= PREY_MIN {
-                    c.prey = Some(true);
-                }
-            }
+    // Метки «Добыча» (прицел) и «Бивень» — значок внизу портрета.
+    let mut buf = [0.0f32; PREY_LEN];
+    for (n, c) in cells.iter_mut().enumerate() {
+        if c.kind != CellKind::Inmate {
+            continue;
+        }
+        prey_vec(frame, geo, n, &mut buf);
+        if t.screens.prey.as_ref().is_some_and(|prey| dot(&buf, prey) >= PREY_MIN) {
+            c.prey = Some(true);
+        }
+        if let Some(tusk) = &t.screens.tusk {
+            c.tusk = Some(dot(&buf, tusk) >= TUSK_MIN);
         }
     }
     let mut at = BoardAt {

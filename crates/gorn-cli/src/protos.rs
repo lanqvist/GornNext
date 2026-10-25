@@ -5,9 +5,9 @@
 use std::path::Path;
 
 use gorn_prison::recognize::board::{classify_face, read_tier};
-use gorn_prison::recognize::cells::{face_vec, FACE_LEN};
+use gorn_prison::recognize::cells::{face_vec, prey_vec, FACE_LEN, PREY_LEN};
 use gorn_prison::recognize::layout::{tool_slot, TOOL_SLOTS};
-use gorn_prison::recognize::sample::{normalize, sample_into};
+use gorn_prison::recognize::sample::{dot, normalize, sample_into};
 use gorn_prison::recognize::templates::nearest;
 use gorn_prison::recognize::{calibrate, default_geometry, templates};
 
@@ -42,6 +42,8 @@ pub enum Target {
     Cell(usize),
     /// Все портреты строкой: класс и сходство камер 1…15.
     Cells,
+    /// Значок внизу портретов («Добыча», «Бивень») камер 1…15; эталон — камеры N.
+    Mark(usize),
 }
 
 /// Кадры доски из папки (или один PNG) с ЧЧММСС в [from, to]: по строке на
@@ -95,6 +97,20 @@ pub fn report(path: &Path, from: &str, to: &str, target: Target, label: Option<&
                     line += &format!("  [{cell}] {l} {score:.3}");
                 }
                 println!("{line}");
+            }
+            Target::Mark(cell) => {
+                let score = |v: &[f32], t: &Option<Vec<f32>>| t.as_ref().map_or(f64::NAN, |t| dot(v, t));
+                let mut buf = [0.0f32; PREY_LEN];
+                let mut line = name.clone();
+                for c in 1..16 {
+                    prey_vec(&frame, &geo, c, &mut buf);
+                    line += &format!("  [{c}] п{:.2} б{:.2}", score(&buf, &t.screens.prey), score(&buf, &t.screens.tusk));
+                }
+                println!("{line}");
+                if let Some(l) = label {
+                    prey_vec(&frame, &geo, cell, &mut buf);
+                    println!("{}", proto(l, &buf));
+                }
             }
         }
     }

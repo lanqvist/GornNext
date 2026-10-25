@@ -106,3 +106,61 @@ fn abundance_gives_gifts_per_prism() {
     a.treasure(true, Cause::None);
     assert_eq!(a.mem.gifts, 5);
 }
+
+/// «Бивень» Щипцов: значок на портрете слона (забег #52, 25.10 20:21) — в памяти
+/// камеры и во флагах решателя; переживает Замену и тёмный кадр, сходит с пустой
+/// камерой.
+#[test]
+fn tongs_tusk_mark() {
+    use gorn_prison::state::{FLAGS, F_TUSK};
+    let mut a = PrisonAdapter::new(None);
+    a.start_run();
+    a.log_day(Some((7, 20)));
+    a.mem.tools = vec![tool::TONGS];
+    let mut cells: Vec<CellView> = (0..CELLS).map(|_| CellView::new(CellKind::Locked)).collect();
+    cells[0] = CellView::new(CellKind::Empty);
+    for (n, b, tusk) in [(5, 0, true), (6, 0, false), (1, 2, false)] {
+        cells[n] = CellView::new(CellKind::Inmate);
+        cells[n].beast = Some(b);
+        cells[n].tier = Some(0);
+        cells[n].tusk = Some(tusk);
+    }
+    let at = BoardAt { cells: vec![], door_cards: vec![], decision_cards: vec![], decision_kinds: vec![], cancel: None };
+    let v = BoardView {
+        cells,
+        warden: Some(0),
+        days_left: None,
+        doors: vec![],
+        decision: None,
+        chain: None,
+        tools: vec![],
+        tool_slots: None,
+        chromatic: -1,
+        objective: None,
+        at,
+    };
+    a.board(&v);
+    assert!(a.mem.cells[5].tusk && !a.mem.cells[6].tusk);
+    assert_eq!(a.build().m[FLAGS + 5] & F_TUSK, F_TUSK);
+    assert_eq!(a.build().m[FLAGS + 6] & F_TUSK, 0);
+    assert_eq!(load_memory(&a.mem.to_json()), a.mem);
+
+    // Замена: в камере волк, значок на тёмном кадре не узнан — метка остаётся.
+    let mut swapped = v.clone();
+    swapped.cells[5].beast = Some(2);
+    swapped.cells[5].tusk = Some(false);
+    a.board(&swapped);
+    assert!(a.mem.cells[5].tusk);
+
+    // Без Щипцов метка решателю ни к чему.
+    a.mem.tools = vec![];
+    assert_eq!(a.build().m[FLAGS + 5] & F_TUSK, 0);
+    a.mem.tools = vec![tool::TONGS];
+
+    // Узника съели — камера заперта, потом открыта другим: метки нет.
+    let mut eaten = swapped.clone();
+    eaten.cells[5] = CellView::new(CellKind::Locked);
+    a.board(&eaten);
+    a.board(&swapped);
+    assert!(!a.mem.cells[5].tusk);
+}

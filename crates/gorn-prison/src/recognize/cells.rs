@@ -219,6 +219,8 @@ pub fn jaw_vec(frame: &Frame, geo: &Geometry, cell: usize, out: &mut [f32]) {
 
 /// Метка «Добыча» (золотой прицел внизу портрета): цветная картинка 16×18.
 pub const PREY: (f64, f64, f64, f64, usize, usize) = (-16.0, 24.0, 16.0, 60.0, 16, 18);
+/// Длина вектора значка: 16×18, три канала.
+pub const PREY_LEN: usize = 16 * 18 * 3;
 
 pub fn prey_vec(frame: &Frame, geo: &Geometry, cell: usize, out: &mut [f32]) {
     let (x, y) = portrait(cell);
