@@ -1572,6 +1572,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "gorn-vorax-scan"
+version = "0.1.18"
+dependencies = [
+ "base64 0.22.1",
+ "gorn-vorax",
+ "indexmap 2.14.2",
+ "libm",
+ "png 0.17.16",
+ "rayon",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "gtk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

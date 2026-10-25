@@ -1,0 +1,2 @@
+# Строки лога, как их пишет игра (CRLF), — байт в байт
+tests/data/vorax-log-excerpt.txt -text

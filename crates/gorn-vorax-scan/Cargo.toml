@@ -1,0 +1,18 @@
+[package]
+name = "gorn-vorax-scan"
+description = "Vorax: чтение экрана «Хирургической подготовки» в ScreenState советника — перенос vorax-scan"
+edition.workspace = true
+version.workspace = true
+license = "MIT"
+
+[dependencies]
+gorn-vorax.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+indexmap = { version = "2", features = ["serde"] }
+base64 = "0.22"
+libm = "0.2"
+rayon.workspace = true
+
+[dev-dependencies]
+png = "0.17"

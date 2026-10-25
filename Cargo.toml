@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/gorn-prison", "crates/gorn-vorax", "crates/gorn-core", "crates/gorn-cli", "app"]
+members = ["crates/gorn-prison", "crates/gorn-vorax", "crates/gorn-vorax-scan", "crates/gorn-core", "crates/gorn-cli", "app"]
 
 [workspace.package]
 edition = "2021"
@@ -10,6 +10,7 @@ license = "MIT"
 [workspace.dependencies]
 gorn-prison = { path = "crates/gorn-prison" }
 gorn-vorax = { path = "crates/gorn-vorax" }
+gorn-vorax-scan = { path = "crates/gorn-vorax-scan" }
 gorn-core = { path = "crates/gorn-core" }
 rayon = "1.10"
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
