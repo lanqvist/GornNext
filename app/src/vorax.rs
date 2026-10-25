@@ -403,22 +403,17 @@ impl Vorax {
     fn advise(&mut self, img: &Arc<Image>, frame_w: usize, offset: (f64, f64), kind: &str, trigger: Option<&'static str>) -> Value {
         let (Some(pipe), Some(data), Some(d)) = (self.pipe.as_mut(), self.data, self.display) else { return Value::Null };
         let src = Img { width: img.width, height: img.height, data: img.data.clone() };
-        let mut texts: Vec<String> = Vec::new();
         let t0 = Instant::now();
         let outcome = match &self.ocr {
             Some(o) => {
-                let mut read = |i: &Img| {
-                    let t = o.read(i).unwrap_or_default();
-                    texts.push(t.clone());
-                    t
-                };
+                let mut read = |i: &Img| o.read(i).unwrap_or_default();
                 pipe.run(&src, trigger, Some(&mut read))
             }
             None => pipe.run(&src, trigger, None),
         };
         let wants_relook = pipe.wants_relook();
         match outcome {
-            Outcome::Advice { reading, advice, plan, origin, read_ms } => {
+            Outcome::Advice { reading, advice, plan, origin, read_ms, texts } => {
                 self.retries = 0;
                 let screen = plan.mapped(origin.0 + offset.0, origin.1 + offset.1, 1.0);
                 self.layer.show(&d, &screen, frame_w);
@@ -471,7 +466,7 @@ impl Vorax {
                 self.layer.clear();
                 // Лог говорит «новая доска», а экран не узнан — его тоже в эталоны.
                 if trigger.is_some() {
-                    self.keep_unknown(img, kind, &["экран не узнан".to_string()], json!({ "texts": texts }));
+                    self.keep_unknown(img, kind, &["экран не узнан".to_string()], json!({}));
                 }
                 json!({ "outcome": "notgame" })
             }
@@ -548,22 +543,17 @@ pub fn read_files(out: &str, paths: &[String]) {
             report += &format!("{path}: не читается\n");
             continue;
         };
-        let mut texts: Vec<String> = Vec::new();
         let t0 = Instant::now();
         let outcome = match &ocr {
             Some(o) => {
-                let mut read = |i: &Img| {
-                    let t = o.read(i).unwrap_or_default();
-                    texts.push(t.clone());
-                    t
-                };
+                let mut read = |i: &Img| o.read(i).unwrap_or_default();
                 pipe.run(&src, None, Some(&mut read))
             }
             None => pipe.run(&src, None, None),
         };
         let ms = t0.elapsed().as_millis();
         report += &match outcome {
-            Outcome::Advice { reading, plan, origin, .. } => {
+            Outcome::Advice { reading, plan, origin, texts, .. } => {
                 let marks = serde_json::to_string(&plan.mapped(origin.0, origin.1, 1.0)).unwrap_or_default();
                 let sure: Vec<bool> = (0..reading.state.hand.len()).map(|j| reading.fields.get(&format!("hand{j}")).is_some_and(|f| f.sure)).collect();
                 format!(

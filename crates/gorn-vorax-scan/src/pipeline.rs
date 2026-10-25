@@ -32,8 +32,9 @@ pub enum Outcome {
     Animating,
     /// забег закрывается после последнего выбора 13-го раунда (анимация конца, награды): не доска
     Closing,
-    /// совет по доске и его отметки; `origin` — где в кадре левый верхний угол прочитанного (окна игры)
-    Advice { reading: Box<Reading>, advice: Box<Advice>, plan: Plan, origin: (f64, f64), read_ms: f64 },
+    /// совет по доске и его отметки; `origin` — где в кадре левый верхний угол прочитанного (окна игры);
+    /// `texts` — что OCR прочитал на заголовке каждой карты, слева направо
+    Advice { reading: Box<Reading>, advice: Box<Advice>, plan: Plan, origin: (f64, f64), read_ms: f64, texts: Vec<String> },
     /// одна карта инструмента в начале забега: выбора нет, только отметить её; `name` — по её заголовку (OCR)
     Only { plan: Plan, origin: (f64, f64), name: Option<String>, text: String },
 }
@@ -59,6 +60,47 @@ fn resumes(before: Option<i32>, now: Option<i32>) -> bool {
         (Some(b), Some(n)) => n > 1 && b < 13 && n >= b,
         _ => false,
     }
+}
+
+/// Не в эталоне: вид выбора по подписи внизу средней карты (OCR): «Хирургические инструменты», «…Зелье», план
+/// операции. 25.10: старт с тремя инструментами по заголовку прочитан как выбор зелья.
+fn label_phase(img: &Img, r: &Reading, read: &mut dyn FnMut(&Img) -> String) -> Option<ScreenPhase> {
+    let l = layout_at(img.width, img.height, r.ui()).shifted_hand(r.hand_dy.unwrap_or(0.0));
+    let mut low = if r.hand_size == Some(5) { l.hand5[2] } else { l.cards[1] };
+    low.cy += LABEL_DROP * l.k;
+    let label = read(&title_crop(img, &low, l.k)).to_lowercase();
+    if label.contains("инструмент") || label.contains("instrument") {
+        Some(ScreenPhase::Instrument)
+    } else if label.contains("зелье") || label.contains("potion") {
+        Some(ScreenPhase::Potion)
+    } else if label.contains("план") || label.contains("операц") || label.contains("protocol") {
+        Some(ScreenPhase::Protocol)
+    } else {
+        None
+    }
+}
+
+/// Вид выбора наверняка; перебросы, прочитанные под прежним видом, — к новому.
+fn set_phase(r: &mut Reading, phase: ScreenPhase) {
+    if r.state.phase != phase {
+        let left = match r.state.phase {
+            ScreenPhase::Potion => r.state.potion_refreshes.take(),
+            ScreenPhase::Instrument => r.state.instrument_refreshes.take(),
+            ScreenPhase::Protocol => None,
+        };
+        match phase {
+            ScreenPhase::Potion => r.state.potion_refreshes = left,
+            ScreenPhase::Instrument => r.state.instrument_refreshes = left,
+            ScreenPhase::Protocol => {}
+        }
+        r.state.phase = phase;
+    }
+    let key = match phase {
+        ScreenPhase::Potion => "potion",
+        ScreenPhase::Instrument => "instrument",
+        ScreenPhase::Protocol => "protocol",
+    };
+    r.fields.insert("phase".into(), crate::reading::FieldRead { sure: true, guess: Some(key.into()), score: None, second: None });
 }
 
 /// Перебросов инструментов в начале забега по уровню Интерна Шелли (src/data/shelley.ts эталона).
@@ -104,11 +146,24 @@ impl Pipeline {
         if first.has(|p| matches!(p, Problem::OneCard)) {
             return self.only(&img, &first, origin, trigger, ocr);
         }
+        let mut texts: Vec<String> = Vec::new();
         let raw = match ocr {
             Some(read) => {
+                let mut first = first;
+                // заголовок выбора сравнивается с английским образцом — на русском клиенте он не читается наверняка
+                if first.hand_pending == Some(true) && !first.fields.get("phase").is_some_and(|f| f.sure) {
+                    if let Some(phase) = label_phase(&img, &first, read) {
+                        set_phase(&mut first, phase);
+                    }
+                }
                 let (dy, ui) = (first.hand_dy.unwrap_or(0.0), first.ui());
                 let pics = |phase: &str, size: usize, slots: &[usize]| pictures(&img, data, phase, size, slots, dy, ui);
-                read_titles(&img, first, data, read, Some(&pics))
+                let mut titles = |i: &Img| {
+                    let t = read(i);
+                    texts.push(t.clone());
+                    t
+                };
+                read_titles(&img, first, data, &mut titles, Some(&pics))
             }
             None => first,
         };
@@ -150,7 +205,7 @@ impl Pipeline {
         let l = layout_at(img.width, img.height, reading.ui()).shifted_hand(reading.hand_dy.unwrap_or(0.0));
         let plan = plan_for(&advice, &reading.state, &reading, &l, data);
         self.last = Some(reading.clone());
-        Outcome::Advice { reading: Box::new(reading), advice: Box::new(advice), plan, origin, read_ms }
+        Outcome::Advice { reading: Box::new(reading), advice: Box::new(advice), plan, origin, read_ms, texts }
     }
 
     /// Не в эталоне: одна карта посередине. Инструмент (по подписи внизу карты — «Хирургические инструменты»; без

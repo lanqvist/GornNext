@@ -1,8 +1,9 @@
 {
   "potion": {
-    "Anesthetic Tincture - Agito": "Обезболивающая настойка - Агито",
     "Anesthetic Tincture - Aemberon": "Обезболивающая настойка - Чужой",
+    "Anesthetic Tincture - Agito": "Обезболивающая настойка - Агито",
     "Bewitching Tincture": "Одурманивающая настойка",
+    "Cleansing Ointment": "Мазь от фурункулов",
     "Compound Leech Solution": "Смешанный раствор живых пиявок",
     "Digestive Enzyme Solution": "Раствор пищеварительных ферментов",
     "Eggshell Powder": "Порошок из яичной скорлупы",
@@ -13,8 +14,10 @@
     "Insect Attractant": "Приманка для насекомых",
     "Leptomeningeal Solution": "Раствор мягкой мозговой оболочки",
     "Mutagenic Powder": "Мутагенный порошок",
+    "Osteogenic Powder": "Порошок для роста костей",
     "Osteolytic Ointment": "Мазь для размягчения костей",
     "Petrified Spinal Solution": "Раствор окаменевшего спинного мозга",
+    "Plague Quarter Peat Poultice": "Торфяной компресс из эпидемической зоны",
     "Potent Xenopurge Powder": "Сильнодействующий порошок для удаления",
     "Potion Kit (Small)": "Аптечка (маленькая)",
     "Pure Leech Solution": "Чистый раствор живых пиявок",
@@ -27,16 +30,23 @@
     "Twin Hormone - Pest": "Гормон близнецов - Паразит",
     "Viscous Bile Solution": "Раствор густой желчи",
     "Vivigenic Powder": "Порошок для размножения",
+    "Viviparous Hormone": "Гормон активации развития яиц",
     "Xeno-Hormone": "Инородный гормон",
     "Xenopurge Powder": "Порошок для удаления"
   },
   "instrument": {
+    "Aberrant Sprout": "Злокачественный нарост",
+    "Adherent Metatarsals": "Сросшиеся кости",
     "Canine Teeth File": "Напильник с зубьями",
     "Clustered Eggs": "Яйца насекомых",
+    "Contracted Claws": "Сжатые когти",
+    "Fouled Scraper": "Грязный распатор",
     "Incubation Sac": "Выводковая камера",
     "Pig Iron Bone Saw": "Чугунная пила",
     "Rawhide Restraint": "Смирительный ремень из сыромятной кожи",
     "Sinew Garrote": "Веревка из сухожилий животных",
+    "Sloughed Cortex": "Развитая кора мозга",
+    "Tanned Leather Restraint": "Смирительный ремень из выделанной кожи",
     "Two-Inch Skull Nail": "Шестисантиметровый черепной штифт",
     "Vermicular Spinal Cord": "Извивающийся спинной мозг"
   },
@@ -49,6 +59,7 @@
     "Laparolithotomy": "Удаление камней из брюшной полости",
     "Laser Amputation": "Лазерная ампутация",
     "Live Leech Therapy": "Лечение пиявками",
+    "Muscle Relaxant Injection Experiment": "Эксперимент по введению миорелаксанта",
     "Spinal Cord Stimulation": "Стимуляция спинномозговых нервов",
     "Trepanation": "Трепанация черепа"
   }

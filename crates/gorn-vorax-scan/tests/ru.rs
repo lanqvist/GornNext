@@ -48,6 +48,17 @@ const READ: &[(&str, &str, &str)] = &[
     ("protocol", "Удал из\nбрюшной полости\nПосле поражения\nмонстры оставляют", "Laparolithotomy"),
     ("protocol", "Стиглуляция\nспинномозговых нер\nПри появлении\nмонстра, его скоро\nво", "Spinal Cord Stimulation"),
     ("protocol", "Трепанацлл черепа\nВо время финальной\nбитвы случайным", "Trepanation"),
+    // третий забег 25.10
+    ("instrument", "Сросшиеся кост\nПри наличии хотя б\nгрупп Скелетн", "Adherent Metatarsals"),
+    ("instrument", "зл\nСжатые когти\nПри убирании\nмонстров не\nмут", "Contracted Claws"),
+    ("instrument", "— ' 37 •\nЗлокач—, денный\nнарост\nКогда монстрь[\nмутируют в ЧУЖИХ", "Aberrant Sprout"),
+    ("instrument", "Грязныл распато\nВ конце хода все\nколичеством вы\nРа:", "Fouled Scraper"),
+    ("instrument", "Развитая кора мо\nВ конце хода\nслучайные 2 груп\nВерк\nва", "Sloughed Cortex"),
+    ("potion", "Мазь от срурункул\nВыбирает 1 груп\nмонстров с +20\n06\nмонс", "Cleansing Ointment"),
+    ("potion", "Порошок для рос\nкостей\nВыбирает случайн\nгрупп монстров и д", "Osteogenic Powder"),
+    ("potion", "Гормон активаци\nразвития яиц\nДобавляет 1 груп\nпаразитов С\nторс\nэпи,\nЕсли\nго", "Viviparous Hormone"),
+    ("potion", "Торфянс\n,лресс из\nэпидемической зоны\nЕсли у вас есть хотя бы\n1 групп Скелетных", "Plague Quarter Peat Poultice"),
+    ("protocol", "по\nвведению миорелакс\nИгроки продолжа\nподвергаться рис\nво\nб", "Muscle Relaxant Injection Experiment"),
 ];
 
 #[test]
