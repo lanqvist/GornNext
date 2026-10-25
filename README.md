@@ -16,6 +16,13 @@ Cargo workspace:
 
 - `crates/gorn-prison` — тюрьма: ГСЧ, состояние, правила, ходы,
   доигрывание и мгновенная стратегия (веса — `data/weights.json`);
+- `crates/gorn-vorax` — Vorax («Хирургическая подготовка»): движок, бот
+  и решатель, перенос крейта `vorax` из
+  [DinoRaos/vorax-solver-rs](https://github.com/DinoRaos/vorax-solver-rs)
+  (MIT, коммит 9aabc20); тесты сверяют его с записанными трассами эталона
+  шаг в шаг. Авторские права DinoRaos, tidewarden и Moebing — в
+  `crates/gorn-vorax/LICENSE`. Как и у них, только советы: игра не
+  управляется;
 - `crates/gorn-cli` — `bench`, `selfplay`, `verify`;
 - `tools/reference.mts` — эталон: тот же движок на TS из соседнего
   `../gorn-tli` (через его tsx, сам gorn-tli не меняется).

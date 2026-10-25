@@ -1,0 +1,13 @@
+[package]
+name = "gorn-vorax"
+description = "Vorax («Хирургическая подготовка»): движок, бот и решатель — перенос vorax-solver-rs"
+edition.workspace = true
+version.workspace = true
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+rayon.workspace = true
+# fdlibm-овский log1p, как Math.log1p в V8: оценка доски совпадает с TS бит в бит
+libm = "0.2"
