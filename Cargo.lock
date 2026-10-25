@@ -1509,6 +1509,8 @@ dependencies = [
  "chrono",
  "gorn-core",
  "gorn-prison",
+ "gorn-vorax",
+ "gorn-vorax-scan",
  "png 0.17.16",
  "rayon",
  "regex",

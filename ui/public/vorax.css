@@ -1,0 +1,88 @@
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+
+/*
+ * Один цвет — «бери это», как в тюрьме: зелёный. Красного и золота на экране
+ * Vorax полно у самой игры (баки, рамки редких карт).
+ */
+:root {
+  --hint: #46ff9a;
+  --hint-fill: rgba(70, 255, 154, 0.14);
+  --plate: rgba(8, 10, 12, 0.92);
+  --ink: #effff5;
+  --ink-dim: #c7d6cd;
+}
+
+.vorax-marks {
+  position: fixed;
+  inset: 0;
+}
+
+/* Тёмная кромка под линией — видна и на светлом, и на тёмном */
+.vorax-edge {
+  fill: none;
+  stroke: rgba(8, 6, 8, 0.85);
+}
+
+.vorax-line {
+  fill: none;
+  stroke: var(--hint);
+  filter: drop-shadow(0 0 6px rgba(70, 255, 154, 0.7));
+}
+
+.vorax-tank {
+  fill: var(--hint-fill);
+}
+
+.vorax-pill {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.35em 1em;
+  border-radius: 999px;
+  border: 2px solid rgba(70, 255, 154, 0.75);
+  background: var(--plate);
+  color: var(--ink);
+  white-space: nowrap;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  transition: opacity 0.15s;
+}
+
+.vorax-pill.dim {
+  opacity: 0.5;
+}
+
+.vorax-pill .mark {
+  width: 0.55em;
+  height: 0.55em;
+  background: var(--hint);
+  transform: rotate(45deg);
+}
+
+.vorax-pill .main {
+  font-weight: 700;
+}
+
+.vorax-pill .odds {
+  font-weight: 700;
+  font-size: 0.8em;
+  color: var(--hint);
+}
+
+.vorax-pill .rest {
+  font-size: 0.8em;
+  color: var(--ink-dim);
+}

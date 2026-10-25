@@ -10,6 +10,7 @@ mod facts;
 mod capture;
 mod icons;
 mod layers;
+mod ocr;
 mod overlay;
 mod settings;
 mod shots;
@@ -17,6 +18,8 @@ mod stall;
 mod tracker;
 mod updater;
 mod triggers;
+mod vorax;
+mod vorax_layer;
 
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
@@ -37,6 +40,8 @@ use tracker::{name_language, ui_lang, Tracker};
 
 struct AppState {
     tx: Mutex<Sender<Event>>,
+    /// Запись кадров Vorax.
+    vtx: Mutex<Sender<vorax::Event>>,
     settings: Arc<Mutex<Settings>>,
     layers: Arc<Layers>,
     /// Сочетания, которые занять не удалось, — показываются в настройках.
@@ -380,6 +385,7 @@ async fn gorn(
                 .unwrap()
                 .set("prisonSaveShots", json!(on));
             let _ = st.tx.lock().unwrap().send(Event::SetSaveShots(on));
+            let _ = st.vtx.lock().unwrap().send(vorax::Event::SetSave(on));
             json!(on)
         }
         "settings:prisonFacts" => {
@@ -551,6 +557,10 @@ fn apply_log_dir(tr: &Tracker, dir: Option<PathBuf>, shown: Option<String>) -> V
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--vorax-read") {
+        vorax::read_files(args.get(2).map(String::as_str).unwrap_or("vorax-read.txt"), &args[3.min(args.len())..]);
+        return;
+    }
     if args.get(1).map(String::as_str) == Some("--test-capture") {
         test_capture(args.get(2).map(String::as_str).unwrap_or("capture.png"));
         return;
@@ -615,6 +625,7 @@ fn main() {
                         Some("Ctrl+Alt+M") => st.layers.cycle_mode(),
                         Some("Ctrl+Alt+P") => {
                             let _ = st.tx.lock().unwrap().send(Event::Manual);
+                            let _ = st.vtx.lock().unwrap().send(vorax::Event::Manual);
                         }
                         Some("Ctrl+Alt+H") => {
                             let _ = st.tx.lock().unwrap().send(Event::Thermo);
@@ -751,9 +762,27 @@ fn main() {
             app.listen("stall:ready", move |_| {
                 let _ = stx_ready.send(stall::Event::Ready);
             });
+            // Подсказки и кадры Vorax: те же строки лога.
+            let (vtx, vrx) = std::sync::mpsc::channel::<vorax::Event>();
+            let vorax = vorax::Vorax::new(
+                app.handle().clone(),
+                pictures.join("Горн Next — vorax"),
+                settings_now.bool("prisonSaveShots") && smoke_setup.is_none(),
+                settings_now.bool("voraxHints") && smoke_setup.is_none(),
+                s["voraxShelley"].as_i64().unwrap_or(4).clamp(1, 6) as i32,
+            );
+            std::thread::Builder::new()
+                .name("горн-vorax".into())
+                .spawn(move || vorax.run(vrx))?;
+            let vtx_ready = vtx.clone();
+            app.listen("vorax:ready", move |_| {
+                let _ = vtx_ready.send(vorax::Event::Ready);
+            });
+            let vtx_log = vtx.clone();
             std::thread::spawn(move || {
                 for lines in lrx {
                     let _ = stx.send(stall::Event::Lines(lines.clone()));
+                    let _ = vtx_log.send(vorax::Event::Lines(lines.clone()));
                     if tx_log.send(Event::Lines(lines)).is_err() {
                         break;
                     }
@@ -775,6 +804,14 @@ fn main() {
                 "Подсказки в тюрьме",
                 true,
                 settings_now.bool("prisonHints"),
+                None::<&str>,
+            )?;
+            let vorax_hints = CheckMenuItem::with_id(
+                app,
+                "vorax-hints",
+                "Подсказки в Vorax",
+                true,
+                settings_now.bool("voraxHints"),
                 None::<&str>,
             )?;
             let save = CheckMenuItem::with_id(
@@ -805,6 +842,7 @@ fn main() {
                     &overlay_item,
                     &sep,
                     &hints,
+                    &vorax_hints,
                     &save,
                     &shot,
                     &open,
@@ -853,6 +891,14 @@ fn main() {
                                 s.set("prisonSaveShots", json!(on));
                                 let _ = save.set_checked(on);
                                 let _ = st.tx.lock().unwrap().send(Event::SetSaveShots(on));
+                                let _ = st.vtx.lock().unwrap().send(vorax::Event::SetSave(on));
+                            }
+                            "vorax-hints" => {
+                                let mut s = st.settings.lock().unwrap();
+                                let on = !s.bool("voraxHints");
+                                s.set("voraxHints", json!(on));
+                                let _ = vorax_hints.set_checked(on);
+                                let _ = st.vtx.lock().unwrap().send(vorax::Event::SetHints(on));
                             }
                             "open" => {
                                 let _ = std::fs::create_dir_all(&st.shots_dir);
@@ -862,6 +908,7 @@ fn main() {
                             }
                             "shot" => {
                                 let _ = st.tx.lock().unwrap().send(Event::Manual);
+                                let _ = st.vtx.lock().unwrap().send(vorax::Event::Manual);
                             }
                             "quit" => {
                                 *st.quitting.lock().unwrap() = true;
@@ -903,6 +950,7 @@ fn main() {
             app.manage(AppState {
                 updater: updates,
                 tx: Mutex::new(tx),
+                vtx: Mutex::new(vtx),
                 settings,
                 layers: layers.clone(),
                 busy_hotkeys,

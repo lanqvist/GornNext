@@ -17,6 +17,10 @@ fn defaults(ui: &str) -> Value {
         // В Горне Next подсказки в тюрьме включены: ради них он и запускался первым.
         "prisonHints": true,
         "prisonSaveShots": true,
+        // Подсказки в Vorax и уровень Интерна Шелли (1–6): от него перебросы
+        // инструментов, которых на доске зелий не видно.
+        "voraxHints": true,
+        "voraxShelley": 4,
         "logDir": null,
         "playerFilter": null,
         "allSeasons": false,
@@ -163,7 +167,7 @@ fn normalize(s: &Value, fresh: &Value) -> Value {
     if !matches!(s["uiLanguage"].as_str(), Some("ru" | "en")) {
         d["uiLanguage"] = json!("ru");
     }
-    for k in ["prisonHints", "prisonSaveShots"] {
+    for k in ["prisonHints", "prisonSaveShots", "voraxHints"] {
         if !d[k].is_boolean() {
             d[k] = fresh[k].clone();
         }

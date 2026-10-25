@@ -87,7 +87,7 @@ impl Shots {
     }
 }
 
-fn write_info(base: &Path, info: &Value) {
+pub fn write_info(base: &Path, info: &Value) {
     if let Some(dir) = base.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -99,7 +99,7 @@ fn write_info(base: &Path, info: &Value) {
     }
 }
 
-fn write_png(path: &Path, img: &Image) -> Result<(), String> {
+pub fn write_png(path: &Path, img: &Image) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
