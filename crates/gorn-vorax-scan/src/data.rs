@@ -38,6 +38,9 @@ pub struct ScanData {
     /// a normal capture's levels (levels.json)
     pub levels: Vec<f64>,
     pub names: Names,
+    /// Не в эталоне: русские названия карт (data/names-ru.json) по виду выбора, английское имя → заголовок на
+    /// карте. Только виденные в игре: карты без русского названия узнаются по картинке.
+    pub ru: IndexMap<String, IndexMap<String, String>>,
 }
 
 /// Card text shapes are packed one signed byte per value, in steps of this.
@@ -69,6 +72,7 @@ impl ScanData {
             icons,
             levels: serde_json::from_str(levels).map_err(|e| format!("levels.json: {e}"))?,
             names: serde_json::from_str(names).map_err(|e| format!("names.json: {e}"))?,
+            ru: IndexMap::new(),
         })
     }
 
@@ -87,4 +91,18 @@ static DATA: OnceLock<ScanData> = OnceLock::new();
 
 pub fn scan_data() -> &'static ScanData {
     DATA.get_or_init(|| ScanData::embedded().unwrap_or_else(|e| panic!("{e}")))
+}
+
+static RU: OnceLock<ScanData> = OnceLock::new();
+
+/// Не в эталоне: данные для русского клиента. Формы блоков текста у эталона сняты с английских карт и на
+/// русских только сбивают картинку — их нет, карты сравниваются по картинке; названия читаются по
+/// русским (`ru`, titles::read_titles).
+pub fn scan_data_ru() -> &'static ScanData {
+    RU.get_or_init(|| {
+        let mut d = ScanData::embedded().unwrap_or_else(|e| panic!("{e}"));
+        d.texts.clear();
+        d.ru = serde_json::from_str(include_str!("../data/names-ru.json")).unwrap_or_else(|e| panic!("names-ru.json: {e}"));
+        d
+    })
 }

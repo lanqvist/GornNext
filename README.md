@@ -23,6 +23,10 @@ Cargo workspace:
   шаг в шаг. Авторские права DinoRaos, tidewarden и Moebing — в
   `crates/gorn-vorax/LICENSE`. Как и у них, только советы: игра не
   управляется;
+- `crates/gorn-vorax-scan` — чтение экрана Vorax (перенос `vorax-scan`
+  оттуда же, MIT). Своё — русский клиент: карты по картинке, названия по
+  OCR заголовка и `data/names-ru.json` (`scan_data_ru`). Тесты на кадрах
+  эталона — `VORAX_FIXTURES=<fixtures эталона> cargo test -- --ignored`;
 - `crates/gorn-cli` — `bench`, `selfplay`, `verify`;
 - `tools/reference.mts` — эталон: тот же движок на TS из соседнего
   `../gorn-tli` (через его tsx, сам gorn-tli не меняется).

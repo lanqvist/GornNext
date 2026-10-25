@@ -22,7 +22,7 @@ pub mod titles;
 pub mod track;
 pub mod window;
 
-pub use data::{scan_data, ScanData};
+pub use data::{scan_data, scan_data_ru, ScanData};
 pub use pixels::Img;
 pub use reading::Reading;
 pub use scan::{scan, scan_upstream};

@@ -11,9 +11,18 @@ use std::collections::HashMap;
 
 const MIN_Q: f64 = 6.0;
 const GAP: f64 = 3.0;
+/// Не в эталоне: при ничьей по русскому тексту картинка решает, если уверена в карте (сходство не ниже) и
+/// ставит её выше всех близких по тексту (с таким запасом).
+const PICTURE_SURE: f64 = 0.95;
+const PICTURE_MARGIN: f64 = 0.005;
 
+/// Не в эталоне: и русские буквы (ё — как е); в английском тексте их нет, так что для него всё как было.
 fn letters(t: &str) -> Vec<char> {
-    t.to_lowercase().chars().filter(|c| c.is_ascii_lowercase()).collect()
+    t.to_lowercase().chars().map(|c| if c == 'ё' { 'е' } else { c }).filter(|c| c.is_ascii_lowercase() || is_cyrillic(*c)).collect()
+}
+
+fn is_cyrillic(c: char) -> bool {
+    ('а'..='я').contains(&c)
 }
 
 /// For each start of p, the fewest edits that match it somewhere inside t.
@@ -91,8 +100,13 @@ fn names_for<'a>(data: &'a ScanData, phase: &str) -> &'a [String] {
     }
 }
 
-fn ranked(data: &ScanData, phase: &str, text: &str) -> Vec<(String, f64)> {
-    let mut r: Vec<(String, f64)> = names_for(data, phase).iter().map(|n| (n.clone(), name_fit(n, text))).collect();
+pub fn ranked(data: &ScanData, phase: &str, text: &str) -> Vec<(String, f64)> {
+    // Не в эталоне: русский текст — по русским названиям, ответ — английское имя (его знает движок)
+    let ru = data.ru.get(phase).filter(|r| !r.is_empty() && letters(text).iter().any(|c| is_cyrillic(*c)));
+    let mut r: Vec<(String, f64)> = match ru {
+        Some(ru) => ru.iter().map(|(n, t)| (n.clone(), name_fit(t, text))).collect(),
+        None => names_for(data, phase).iter().map(|n| (n.clone(), name_fit(n, text))).collect(),
+    };
     r.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     r
 }
@@ -183,7 +197,21 @@ pub fn read_titles(img: &Img, reading: Reading, data: &ScanData, read_text: &mut
             fields.insert(key, FieldRead { sure: true, guess: name.clone(), score: Some(top.1), second: second.map(|s| s.1) });
         } else if top.1 >= MIN_Q {
             let close: Vec<&String> = r.iter().filter(|(_, q)| *q >= top.1 - GAP).map(|(n, _)| n).collect();
-            let n = pic.and_then(|p| p.ranks.iter().find(|(n, _)| close.contains(&n)).map(|x| x.0.clone())).unwrap_or_else(|| top.0.clone());
+            // Не в эталоне: русский OCR путает буквы и теряет слова («Раствор с спинного мозга» вместо «Раствор
+            // окаменевшего спинного мозга»), а о картах без русского названия текст не судит вовсе. При ничьей по
+            // тексту картинка, уверенно ставящая другую карту выше всех близких по тексту, решает сама.
+            let ru_text = data.ru.get(phase).is_some_and(|m| !m.is_empty()) && letters(&texts[j]).iter().any(|c| is_cyrillic(*c));
+            let n = pic
+                .and_then(|p| {
+                    let in_close = p.ranks.iter().find(|(n, _)| close.contains(&n));
+                    let pic_top = p.ranks.first().filter(|(_, s)| ru_text && *s >= PICTURE_SURE);
+                    match (pic_top, in_close) {
+                        (Some((n, s)), Some((_, t))) if s - t >= PICTURE_MARGIN => Some(n.clone()),
+                        (Some((n, _)), None) => Some(n.clone()),
+                        _ => in_close.map(|x| x.0.clone()),
+                    }
+                })
+                .unwrap_or_else(|| top.0.clone());
             let sure = pic.is_some_and(|p| p.ranks.first().is_some_and(|x| x.0 == n) && p.field.as_ref().is_some_and(|f| f.sure));
             fields.insert(key, FieldRead { sure, guess: Some(n.clone()), score: Some(top.1), second: second.map(|s| s.1) });
             name = Some(n);
