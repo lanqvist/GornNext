@@ -109,6 +109,12 @@ pub fn is_map_key_type(type_cn: Option<&str>) -> bool {
     matches!(type_cn, Some("罗盘") | Some("赛季罗盘") | Some("信标"))
 }
 
+/// Типы, которых нет в учёте добычи: «Флешбэк героя» — свойства случайные, а
+/// цена сообщества одна на все роллы, оценка выходит ложной.
+pub fn is_untracked_loot_type(type_cn: Option<&str>) -> bool {
+    matches!(type_cn, Some("英雄追忆"))
+}
+
 /// Является ли предмет ключом от карты — знает справочник.
 pub type MapKeyLookup<'a> = &'a dyn Fn(ConfigBaseId) -> bool;
 

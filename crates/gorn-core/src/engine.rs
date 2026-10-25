@@ -27,7 +27,7 @@ use crate::labels::{hero_name, season_name, Lang};
 use crate::locate::find_log_directory;
 use crate::mapnames::{MapCatalogue, MapNames};
 use crate::parser::EventParser;
-use crate::patterns::{is_map_key_type, patterns};
+use crate::patterns::{is_map_key_type, is_untracked_loot_type, patterns};
 use crate::prices::{choose_price, community_reference, is_bound_name, price_trend, PriceSource, PriceStore, PriceTrend, OWN_PRICE_TTL_MS};
 use crate::retroscan::{retro_scan, run_cost, run_value, RetroScanProgress};
 use crate::segmenter::RunSegmenter;
@@ -36,7 +36,8 @@ use crate::storage::Storage;
 use crate::trade::{merge_by_key, recall_key, TradeLedger};
 use crate::types::*;
 
-/// Источник цены для интерфейса: исключённый предмет стоит ноль по воле игрока.
+/// Источник цены для интерфейса: исключённый предмет стоит ноль по воле игрока
+/// (или вне учёта добычи вовсе: `ItemInfo::untracked`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ViewPriceSource {
@@ -359,6 +360,9 @@ pub struct CatalogueItem {
     /// Легендарка: номер её базы. Подбор пишет в лог базу, а пробивка — саму
     /// легендарку; по базе выпавший экземпляр опознаётся (`gear::identify`).
     pub base: Option<ConfigBaseId>,
+    /// Легендарное снаряжение (тип «Legendary» в `gear.json`, «Legendary Gear»
+    /// в `items.json`): в учёте добычи, в отличие от прочего снаряжения.
+    pub legendary: bool,
 }
 
 impl CatalogueItem {
@@ -375,6 +379,8 @@ impl CatalogueItem {
                     icon: it["icon"].as_str().map(str::to_string),
                     gear: false,
                     base: it["base"].as_i64(),
+                    legendary: matches!(it["type"].as_str(), Some("Legendary" | "Legendary Gear"))
+                        || it["typeCn"].as_str() == Some("传奇装备"),
                 })
             })
             .collect())
@@ -411,6 +417,11 @@ struct ItemInfo {
     name_ru: Option<String>,
     icon: Option<String>,
     gear: bool,
+    /// Вне учёта добычи: стоит ноль и не показывается в добыче. Нелегендарное
+    /// снаряжение (из `gear.json`: цена сообщества — цена редких роллов)
+    /// и «Флешбэки героя». Выпадение базы хранится: опознанная легендарка
+    /// подменяет её (`gear::identify`) и уже в учёте.
+    untracked: bool,
 }
 
 struct PastSeason {
@@ -538,7 +549,8 @@ impl Engine {
             if it.gear && map.contains_key(&it.id) {
                 continue;
             }
-            map.insert(it.id, ItemInfo { name: it.name.clone(), name_ru: it.name_ru.clone(), icon: it.icon.clone(), gear: it.gear });
+            let untracked = (it.gear && !it.legendary) || is_untracked_loot_type(it.type_cn.as_deref());
+            map.insert(it.id, ItemInfo { name: it.name.clone(), name_ru: it.name_ru.clone(), icon: it.icon.clone(), gear: it.gear, untracked });
             if is_map_key_type(it.type_cn.as_deref()) {
                 map_keys.insert(it.id);
             }
@@ -671,6 +683,10 @@ impl Engine {
             (Some(ru), NameLanguage::Both) => format!("{ru} · {}", info.name),
             (Some(ru), NameLanguage::Ru) => ru.clone(),
         }
+    }
+
+    fn untracked(&self, id: ConfigBaseId) -> bool {
+        self.items.get(&id).is_some_and(|i| i.untracked)
     }
 
     fn icon(&self, id: ConfigBaseId) -> Option<String> {
@@ -989,6 +1005,9 @@ impl Engine {
     }
 
     fn pick_price_now(&self, id: ConfigBaseId, season: Option<i64>) -> Option<Picked> {
+        if self.untracked(id) {
+            return Some(Picked { fe: 0.0, source: ViewPriceSource::Excluded });
+        }
         if self.prices.is_fixed(id) {
             return Some(Picked { fe: self.prices.price_of(id).unwrap_or(0.0), source: ViewPriceSource::Own });
         }
@@ -1025,7 +1044,7 @@ impl Engine {
     /// Цена этого экземпляра в этом забеге (пробивка с фильтрами), если есть.
     /// Исключённый из учёта предмет стоит ноль и здесь.
     fn instance_price(&self, run: &Run, id: ConfigBaseId) -> Option<f64> {
-        if self.instance_prices.is_empty() || self.excluded.contains(&id) {
+        if self.instance_prices.is_empty() || self.excluded.contains(&id) || self.untracked(id) {
             return None;
         }
         self.instance_prices.get(&(run.started_at, run.area_id, id)).copied()
@@ -1445,7 +1464,7 @@ impl Engine {
         let mut seen: IndexMap<ConfigBaseId, i64> = IndexMap::new();
         let (closed, _, _) = self.visible_runs();
         for run in &closed.farming {
-            for d in run.drops.iter().chain(&run.costs) {
+            for d in run.drops.iter().chain(&run.costs).filter(|d| !self.untracked(d.config_base_id)) {
                 *seen.entry(d.config_base_id).or_insert(0) += d.qty;
             }
         }
@@ -1462,7 +1481,7 @@ impl Engine {
             let mut matches: Vec<ConfigBaseId> = self
                 .items
                 .iter()
-                .filter(|(id, info)| **id != FE_ID && format!("{}\n{}", info.name, info.name_ru.as_deref().unwrap_or("")).to_lowercase().contains(&needle))
+                .filter(|(id, info)| **id != FE_ID && !info.untracked && format!("{}\n{}", info.name, info.name_ru.as_deref().unwrap_or("")).to_lowercase().contains(&needle))
                 .map(|(id, _)| *id)
                 .collect();
             let rank = |id: ConfigBaseId| (if seen.contains_key(&id) { 2 } else { 0 }) + (if self.price_of(id).is_some() { 1 } else { 0 });
@@ -1525,12 +1544,12 @@ impl Engine {
         }
     }
 
-    /// Строки предметов: одинаковые сложены, дорогие сверху.
+    /// Строки предметов: одинаковые сложены, дорогие сверху; вне учёта добычи — без строк.
     fn item_views(&self, deltas: &[ItemDelta], season: Option<i64>, run: Option<&Run>) -> Vec<DropView> {
         let price_of = self.season_lookup(season);
         let instance = |id: ConfigBaseId| run.and_then(|r| self.instance_price(r, id));
         let mut by_item: IndexMap<ConfigBaseId, i64> = IndexMap::new();
-        for d in deltas {
+        for d in deltas.iter().filter(|d| !self.untracked(d.config_base_id)) {
             *by_item.entry(d.config_base_id).or_insert(0) += d.qty;
         }
         let mut v: Vec<DropView> = by_item

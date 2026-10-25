@@ -21,6 +21,7 @@ fn catalogue() -> Vec<CatalogueItem> {
         icon: None,
         gear: true,
         base,
+        legendary: base.is_some(),
     };
     vec![gear(4647, "Harvest Spirit Ring", None), gear(113107, "Horn Ring", Some(4647))]
 }
@@ -107,6 +108,41 @@ fn legendary_check_identifies_the_dropped_base() {
     let e = engine(&data, &logs);
     let ring = ring_of(&serde_json::to_value(e.build_snapshot()).unwrap());
     assert_eq!(ring["name"], "Horn Ring", "{ring}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Неопознанная база (редкая шмотка) и «Флешбэк героя» вне учёта добычи: цена
+/// сообщества у них одна на все роллы. Ни строк добычи, ни ФЕ — даже после
+/// пробивки базы с фильтрами.
+#[test]
+fn rare_gear_and_hero_memory_are_not_loot() {
+    let root = std::env::temp_dir().join(format!("gorn-gear-untracked-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (data, logs) = (root.join("data"), root.join("logs"));
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&logs).unwrap();
+
+    let mut items = catalogue();
+    items.push(CatalogueItem { id: 71001, name: "Memory of Origin".into(), type_cn: Some("英雄追忆".into()), ..Default::default() });
+    let mut e = Engine::new(
+        &data,
+        &items,
+        EngineOptions { instance_prices: true, community_prices: false, language: NameLanguage::En, ..Default::default() },
+        Arc::new(|| 1_792_500_000_000),
+    )
+    .unwrap();
+    e.start(Some(&logs), None).map_err(|(_, m)| m).unwrap();
+    let mut lines = map_with_ring();
+    lines.insert(9, line("10.00.11", "ItemChange@ ProtoName=PickItem start"));
+    lines.insert(10, line("10.00.11", "ItemChange@ Add Id=71001_8851bf88-cdf6-11f1-bfac-000000000021 BagNum=1 in PageId=100 SlotId=4"));
+    lines.insert(11, line("10.00.11", "BagMgr@:Modfy BagItem PageId = 100 SlotId = 4 ConfigBaseId = 71001 Num = 1"));
+    lines.insert(12, line("10.00.11", "ItemChange@ ProtoName=PickItem end"));
+    lines.extend(legendary_check("10.02.00").into_iter().map(|l| l.replace("[113107]", "[4647]")));
+    e.consume(&lines);
+    let snap = serde_json::to_value(e.build_snapshot()).unwrap();
+    let run = &snap["recent"][0];
+    assert_eq!(run["drops"], serde_json::json!([]), "{run}");
+    assert_eq!(run["valueFe"].as_f64(), Some(0.0), "{run}");
     let _ = std::fs::remove_dir_all(&root);
 }
 
