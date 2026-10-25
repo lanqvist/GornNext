@@ -12,6 +12,8 @@ pub mod data;
 pub mod instruments;
 pub mod layout;
 pub mod levels;
+pub mod marks;
+pub mod pipeline;
 pub mod live;
 pub mod pixels;
 pub mod reading;
@@ -20,6 +22,7 @@ pub mod tanks;
 pub mod text;
 pub mod titles;
 pub mod track;
+pub mod unknown;
 pub mod window;
 
 pub use data::{scan_data, scan_data_ru, ScanData};

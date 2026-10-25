@@ -40,6 +40,8 @@ pub enum Problem {
         text: Option<String>,
     },
     UnknownName { name: String },
+    /// Не в эталоне: одна карта посередине руки — начальный инструмент без выбора или карта в полёте
+    OneCard,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

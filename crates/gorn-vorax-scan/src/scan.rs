@@ -104,6 +104,14 @@ pub fn scan_with(captured: &Img, data: &ScanData, pictures: bool, hand_dy: Optio
     let bare = |p: Problem| Reading { state: empty_state(), fields: Fields::new(), problems: vec![p], frame: frame.clone(), instrument_ranks: None, hand_ranks: None, icons_known: None, hand_pending: None, hand_size: None, ui: None, debug: None, hand_dy: None };
 
     let present = cards_present(img, &l);
+    // Не в эталоне: на русском клиенте 25.10 забег начинается с одной карты инструмента посередине («Выводковая
+    // камера», кнопки обновления нет). Карта ли это или середина анимации, решает pipeline (по подписи карты).
+    if present == 1 && crate::cards::only_middle(img, &l) {
+        let mut r = bare(Problem::OneCard);
+        r.hand_dy = (dy != 0.0).then_some(dy);
+        r.ui = (ui != 1.0).then_some(ui);
+        return r;
+    }
     if present == 1 || present == 2 {
         return bare(Problem::Animating);
     }

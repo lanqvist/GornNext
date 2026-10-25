@@ -45,6 +45,12 @@ fn has_card(img: &Img, c: &CardPos, k: f64) -> bool {
     edges as f64 / (p.width * p.height) as f64 > CARD_DETAIL
 }
 
+/// Не в эталоне: карта есть только на среднем месте руки.
+pub fn only_middle(img: &Img, l: &Layout) -> bool {
+    let at: Vec<bool> = l.cards.iter().map(|c| has_card(img, c, l.k)).collect();
+    at == [false, true, false]
+}
+
 /// How many of the three hand positions hold a card.
 pub fn cards_present(img: &Img, l: &Layout) -> usize {
     l.cards.iter().filter(|c| has_card(img, c, l.k)).count()
