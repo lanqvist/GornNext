@@ -27,7 +27,7 @@ use crate::labels::{hero_name, season_name, Lang};
 use crate::locate::find_log_directory;
 use crate::mapnames::{MapCatalogue, MapNames};
 use crate::parser::EventParser;
-use crate::patterns::{is_map_key_type, is_untracked_loot_type, patterns};
+use crate::patterns::{is_map_key_type, is_untracked_loot_type, patterns, UNTRACKED_LOOT_IDS};
 use crate::prices::{choose_price, community_reference, is_bound_name, price_trend, PriceSource, PriceStore, PriceTrend, OWN_PRICE_TTL_MS};
 use crate::retroscan::{retro_scan, run_cost, run_value, RetroScanProgress};
 use crate::segmenter::RunSegmenter;
@@ -419,7 +419,8 @@ struct ItemInfo {
     gear: bool,
     /// Вне учёта добычи: стоит ноль и не показывается в добыче. Нелегендарное
     /// снаряжение (из `gear.json`: цена сообщества — цена редких роллов)
-    /// и «Флешбэки героя». Выпадение базы хранится: опознанная легендарка
+    /// и «Флешбэки героя»; легендарки из `UNTRACKED_LOOT_IDS` — по номеру, и вне
+    /// справочника. Выпадение базы хранится: опознанная легендарка
     /// подменяет её (`gear::identify`) и уже в учёте.
     untracked: bool,
 }
@@ -686,7 +687,7 @@ impl Engine {
     }
 
     fn untracked(&self, id: ConfigBaseId) -> bool {
-        self.items.get(&id).is_some_and(|i| i.untracked)
+        UNTRACKED_LOOT_IDS.contains(&id) || self.items.get(&id).is_some_and(|i| i.untracked)
     }
 
     fn icon(&self, id: ConfigBaseId) -> Option<String> {
@@ -1481,7 +1482,7 @@ impl Engine {
             let mut matches: Vec<ConfigBaseId> = self
                 .items
                 .iter()
-                .filter(|(id, info)| **id != FE_ID && !info.untracked && format!("{}\n{}", info.name, info.name_ru.as_deref().unwrap_or("")).to_lowercase().contains(&needle))
+                .filter(|(id, info)| **id != FE_ID && !self.untracked(**id) && format!("{}\n{}", info.name, info.name_ru.as_deref().unwrap_or("")).to_lowercase().contains(&needle))
                 .map(|(id, _)| *id)
                 .collect();
             let rank = |id: ConfigBaseId| (if seen.contains_key(&id) { 2 } else { 0 }) + (if self.price_of(id).is_some() { 1 } else { 0 });

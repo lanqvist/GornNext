@@ -115,6 +115,12 @@ pub fn is_untracked_loot_type(type_cn: Option<&str>) -> bool {
     matches!(type_cn, Some("英雄追忆"))
 }
 
+/// Легендарки вне учёта добычи — цена тоже от ролла: «Уголок божественности»
+/// (1005; свои пробивки — от 5 до 1706 ФЕ) и «Родословная богов» (1010), с их
+/// базами 261005 и 261010 — так их пишет подбор. Конкуренты (TITrack, Fenix,
+/// Oracle) их не считают.
+pub const UNTRACKED_LOOT_IDS: [ConfigBaseId; 4] = [1005, 1010, 261005, 261010];
+
 /// Является ли предмет ключом от карты — знает справочник.
 pub type MapKeyLookup<'a> = &'a dyn Fn(ConfigBaseId) -> bool;
 

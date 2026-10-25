@@ -146,6 +146,52 @@ fn rare_gear_and_hero_memory_are_not_loot() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Настоящий справочник снаряжения знает базу каждой легендарки — без неё
+/// пробивка цены легендарки не опознаёт выпавшую базу.
+#[test]
+fn gear_catalogue_knows_legendary_bases() {
+    let gear = CatalogueItem::parse_list(include_str!("../data/gear.json")).unwrap();
+    let ring = gear.iter().find(|g| g.id == 113107).expect("Horn Ring");
+    assert!(ring.legendary && ring.base == Some(4647));
+    assert!(gear.iter().filter(|g| g.legendary).all(|g| g.base.is_some()));
+    assert!(gear.iter().filter(|g| !g.legendary).all(|g| g.base.is_none()));
+}
+
+/// «Уголок божественности» и «Родословная богов» вне учёта, как и их базы:
+/// пробивка 1005 не делает выпавшую базу 261005 добычей.
+#[test]
+fn corner_and_pedigree_are_not_loot() {
+    let root = std::env::temp_dir().join(format!("gorn-gear-corner-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (data, logs) = (root.join("data"), root.join("logs"));
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&logs).unwrap();
+
+    let items = vec![
+        CatalogueItem { id: 1005, name: "A Corner of Divinity".into(), legendary: true, base: Some(261005), ..Default::default() },
+        CatalogueItem { id: 4647, name: "Harvest Spirit Ring".into(), gear: true, ..Default::default() },
+    ];
+    let mut e = Engine::new(
+        &data,
+        &items,
+        EngineOptions { instance_prices: true, community_prices: false, language: NameLanguage::En, ..Default::default() },
+        Arc::new(|| 1_792_500_000_000),
+    )
+    .unwrap();
+    e.start(Some(&logs), None).map_err(|(_, m)| m).unwrap();
+    let lines: Vec<String> = map_with_ring()
+        .into_iter()
+        .chain(legendary_check("10.02.00"))
+        .map(|l| l.replace("4647", "261005").replace("[113107]", "[1005]"))
+        .collect();
+    e.consume(&lines);
+    let snap = serde_json::to_value(e.build_snapshot()).unwrap();
+    let run = &snap["recent"][0];
+    assert_eq!(run["drops"], serde_json::json!([]), "{run}");
+    assert_eq!(run["valueFe"].as_f64(), Some(0.0), "{run}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn hover_identifies_and_log_scan_repeats_it() {
     let mut lines = map_with_ring();
