@@ -258,6 +258,8 @@ pub enum Status {
 pub struct Totals {
     pub runs: usize,
     pub in_map_ms: i64,
+    /// Всё время сессии: карты, город и тюрьма, без перерывов дольше 5 минут.
+    pub session_ms: i64,
     pub fe_gained: i64,
     pub value_fe: f64,
     pub cost_fe: f64,
@@ -441,6 +443,7 @@ struct SessionAgg {
     prison_runs: usize,
     prison_fe: f64,
     in_map_ms: i64,
+    session_ms: i64,
     value_fe: f64,
     cost_fe: f64,
     fe_gained: i64,
@@ -538,6 +541,15 @@ pub struct Engine {
     instance_prices: HashMap<(i64, i64, ConfigBaseId), f64>,
     /// Легендарка → её база (справочник снаряжения).
     gear_bases: HashMap<ConfigBaseId, ConfigBaseId>,
+}
+
+/// Когда игра начала этот лог: метка первой строки со временем. Первые
+/// метки идут в самом начале — хватает 256 КБ.
+fn log_started_at(path: &Path) -> Option<i64> {
+    use std::io::Read;
+    let mut buf = vec![0u8; 256 * 1024];
+    let n = std::fs::File::open(path).ok()?.read(&mut buf).ok()?;
+    String::from_utf8_lossy(&buf[..n]).lines().find_map(crate::parser::parse_timestamp)
 }
 
 impl Engine {
@@ -737,8 +749,14 @@ impl Engine {
 
     fn boot(&mut self, log_dir: &Path, on_progress: Option<&mut dyn FnMut(&RetroScanProgress)>) -> Result<TailFrom, Box<dyn std::error::Error>> {
         self.session_started_at = self.storage.active_session_start()?;
-        self.previous_session = self.storage.previous_session()?;
-        self.sessions = self.storage.list_sessions()?.into_iter().map(|s| SessionBounds { started_at: s.started_at, ended_at: s.ended_at }).collect();
+        // Игру запустили после начала сессии — значит, это уже новая сессия.
+        // Перезапуск самого Горна (обновление) счёт не сбрасывает.
+        if let Some(t) = log_started_at(&log_dir.join("UE_game.log")) {
+            if t > self.session_started_at {
+                self.start_session_at(t);
+            }
+        }
+        self.load_sessions();
 
         // Сначала сохранённое: логи ротируются, база — единственный источник старой истории.
         let stored = self.storage.load_runs()?;
@@ -842,6 +860,10 @@ impl Engine {
         self.inventory = InventoryTracker::new();
         self.segmenter = RunSegmenter::new();
         self.current_player = None;
+        // Новый лог — игра запущена заново: новая сессия.
+        let now = self.now();
+        self.start_session_at(now);
+        self.load_sessions();
         self.rebuild();
     }
 
@@ -1251,9 +1273,19 @@ impl Engine {
 
     /// Новая сессия: счётчики с этого момента, история не трогается.
     pub fn reset_session(&mut self) {
-        if let Ok(t) = self.storage.reset_session(self.now()) {
+        let now = self.now();
+        self.start_session_at(now);
+        self.load_sessions();
+        self.rebuild();
+    }
+
+    fn start_session_at(&mut self, t: i64) {
+        if let Ok(t) = self.storage.reset_session(t) {
             self.session_started_at = t;
         }
+    }
+
+    fn load_sessions(&mut self) {
         self.previous_session = self.storage.previous_session().ok().flatten();
         self.sessions = self
             .storage
@@ -1262,7 +1294,6 @@ impl Engine {
             .into_iter()
             .map(|s| SessionBounds { started_at: s.started_at, ended_at: s.ended_at })
             .collect();
-        self.rebuild();
     }
 
     /// Поиск по всей истории под текущим фильтром: итоги — по всем совпадениям.
@@ -1638,6 +1669,8 @@ impl Engine {
         let s = &agg.session;
         let prison_fe = if open_prison { s.prison_fe + run_net(open_farming.unwrap(), &*pricing) } else { s.prison_fe };
         let in_map_ms = s.in_map_ms + open_elapsed;
+        // Время сессии идёт и в городе: открытый отрезок любой, не только карта.
+        let session_ms = s.session_ms + live_open.map(|r| session_time(r, self.session_started_at, Some(now))).unwrap_or(0);
         let value_fe = open_farming.map(|r| s.value_fe + run_value(r, &*pricing)).unwrap_or(s.value_fe);
         let cost_fe = open_farming.map(|r| s.cost_fe + run_cost(r, &*pricing)).unwrap_or(s.cost_fe);
         let fe_gained = open_farming.map(|r| s.fe_gained + run_fe(r)).unwrap_or(s.fe_gained);
@@ -1667,7 +1700,8 @@ impl Engine {
             recent: agg.recent.clone(),
             rate: agg.rate.clone(),
             fe_rate: agg.fe_rate.clone(),
-            live_rate: per_hour(value_fe - cost_fe - prison_fe, in_map_ms as f64),
+            // В час за сессию: весь её итог, с тюрьмой, ÷ всё её время.
+            live_rate: per_hour(value_fe - cost_fe, session_ms as f64),
             norm: agg.norm,
             jackpot_auto_fe: self.jackpot_auto_fe(),
             strategies: agg.strategies.clone(),
@@ -1706,6 +1740,7 @@ impl Engine {
             totals: Totals {
                 runs: s.rated_runs + open_rated.is_some() as usize,
                 in_map_ms,
+                session_ms,
                 fe_gained,
                 value_fe,
                 cost_fe,
@@ -1808,6 +1843,10 @@ impl Engine {
                 prison_runs: session_prison.len(),
                 prison_fe: session_prison.iter().fold(0.0, |a, r| a + run_net(r, pricing)),
                 in_map_ms: session_rated.iter().fold(0, |a, r| a + active_duration(r, IDLE_CAP_MS, None)),
+                session_ms: all_runs
+                    .iter()
+                    .filter(|r| run_end(r) >= self.session_started_at)
+                    .fold(0, |a, r| a + session_time(r, self.session_started_at, None)),
                 value_fe: session_farming.iter().fold(0.0, |a, r| a + run_value(r, pricing)),
                 cost_fe: session_farming.iter().fold(0.0, |a, r| a + run_cost(r, pricing)),
                 fe_gained: session_farming.iter().fold(0, |a, r| a + run_fe(r)),

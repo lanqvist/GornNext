@@ -327,20 +327,20 @@ const SessionTab = memo(function SessionTab({ snapshot }: { snapshot: Snapshot }
               <Fe value={net} signed />
             </b>
           </div>
-          <div title={tr('Все забеги сезона вместе: добыча за вычетом вложений ÷ время в картах', 'All runs of the season together: net loot ÷ time in maps')}>
-            <small>{tr('сезон, /ч', 'season, /h')}</small>
+          <div title={tr('Все забеги сезона вместе: добыча за вычетом вложений ÷ время в картах, без города', 'All runs of the season together: net loot ÷ time in maps, no town')}>
+            <small>{tr('сезон на картах, /ч', 'season in maps, /h')}</small>
             <b>{num(snapshot.rate.perHour)}</b>
           </div>
-          <div>
-            <small>{tr('на картах', 'in maps')}</small>
-            <b>{duration(snapshot.totals.inMapMs)}</b>
+          <div title={tr('Карты, город и тюрьма; перерывы дольше 5 минут не в счёт', 'Maps, town and prison; breaks longer than 5 minutes don’t count')}>
+            <small>{tr('время сессии', 'session time')}</small>
+            <b>{duration(snapshot.totals.sessionMs)}</b>
           </div>
         </div>
         {snapshot.prison.runs > 0 && (
           <p className="pn-muted">
             {tr('тюрьма', 'prison')}: <Fe value={snapshot.prison.netFe} signed /> {tr('за', 'in')}{' '}
             {pluralize(snapshot.prison.runs, VISIT)} —{' '}
-            {tr('в итоге сессии есть, в темпе нет', 'in the session total, not in the pace')}
+            {tr('в итоге и «в час» сессии есть, в темпе карт нет', 'in the session total and per hour, not in map pace')}
           </p>
         )}
         <h3>

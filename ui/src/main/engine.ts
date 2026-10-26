@@ -216,6 +216,8 @@ export interface Snapshot {
   totals: {
     runs: number;
     inMapMs: number;
+    /** Всё время сессии: карты, город и тюрьма, без перерывов дольше 5 минут. */
+    sessionMs: number;
     feGained: number;
     valueFe: number;
     costFe: number;
@@ -225,7 +227,8 @@ export interface Snapshot {
     listedPaperFe: number;
   };
   /**
-   * Темп за сессию, включая текущий забег.
+   * В час за сессию: весь её итог (с тюрьмой) ÷ всё её время (sessionMs),
+   * включая текущий забег.
    * Двигается сразу при подборе — иначе экран
    * выглядит замершим ровно в тот момент, когда что-то происходит.
    */

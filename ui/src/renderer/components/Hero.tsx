@@ -65,6 +65,10 @@ function RateSparkline({ snapshot }: { snapshot: Snapshot }) {
  * Ниже — то же «в час» за последние 20 забегов и за весь сезон.
  * Медианы здесь нет: она описывает «типичную карту», а не сколько
  * на деле приносит час фарма, — и расходилась с итогом сессии.
+ *
+ * Главная цифра делится на всё время сессии (город и тюрьма тоже время
+ * фарма), а темп последних забегов и сезона — только на время в картах:
+ * он про выгодность карт. Поэтому их и не сравниваем в процентах.
  */
 export function Hero({ snapshot }: { snapshot: Snapshot }) {
   const { rate, feRate, totals } = snapshot;
@@ -73,11 +77,6 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
   const unpricedCost = snapshot.missing.find((m) => m.isCost);
   const recentCount = Math.min(NORM_WINDOW, rate.sampleSize);
   const sessionNet = totals.valueFe - totals.costFe;
-  // Сравнение с сезоном — когда у сессии набралось время, иначе процент скачет.
-  const vsSeason =
-    totals.inMapMs >= 10 * 60_000 && rate.sampleSize > NORM_WINDOW && rate.perHour > 0
-      ? Math.round(((snapshot.liveRate - rate.perHour) / rate.perHour) * 100)
-      : null;
 
   return (
     <section className="hero">
@@ -85,8 +84,8 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
         <div className="hero-label">
           <Tip
             tip={tr(
-              'Вся добыча сессии по ценам (свои пробивки + база сообщества) минус вложения в карты, делённая на активное время в картах. Двигается при каждом подборе, между подборами медленно сползает — это идёт время, не поломка.',
-              'All loot this session valued at prices (your own price checks + community prices) minus map costs, divided by active time in maps. It moves with every pickup and slowly drifts down between pickups — that is time passing, not a bug.',
+              'Итог сессии (добыча по ценам минус вложения, вместе с тюрьмой), делённый на всё время сессии: карты, город и тюрьма. Перерывы дольше 5 минут не в счёт. Сессия начинается с запуском игры или кнопкой «Новая сессия».',
+              'The session total (loot at prices minus map costs, prison included) divided by the whole session time: maps, town and prison. Breaks longer than 5 minutes don’t count. A session starts when the game launches or with the “New session” button.',
             )}
           >
             {tr('В час за сессию, за вычетом вложений', 'Per hour this session, net of map costs')}
@@ -94,33 +93,23 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
         </div>
         <div className="hero-value">
           <Fe value={snapshot.liveRate} />
-          {vsSeason !== null && (
-            <span
-              className={`hero-vs ${vsSeason >= 0 ? 'up' : 'down'}`}
-              title={tr('Сессия к темпу сезона', 'This session vs the season pace')}
-            >
-              {vsSeason === 0
-                ? tr('на уровне сезона', 'on par with the season')
-                : `${vsSeason > 0 ? '↑' : '↓'} ${Math.abs(vsSeason)}% ${tr('к сезону', 'vs season')}`}
-            </span>
-          )}
         </div>
         <div className="hero-sub">
           <Tip
             tip={tr(
-              'Последние забеги вместе: их добыча за вычетом вложений ÷ их время. С этим темпом сравниваются карты.',
-              'The latest runs together: their loot net of costs ÷ their time. Maps are compared against this pace.',
+              'Только время на картах, без города: последние забеги вместе — их добыча за вычетом вложений ÷ их время. С этим темпом сравниваются карты.',
+              'Map time only, no town: the latest runs together — their loot net of costs ÷ their time. Maps are compared against this pace.',
             )}
           >
             <span>
-              {tr('последние', 'last')} {pluralize(recentCount, RUN)}: <Fe value={snapshot.norm} />{' '}
-              {tr('в час', 'per hour')}
+              {tr('на картах: последние', 'in maps: last')} {pluralize(recentCount, RUN)} —{' '}
+              <Fe value={snapshot.norm} /> {tr('в час', 'per hour')}
             </span>
           </Tip>
           <Tip
             tip={tr(
-              'Все забеги сезона вместе: добыча за вычетом вложений ÷ время в картах.',
-              'All runs of the season together: loot net of costs ÷ time in maps.',
+              'Все забеги сезона вместе: добыча за вычетом вложений ÷ время в картах, без города.',
+              'All runs of the season together: loot net of costs ÷ time in maps, no town.',
             )}
           >
             <span className="muted">
@@ -152,12 +141,12 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
             value={<Fe value={feRate.perHour} />}
           />
           <Tile
-            label={tr('На картах', 'In maps')}
+            label={tr('Время сессии', 'Session time')}
             tip={tr(
-              'Активное время за сессию: паузы дольше трёх минут не идут в зачёт.',
-              "Active time this session: pauses longer than three minutes don't count.",
+              `Карты, город и тюрьма; перерывы дольше 5 минут не в счёт. Из них на картах — ${duration(totals.inMapMs)}.`,
+              `Maps, town and prison; breaks longer than 5 minutes don't count. Of that, in maps — ${duration(totals.inMapMs)}.`,
             )}
-            value={duration(totals.inMapMs)}
+            value={duration(totals.sessionMs)}
           />
           <Tile
             label={tr('Вложено', 'Invested')}
@@ -174,8 +163,8 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
         {snapshot.prison.runs > 0 && (
           <Tip
             tip={tr(
-              'Тюрьма Талоса входит в итог сессии, но не в темп «в час», рекорды, карты и стратегии: игра на доске идёт вне карт, и её время лог не видит.',
-              'Tartarus Prison counts toward the session total but not the per-hour pace, records, maps or strategies: the board is played outside maps, and the log cannot see that time.',
+              'Тюрьма Талоса входит в итог и «в час» сессии, но не в темп карт, рекорды, карты и стратегии: игра на доске идёт вне карт.',
+              'Tartarus Prison counts toward the session total and per hour, but not map pace, records, maps or strategies: the board is played outside maps.',
             )}
           >
             <span className="hero-prison">

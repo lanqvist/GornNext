@@ -74,6 +74,22 @@ fn drop_nested(sorted: Vec<Run>) -> Vec<Run> {
 /// Пауза дольше этого в активное время не идёт.
 pub const IDLE_CAP_MS: i64 = 180_000;
 
+/// Перерыв дольше этого во время сессии не идёт: игрок отошёл от игры.
+pub const SESSION_IDLE_MS: i64 = 300_000;
+
+/// Сколько отрезок (карта, город, тюрьма) добавляет ко времени сессии,
+/// начатой в `from`. Карта — без простоев; в городе событий в логе почти
+/// нет, поэтому стоянка там считается целиком, но не дольше перерыва.
+pub fn session_time(run: &Run, from: i64, until: Option<i64>) -> i64 {
+    if run.is_hub {
+        let start = run.started_at.max(from);
+        let end = run.ended_at.or(until).unwrap_or(start);
+        (end - start).clamp(0, SESSION_IDLE_MS)
+    } else {
+        active_duration(run, SESSION_IDLE_MS, until)
+    }
+}
+
 /// Сколько времени карта была «живой»: промежутки между событиями обрезаются порогом.
 pub fn active_duration(run: &Run, idle_cap: i64, until: Option<i64>) -> i64 {
     let end = run.ended_at.or(until).unwrap_or(run.started_at);
