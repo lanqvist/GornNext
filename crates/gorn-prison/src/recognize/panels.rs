@@ -13,6 +13,9 @@ const BLANK_CONTRAST: f64 = 4.5;
 const OBJECTIVE_MIN: f64 = 0.8;
 /// Занятое место хранилища — от 0,58 (и в просмотре тюрьмы); фон — до 0,3.
 const FILLED_MIN: f64 = 0.4;
+/// Средняя яркость места (0–255), при которой это вспышка влетающей призмы:
+/// почти белое пятно (240–254), портрет — 80–120, пустое — около 20.
+const FLASH_MIN: f64 = 200.0;
 /// Заголовок «Призматический узник» на обычной доске — 0,8 и выше.
 const HEADER_MIN: f64 = 0.6;
 
@@ -52,14 +55,25 @@ pub fn read_chromatic(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> i32
         head = jmax(head, dot(&head_buf, h));
     }
     let mut filled = [false; 10];
+    let mut flash = None;
     let mut buf = [0.0f32; 12 * 16 * 3];
     for (i, f) in filled.iter_mut().enumerate() {
         sample_into(frame, geo, chromatic_slot(i), 12, 16, 3, &mut buf);
+        let bright = buf.iter().map(|&x| x as f64).sum::<f64>() / buf.len() as f64;
+        if bright >= FLASH_MIN {
+            flash = Some(i);
+        }
         normalize(&mut buf);
         let s = scores_by_label(&buf, &t.chromatic);
         let fill = get(&s, "filled").unwrap_or(-2.0);
         // Без порога фон за скрытой панелью (21:9) иногда чуть ближе к «занято».
         *f = fill >= FILLED_MIN && fill > get(&s, "empty").unwrap_or(-2.0);
+    }
+    // Призмы влетают в хранилище по порядку, вспышка — последние из них; её
+    // свечение задевает следующие пустые места, и они читаются занятыми
+    // [кадры 26.10 21:48:06 и 23:51:14, 21:9: 4 вместо 2 и 8 вместо 6].
+    if let Some(last) = flash {
+        return last as i32 + 1;
     }
     // Хранилище заполняется по порядку: пустое место, за которым два занятых подряд, — занято.
     for i in (0..=7).rev() {

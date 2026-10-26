@@ -372,7 +372,11 @@ fn screen_name(v: &ScreenView) -> String {
 
 /// Прогнать кадры забега через свой путь подсказок.
 pub fn replay(dir: &Path, data: &Path, files: &[String], budget: f64, rounds: Option<u64>) -> Result<(Vec<FrameRec>, Vec<Value>), String> {
+    // Как живой советник (app/src/assist.rs): цепочка подарков включена — без
+    // неё остаток подарков 1, и совет по первому подарку из нескольких другой.
     let mut adv = OwnAdvisor::new();
+    adv.chain_gifts = true;
+    adv.init(None, None);
     if let Some(r) = rounds {
         // Без срока, до остановки или r раундов — детерминированно (для сверки).
         adv.stop = gorn_prison::solver::StopRule { max_rounds: r, ..gorn_prison::solver::STOP_DEFAULTS };
@@ -404,12 +408,14 @@ pub fn replay(dir: &Path, data: &Path, files: &[String], budget: f64, rounds: Op
             geo = g.or(geo);
             screen = screen_name(&v);
             match &v {
-                ScreenView::Board(_) => {
+                ScreenView::Board(b) => {
                     // «Выберите цель» на кадре с началом дня — вчерашняя надпись после «Выслеживания»: хода нет.
                     let day_start = lines
                         .iter()
                         .any(|l| l.match_indices("check cur=").any(|(i, _)| l[i + 10..].bytes().next().is_some_and(|c| c.is_ascii_digit())));
-                    actionable = screen != "board" && !(screen == "ratway" && day_start);
+                    // Экран цепочки без подсвеченных целей проходит сам — хода нет.
+                    let no_targets = b.chain.as_ref().is_some_and(|t| t.is_empty());
+                    actionable = screen != "board" && !(screen == "ratway" && day_start) && !no_targets;
                 }
                 ScreenView::Pick(p) => {
                     actionable = true;

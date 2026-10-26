@@ -526,6 +526,19 @@ impl Assist {
                 // Цепочка подарков (этап 7): остаток выборов по призмам.
                 adv.chain_gifts = true;
                 adv.init(state.as_ref(), near);
+                // Карта выбора, не узнанная по картинке, — по названию (OCR Windows,
+                // как у Vorax: WinRT в этом потоке).
+                unsafe {
+                    let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
+                }
+                if let Ok(ocr) = crate::ocr::Ocr::new() {
+                    adv.card_text = Some(Box::new(move |f: &Frame, b| {
+                        let img = crate::ocr::light_text(f.data, f.width, f.height, b);
+                        let text = ocr.read(&img).unwrap_or_default();
+                        crate::log(&format!("[тюрьма] карта по названию: «{}»", text.replace('\n', " ")));
+                        text
+                    }));
+                }
                 let threads = std::thread::available_parallelism()
                     .map(|n| n.get())
                     .unwrap_or(4)
@@ -685,4 +698,34 @@ fn below_normal() {
     unsafe {
         let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
     }
+}
+
+/// `gorn --prison-cards отчёт.txt кадр.png…`: названия всех трёх карт выбора
+/// орудий текстом (OCR) и орудие по ним — проверка запасного пути без игры.
+pub fn read_cards(out: &str, paths: &[String]) {
+    unsafe {
+        let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
+    }
+    let Ok(ocr) = crate::ocr::Ocr::new() else {
+        let _ = std::fs::write(out, "OCR нет\n");
+        return;
+    };
+    let mut report = format!("OCR: {}\n", ocr.language);
+    for path in paths {
+        let Some(img) = crate::vorax::decode_png(std::path::Path::new(path)) else {
+            report += &format!("{path}: не читается\n");
+            continue;
+        };
+        let frame = Frame { width: img.width, height: img.height, data: &img.data };
+        let geo = gorn_prison::recognize::default_geometry(&frame);
+        report += &format!("{path}\n");
+        for card in 0..3 {
+            for (k, b) in gorn_prison::recognize::pick::title_boxes(&geo, card).into_iter().enumerate() {
+                let text = ocr.read(&crate::ocr::light_text(&img.data, img.width, img.height, b)).unwrap_or_default();
+                let id = gorn_prison::model::tool_by_title(&text).map(|t| gorn_prison::model::TOOL_IDS[t as usize]);
+                report += &format!("  [{card}{}] {id:?} «{}»\n", if k == 1 { " под курсором" } else { "" }, text.replace('\n', " / "));
+            }
+        }
+    }
+    let _ = std::fs::write(out, report);
 }

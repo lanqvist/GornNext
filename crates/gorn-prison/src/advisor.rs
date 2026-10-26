@@ -20,10 +20,13 @@ use crate::actions::{describe, A_TOOL};
 use crate::adapter::{Cause, Position, PrisonAdapter, Step};
 use crate::hint::{heat, hint, HeatSpot, Hint, HintContext};
 use crate::policy::{default_weights, Instant};
+use crate::model::{tool_by_title, TOOL_IDS};
+use crate::recognize::pick::title_boxes;
+use crate::recognize::sample::Box4;
 use crate::recognize::{default_geometry, read, reroll_box, treasure_boxes, Frame, Geometry, ReadOptions};
 use crate::solver::{state_key, SolveCache, SolveOptions, SolveStep, StopRule, STOP_DEFAULTS};
 use crate::state::{State, OFFER_KIND, OFFER_TOOL, PHASE, P_PICK};
-use crate::view::ScreenView;
+use crate::view::{PickView, ScreenView};
 use crate::DEFAULT_PARAMS;
 
 /// Столько решатель ищет ответ до первого показа (мс).
@@ -202,6 +205,11 @@ pub struct OwnAdvisor {
     pub facts: Option<Box<dyn FnMut(Value) + Send>>,
     /// Цепочка подарков в адаптере (этап 7); у эталона нет — для сверки выключено.
     pub chain_gifts: bool,
+    /// Что распознано на последнем кадре (для `gorn-cli exam`).
+    pub last_view: Option<ScreenView>,
+    /// Текст в прямоугольнике кадра (OCR приложения): по нему читается название
+    /// карты выбора, чью картинку эталоны не узнали. None — без запасного пути.
+    pub card_text: Option<Box<dyn FnMut(&Frame, Box4) -> String + Send>>,
 }
 
 impl Default for OwnAdvisor {
@@ -232,6 +240,8 @@ impl OwnAdvisor {
             latest: None,
             facts: None,
             chain_gifts: false,
+            last_view: None,
+            card_text: None,
         }
     }
 
@@ -261,6 +271,7 @@ impl OwnAdvisor {
     pub fn handle(&mut self, msg: &Shot, frame: Option<&Frame>) {
         self.last_options.clear();
         self.last_heat.clear();
+        self.last_view = None;
         // Начало забега по логу — сброс памяти, даже если карты выбора не читаются.
         if msg.kind == ShotKind::Instruments && msg.fresh {
             self.adapter.start_run();
@@ -360,7 +371,10 @@ impl OwnAdvisor {
             board_view = b;
             ctx_board = Some(&board_view);
         } else if matches!(seen, Some(ScreenView::Pick(_))) && kind != ShotKind::Board {
-            let Some(ScreenView::Pick(p)) = seen else { unreachable!() };
+            let Some(ScreenView::Pick(mut p)) = seen else { unreachable!() };
+            if let Some(f) = frame {
+                self.cards_by_text(&mut p, f);
+            }
             // Неузнанная карта не глушит совет по двум остальным и по «Обновить».
             let known = p.cards.iter().filter(|c| c.is_some()).count();
             if known < 2 {
@@ -428,6 +442,28 @@ impl OwnAdvisor {
         }
     }
 
+    /// Карты выбора, не узнанные по картинке, — по названию текстом (OCR):
+    /// эталоны сняты не на всех разрешениях [26.10, 21:9: «Намордник», «Корона»,
+    /// «Ящик» не узнавались, совет без них хуже до 2,2 призм.].
+    fn cards_by_text(&mut self, p: &mut PickView, frame: &Frame) {
+        let Some(read_text) = self.card_text.as_mut() else { return };
+        let geo = match self.geo {
+            Some(g) if g.width == frame.width && g.height == frame.height => g,
+            _ => default_geometry(frame),
+        };
+        for (i, card) in p.cards.iter_mut().enumerate() {
+            if card.is_some() {
+                continue;
+            }
+            for b in title_boxes(&geo, i) {
+                if let Some(t) = tool_by_title(&read_text(frame, b)) {
+                    *card = Some(TOOL_IDS[t as usize].to_string());
+                    break;
+                }
+            }
+        }
+    }
+
     fn read(&mut self, frame: &Frame, expect_board: bool) -> ScreenView {
         let recalibrate = expect_board || self.geo_misses >= GEO_MISSES;
         let (view, g) = read(frame, self.geo.as_ref(), ReadOptions { recalibrate });
@@ -452,6 +488,7 @@ impl OwnAdvisor {
                 }
             }
         }
+        self.last_view = Some(view.clone());
         view
     }
 

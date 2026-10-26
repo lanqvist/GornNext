@@ -75,6 +75,60 @@ pub fn tool_index(id: &str) -> Option<u32> {
     TOOL_IDS.iter().position(|&t| t == id).map(|i| i as u32)
 }
 
+/// Строчные буквы и цифры через один пробел, «ё» как «е»: название с карты
+/// (OCR) и из TOOL_NAMES сравниваются в одном виде.
+fn plain_title(s: &str) -> Vec<char> {
+    let mut out: Vec<char> = vec![];
+    for ch in s.chars().flat_map(char::to_lowercase) {
+        let ch = if ch == 'ё' { 'е' } else { ch };
+        if ch.is_alphanumeric() {
+            out.push(ch);
+        } else if out.last().is_some_and(|&c| c != ' ') {
+            out.push(' ');
+        }
+    }
+    while out.last() == Some(&' ') {
+        out.pop();
+    }
+    out
+}
+
+fn edit_distance(a: &[char], b: &[char]) -> usize {
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, &x) in a.iter().enumerate() {
+        let mut cur = vec![i + 1; b.len() + 1];
+        for (j, &y) in b.iter().enumerate() {
+            cur[j + 1] = (prev[j] + usize::from(x != y)).min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
+/// Орудие по названию с карты выбора (текст OCR). Длинные названия клиент
+/// обрезает многоточием («Пыточный намордник бешеного...»), поэтому название
+/// сравнивается по началу той же длины; ошибки распознавания — до четверти
+/// букв. Лучшее должно заметно опережать второе, иначе None.
+pub fn tool_by_title(text: &str) -> Option<u32> {
+    let t = plain_title(text);
+    if t.len() < 6 {
+        return None;
+    }
+    let mut scored: Vec<(f64, u32)> = TOOL_NAMES
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let n = plain_title(name);
+            let k = t.len().min(n.len());
+            let d = edit_distance(&t[..k], &n[..k]) + t.len().saturating_sub(n.len());
+            (1.0 - d as f64 / t.len() as f64, i as u32)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let (best, id) = scored[0];
+    (best >= 0.75 && best - scored[1].0 >= 0.15).then_some(id)
+}
+
 // ── подарки сокровищницы (§9) ───────────────────────────────────────────────
 
 pub const GIFT_IDS: [&str; 4] = ["ring", "horn", "wine", "brand"];
@@ -306,6 +360,9 @@ pub struct Params {
     /// «Трёхглавое кольцо» открывает с «Крюком отбора» (не ниже Необычной);
     /// иначе — по шансам двери без Крюка (правило с 24.10).
     pub ring_hook: bool,
+    /// «Рассечённый саркофаг»: Высших и Низших считают относительно нового
+    /// узника (до 27.10); иначе — относительно заменяемого, до замены.
+    pub maiden_new_tier: bool,
 }
 
 pub const DEFAULT_PARAMS: Params = Params {
@@ -397,4 +454,29 @@ pub const DEFAULT_PARAMS: Params = Params {
     cage_same_tier: false,
     revenge_door_tier: false,
     ring_hook: false,
+    // «Саркофаг» — относительно заменяемого узника [журнал фактов 25–26.10:
+    // 19 замен с Саркофагом — прежний узник объясняет все, новый ошибается в 3].
+    maiden_new_tier: false,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Названия с карт выбора 26.10 (21:9), как их обрезает клиент, и ошибки OCR.
+    #[test]
+    fn tool_by_title_reads_card_names() {
+        let id = |t: &str| tool_by_title(t).map(|i| TOOL_IDS[i as usize]);
+        assert_eq!(id("Пыточный намордник бешеного..."), Some("muzzle"));
+        assert_eq!(id("Пыточный намордник\nбешеного..."), Some("muzzle"));
+        assert_eq!(id("Кишащий железный ящик: Огро..."), Some("ironbox"));
+        assert_eq!(id("Железная корона короля тюрьм..."), Some("crown"));
+        assert_eq!(id("Рассеченный саркофаг"), Some("maiden"));
+        assert_eq!(id("Пыточныи наморднпк бешеного"), Some("muzzle"));
+        assert_eq!(id("Висельная петля"), Some("rope"));
+        // Две «Гильотины» — по началу не различить.
+        assert_eq!(id("Гильотина"), None);
+        assert_eq!(id("Условие срабатывания"), None);
+        assert_eq!(id(""), None);
+    }
+}

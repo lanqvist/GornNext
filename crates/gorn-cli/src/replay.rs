@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use crate::frames::decode_png;
 
 /// Последняя подсказка из сохранённого JSON кадра.
-fn saved_last_hint(hints: &Value) -> String {
+pub fn saved_last_hint(hints: &Value) -> String {
     let mut text = String::new();
     for h in hints.as_array().into_iter().flatten() {
         if h["type"] == "hint" {
@@ -196,7 +196,10 @@ fn q(xs: &[f64], p: f64) -> f64 {
 
 /// `gorn-cli replay`: отчёт, как prison-replay.ts.
 pub fn report(dir: &Path, from: &str, to: &str, budget: f64, rounds: Option<u64>, diffs: Option<&str>, json_out: bool) -> Result<(), String> {
+    // Цепочка подарков — как у живого советника (app/src/assist.rs).
     let mut adv = OwnAdvisor::new();
+    adv.chain_gifts = true;
+    adv.init(None, None);
     let (stop, quick) = match rounds {
         Some(r) => (StopRule { max_rounds: r, ..STOP_DEFAULTS }, f64::INFINITY),
         None => (STOP_DEFAULTS, gorn_prison::advisor::QUICK_MS),

@@ -18,7 +18,7 @@ use crate::actions::{
 };
 use crate::model::{start_event, tool, Params, CELLS, LEGENDARY, LION, MAMMOTH, OFFICE, RAT, WOLF};
 use crate::rng::Rng;
-use crate::rules::{hunt_targets, office_rounds, targets, FIRST_FOOD, SECOND_FOOD};
+use crate::rules::{hunt_targets, maiden_even, office_rounds, targets, FIRST_FOOD, SECOND_FOOD};
 use crate::state::*;
 
 use super::weights::*;
@@ -551,6 +551,17 @@ impl Ctx<'_> {
             let floor = (t + 1).max(if self.has(tool::ROPE) { 2 } else { 0 });
             v = self.rise_v(t, floor - t) - p.scapegoat_removes as f64 * avg_other;
             p_up = 1.0;
+        } else if c >= 0 && self.has(tool::MAIDEN) && !p.maiden_new_tier && maiden_even(self.s, c, t) {
+            // «Рассечённый саркофаг»: Высших и Низших относительно заменяемого
+            // поровну — новому ещё +3 (`rules::swap`).
+            v = 0.0;
+            for uu in 0..6i32 {
+                let q = k.p_rep[u(uu)];
+                v += q * self.rise_v(uu, p.maiden_bonus);
+                if uu + p.maiden_bonus > t {
+                    p_up += q;
+                }
+            }
         } else {
             v = 0.0;
             let stake = if self.has(tool::STAKE) && t < LEGENDARY { p.stake_chance } else { 0.0 };

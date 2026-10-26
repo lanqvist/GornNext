@@ -562,6 +562,10 @@ fn main() {
         vorax::read_files(args.get(2).map(String::as_str).unwrap_or("vorax-read.txt"), &args[3.min(args.len())..]);
         return;
     }
+    if args.get(1).map(String::as_str) == Some("--prison-cards") {
+        assist::read_cards(args.get(2).map(String::as_str).unwrap_or("prison-cards.txt"), &args[3.min(args.len())..]);
+        return;
+    }
     if args.get(1).map(String::as_str) == Some("--test-capture") {
         test_capture(args.get(2).map(String::as_str).unwrap_or("capture.png"));
         return;

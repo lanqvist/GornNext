@@ -578,7 +578,7 @@ pub fn read_files(out: &str, paths: &[String]) {
     let _ = std::fs::write(out, report);
 }
 
-fn decode_png(path: &Path) -> Option<Img> {
+pub(crate) fn decode_png(path: &Path) -> Option<Img> {
     let mut dec = png::Decoder::new(std::fs::File::open(path).ok()?);
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut r = dec.read_info().ok()?;

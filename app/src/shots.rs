@@ -119,14 +119,16 @@ pub fn write_png(path: &Path, img: &Image) -> Result<(), String> {
 // ── очистка ─────────────────────────────────────────────────────────────────
 
 const HOUR: Duration = Duration::from_secs(3600);
-/// Картинка кадра с подсказкой живёт 2 суток (спорные переходы журнала фактов
-/// проверяются по ней на следующий день — этап 8), сбоев и ручных — 7 дней,
-/// описания — 30 дней.
-const HINT_PNG: Duration = Duration::from_secs(48 * 3600);
-const MISS_PNG: Duration = Duration::from_secs(7 * 24 * 3600);
+/// Картинка кадра с подсказкой живёт 14 суток, сбоев и ручных — 30 дней,
+/// описания — 30 дней: по кадрам `gorn-cli exam` и `audit` проверяют весь путь
+/// подсказок и пополняют разметку (при 2 сутках и 2 ГБ от дня 26.10 остались
+/// 5 забегов из 10).
+const HINT_PNG: Duration = Duration::from_secs(14 * 24 * 3600);
+const MISS_PNG: Duration = Duration::from_secs(30 * 24 * 3600);
 const JSON_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
-/// Сверх потолка удаляются самые старые картинки (~1100 кадров, 10–12 забегов).
-const MAX_BYTES: u64 = 2 << 30;
+/// Сверх потолка удаляются самые старые картинки (21:9 — ~5,5 МБ кадр:
+/// ~3 700 кадров, 40–50 забегов).
+const MAX_BYTES: u64 = 20 << 30;
 
 #[derive(PartialEq, Eq)]
 enum Outcome {

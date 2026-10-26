@@ -11,6 +11,8 @@ mod audit;
 mod bench;
 mod dbcheck;
 mod enginecheck;
+mod exam;
+mod labels;
 mod facts;
 mod fit;
 mod learn;
@@ -63,11 +65,20 @@ gorn-cli tune --report [--runs 20000] [--threads T=0]
 gorn-cli replay ПАПКА [--budget 1000] [--from ЧЧММСС] [--to ЧЧММСС] [--rounds R] [--diffs файл.md] [--json]
     свой путь подсказок на сохранённых кадрах против прежнего, как prison-replay.ts;
     --rounds — решатель без срока (детерминированно), --json — строка на кадр
-gorn-cli protos ПАПКА|PNG [--from ЧЧММСС] [--to ЧЧММСС] [--slot N=0 | --cell N | --cells | --mark N] [--label ид]
+gorn-cli protos ПАПКА|PNG [--from ЧЧММСС] [--to ЧЧММСС] [--slot N=0 | --cell N | --cells | --mark N | --pick N | --chromatic N] [--label ид]
     эталоны с кадров доски: места панели орудий (узнанное, сходство, контраст), портрет
     камеры N (класс, сходство, редкость) или все портреты; --label — ещё и эталон строкой
     JSON: место --slot — для screens.json (tools), --cell — для cells.json (beasts);
-    --mark — значок внизу портретов: сходство с «Добычей» (п) и «Бивнем» (б), эталон — камеры N
+    --mark — значок внизу портретов: сходство с «Добычей» (п) и «Бивнем» (б), эталон — камеры N;
+    --pick — карты выбора орудий (кадры не доски): итог=картинка+название, эталоны — карты N (0–2);
+    --chromatic — места хранилища: сходство с «занято» (з) и «пусто» (п), эталон — места N (0–9)
+gorn-cli exam ПАПКА[,ПАПКА…] [--from ЧЧММСС] [--to ЧЧММСС] [--rounds R=300] [--labels ФАЙЛ] [--out ПАПКА=exam]
+    экзамен советника на кадрах: весь путь игрока (распознавание → память → совет) и проверки —
+    разметка (labels/exam.json в папке данных), день против лога, память против экрана, мигание
+    распознавания без нажатий, совет не про экран, потерянное орудие; exam.jsonl и exam.md в --out
+gorn-cli exam --data
+    распознавание против всей ручной разметки папки данных (labels/*.json): доски ru и ru4k, карты
+    выбора, панели, цифры, экраны, кадры Горна 1920×1080 и Горна Next (exam.json) — счёт по полям
 gorn-cli audit [--new] [--days 2] [--budget 600] [--quiet-min 10] [--run ЧЧММСС] [--shots ПАПКА] [--out ПАПКА] [--no-keep]
     аудит забегов по кадрам Горна, как prison-audit.ts: отчёты в gorn-prison-data/audits
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
@@ -93,7 +104,7 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
             i += 1;
             continue;
         };
-        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain" | "cells");
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain" | "cells" | "data");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -286,6 +297,8 @@ fn main() -> ExitCode {
                     Some(_) => protos::Target::Cell(num(&o, "cell", 0)? as usize),
                     None if o.contains_key("mark") => protos::Target::Mark(num(&o, "mark", 0)? as usize),
                     None if o.contains_key("cells") => protos::Target::Cells,
+                    None if o.contains_key("pick") => protos::Target::Pick(num(&o, "pick", 0)? as usize),
+                    None if o.contains_key("chromatic") => protos::Target::Chromatic(num(&o, "chromatic", 0)? as usize),
                     None => protos::Target::Slot(num(&o, "slot", 0)? as usize),
                 };
                 protos::report(
@@ -294,6 +307,44 @@ fn main() -> ExitCode {
                     o.get("to").map(String::as_str).unwrap_or("999999"),
                     target,
                     o.get("label").map(String::as_str),
+                )?;
+                Ok(true)
+            }
+            "exam" => {
+                if o.contains_key("data") {
+                    let mut bad = 0;
+                    for (name, sc) in labels::run_all()? {
+                        if sc.fields.is_empty() {
+                            continue;
+                        }
+                        println!("{name}
+{}", sc.table());
+                        for e in sc.errors.iter().take(40) {
+                            println!("    ✗ {e}");
+                        }
+                        if sc.errors.len() > 40 {
+                            println!("    … ещё {}", sc.errors.len() - 40);
+                        }
+                        bad += sc.errors.len();
+                    }
+                    println!("ошибок распознавания по разметке: {bad}");
+                    return Ok(bad == 0);
+                }
+                let dirs: Vec<std::path::PathBuf> = match o.get("_") {
+                    Some(d) => d.split(',').map(std::path::PathBuf::from).collect(),
+                    None => return Err("exam: папка кадров тюрьмы (день Горна), можно несколько через запятую; --data — разметка".into()),
+                };
+                let labels = o
+                    .get("labels")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| frames::data_dir().join("labels").join("exam.json"));
+                exam::run(
+                    &dirs,
+                    o.get("from").map(String::as_str).unwrap_or("000000"),
+                    o.get("to").map(String::as_str).unwrap_or("999999"),
+                    num(&o, "rounds", 300)? as u64,
+                    &labels,
+                    std::path::Path::new(o.get("out").map(String::as_str).unwrap_or("exam")),
                 )?;
                 Ok(true)
             }

@@ -1185,6 +1185,10 @@ pub fn swap(s: &mut State, r: &mut Rng, p: &Params) {
         return;
     }
     let tusk = s.m[FLAGS + cu] & F_TUSK != 0;
+    // «Рассечённый саркофаг»: «Высших и Низших относительно этого узника поровну» —
+    // это узник, которого меняют, и счёт до замены [журнал фактов 25–26.10: 19 замен
+    // с Саркофагом; по новому узнику 3 из них дали бы +3, а в игре его не было].
+    let maiden = s.has_tool(tool::MAIDEN) && !p.maiden_new_tier && maiden_even(s, c, old_tier);
     forget(s, c);
 
     // Петля: Обычные и Магические больше не появляются. Крюк замену не трогает.
@@ -1216,22 +1220,9 @@ pub fn swap(s: &mut State, r: &mut Rng, p: &Params) {
     s.m[TIER + cu] = tier;
     settle_tier(s, r, p, c);
 
-    if s.has_tool(tool::MAIDEN) && s.m[TIER + cu] >= 0 {
-        let mut above = 0;
-        let mut below = 0;
-        for t in 1..CELLS {
-            if t == cu || s.m[TIER + t] < 0 {
-                continue;
-            }
-            if s.m[TIER + t] > tier {
-                above += 1;
-            } else if s.m[TIER + t] < tier {
-                below += 1;
-            }
-        }
-        if above == below {
-            raise(s, r, p, c, p.maiden_bonus);
-        }
+    let maiden = maiden || (s.has_tool(tool::MAIDEN) && p.maiden_new_tier && maiden_even(s, c, tier));
+    if maiden && s.m[TIER + cu] >= 0 {
+        raise(s, r, p, c, p.maiden_bonus);
     }
     if s.has_tool(tool::AXE) && tier > old_tier {
         for _ in 0..p.axe_opens {
@@ -1244,6 +1235,24 @@ pub fn swap(s: &mut State, r: &mut Rng, p: &Params) {
     if tusk && s.has_tool(tool::TONGS) {
         raise_random(s, r, p, p.tongs_targets, 1);
     }
+}
+
+/// «Рассечённый саркофаг»: узников выше редкости t столько же, сколько ниже
+/// (не считая камеры c).
+pub fn maiden_even(s: &State, c: i32, t: i32) -> bool {
+    let mut above = 0;
+    let mut below = 0;
+    for x in 1..CELLS {
+        if x == u(c) || s.m[TIER + x] < 0 {
+            continue;
+        }
+        if s.m[TIER + x] > t {
+            above += 1;
+        } else if s.m[TIER + x] < t {
+            below += 1;
+        }
+    }
+    above == below
 }
 
 /// Весы тюремщика: показать лучшего узника за запертыми дверями.
@@ -1611,5 +1620,47 @@ mod tests {
         }
         assert!(commons[0] > 100, "без Крюка Обычных {}", commons[0]);
         assert_eq!(commons[1], 0);
+    }
+
+    /// «Рассечённый саркофаг» — по заменяемому узнику [журнал фактов 26.10
+    /// 23:54:56: волк 2, выше 5, ниже 3 — новый лев 3 (выше 3, ниже 3) без +3].
+    #[test]
+    fn maiden_counts_replaced_inmate() {
+        // Петля: новый — от Редкой; выше / ниже прежнего (2) — 5 / 3, нового (3) — 3 / 3.
+        let tiers = [(2, 1), (3, 1), (4, 4), (5, 3), (7, 3), (9, 0), (10, 4), (12, 3), (14, 4)];
+        for new_rule in [false, true] {
+            let p = Params { maiden_new_tier: new_rule, ..DEFAULT_PARAMS };
+            let (mut prisms, mut threes) = (0, 0);
+            for seed in 0..400 {
+                let mut s = State::new();
+                let mut r = Rng::new(seed);
+                new_run(&mut s, &mut r, &p, RunSetup { start: 0, objective: -1, tools: (1 << tool::MAIDEN) | (1 << tool::ROPE), start_pick: false });
+                for c in 1..CELLS {
+                    s.m[LOCK + c] = 1;
+                    s.m[TIER + c] = -1;
+                    s.m[BEAST + c] = -1;
+                }
+                for &(c, t) in tiers.iter().chain([(13, 2)].iter()) {
+                    s.m[LOCK + c] = 0;
+                    s.m[TIER + c] = t;
+                    s.m[BEAST + c] = 2;
+                }
+                s.m[WARDEN] = 13;
+                let before = s.m[STORAGE];
+                swap(&mut s, &mut r, &p);
+                if s.m[STORAGE] > before {
+                    prisms += 1;
+                } else if s.m[TIER + 13] == 3 {
+                    threes += 1;
+                }
+            }
+            if new_rule {
+                // По новому узнику тройка всегда получает +3 и уходит в хранилище.
+                assert_eq!(threes, 0);
+                assert!(prisms > 50, "призм {prisms}");
+            } else {
+                assert!(threes > 100, "троек {threes}");
+            }
+        }
     }
 }

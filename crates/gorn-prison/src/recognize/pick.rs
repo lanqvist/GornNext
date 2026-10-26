@@ -32,8 +32,19 @@ pub fn pick_header(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> Option
     Some(if label == "reward" { PickKind::Reward } else { PickKind::Start })
 }
 
-/// Сдвиги карты по вертикали (опорные px): карта под курсором «всплывает».
-const CARD_DY: [f64; 5] = [0.0, -6.0, -3.0, -9.0, 3.0];
+/// Сдвиги карты по вертикали (опорные px): карта под курсором «всплывает» —
+/// в начале анимации на 3–9, к концу на 48 [кадры 26.10 23:44:46, 21:9].
+const CARD_DY: [f64; 10] = [0.0, -6.0, -3.0, -9.0, 3.0, -42.0, -45.0, -48.0, -51.0, -54.0];
+
+/// Название карты N (0–2) в пикселях кадра: на месте и у карты под курсором
+/// (поднята на 48) — для чтения текстом, когда картинка карты не узнана.
+pub fn title_boxes(geo: &Geometry, card: usize) -> [Box4; 2] {
+    let cx = PICK_CARDS[card];
+    // Двухстрочное мелкое название («Пыточный намордник бешеного...») — с запасом по высоте.
+    let b = pick_title(cx);
+    let b = [b[0], b[1] - 8.0, b[2], b[3] + 8.0];
+    [box_to_frame(geo, b), box_to_frame(geo, shift_y(b, -48.0))]
+}
 
 fn shift_y(b: Box4, dy: f64) -> Box4 {
     [b[0], b[1] + dy, b[2], b[3] + dy]
@@ -71,6 +82,41 @@ fn read_card(frame: &Frame, geo: &Geometry, cx: f64, t: &ScreensTemplate) -> Opt
         }
     }
     id.filter(|l| TOOL_IDS.contains(l)).map(str::to_string)
+}
+
+/// Разбор карты для эталонов (`gorn-cli protos --pick`): по каждому орудию —
+/// (сходство картинки, названия, итог) при лучшем сдвиге, и векторы картинки и
+/// названия при сдвиге лучшего итога. Тот же поиск, что у `read_card`.
+pub fn card_debug(frame: &Frame, geo: &Geometry, cx: f64, t: &ScreensTemplate) -> (Vec<(String, f64, f64, f64)>, Vec<f32>, Vec<f32>) {
+    let mut best: Vec<(String, f64, f64, f64)> = vec![];
+    let mut top = f64::NEG_INFINITY;
+    let mut vecs = (vec![], vec![]);
+    let mut art_buf = [0.0f32; 16 * 16 * 3];
+    let mut title_buf = [0.0f32; 86 * 11];
+    for dy in CARD_DY {
+        sample_into(frame, geo, shift_y(pick_title(cx), dy), 86, 11, 1, &mut title_buf);
+        normalize(&mut title_buf);
+        let title_scores = scores_by_label(&title_buf, &t.pick_titles);
+        for dx in [-12.0, -6.0, 0.0, 6.0, 12.0] {
+            sample_into(frame, geo, shift_y(pick_art(cx + dx), dy), 16, 16, 3, &mut art_buf);
+            normalize(&mut art_buf);
+            let art = scores_by_label(&art_buf, &t.pick_art);
+            let mut rows: Vec<(String, f64, f64, f64)> = art
+                .iter()
+                .map(|&(l, a)| {
+                    let ti = get(&title_scores, l).unwrap_or(0.0);
+                    (l.to_string(), a, ti, (a + jmax(ti, 0.0)) / 2.0)
+                })
+                .collect();
+            rows.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+            if rows.first().is_some_and(|r| r.3 > top) {
+                top = rows[0].3;
+                best = rows;
+                vecs = (art_buf.to_vec(), title_buf.to_vec());
+            }
+        }
+    }
+    (best, vecs.0, vecs.1)
 }
 
 pub fn read_pick(frame: &Frame, geo: &Geometry, t: &ScreensTemplate, kind: PickKind) -> PickView {
