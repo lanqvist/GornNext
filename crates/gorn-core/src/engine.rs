@@ -258,7 +258,9 @@ pub enum Status {
 pub struct Totals {
     pub runs: usize,
     pub in_map_ms: i64,
-    /// Всё время сессии: карты, город и тюрьма, без перерывов дольше 5 минут.
+    /// Активное время в тюрьме за сессию — входит в «в час» вместе с in_map_ms.
+    pub prison_ms: i64,
+    /// Время сессии по часам: от её начала до сейчас; игра закрыта — до её последней строки лога.
     pub session_ms: i64,
     pub fe_gained: i64,
     pub value_fe: f64,
@@ -442,6 +444,7 @@ struct SessionAgg {
     rated_runs: usize,
     prison_runs: usize,
     prison_fe: f64,
+    prison_ms: i64,
     in_map_ms: i64,
     value_fe: f64,
     cost_fe: f64,
@@ -850,9 +853,7 @@ impl Engine {
     pub fn heartbeat(&mut self) -> bool {
         self.sync_feed_updates();
         let open = self.segmenter.current();
-        // Пока игра пишет лог, часы сессии идут и в городе — «в час» меняется.
-        let clock_running = self.last_line_at > 0 && self.now() - self.last_line_at <= GAME_SILENT_MS;
-        if open.is_some_and(|r| !r.is_hub) || clock_running {
+        if open.is_some_and(|r| !r.is_hub) {
             self.emit.set(true);
             return true;
         }
@@ -1689,6 +1690,7 @@ impl Engine {
         let s = &agg.session;
         let prison_fe = if open_prison { s.prison_fe + run_net(open_farming.unwrap(), &*pricing) } else { s.prison_fe };
         let in_map_ms = s.in_map_ms + open_elapsed;
+        let prison_ms = s.prison_ms + if open_prison { active_duration(open_farming.unwrap(), IDLE_CAP_MS, Some(now)) } else { 0 };
         // Время сессии идёт и в городе: открытый отрезок любой, не только карта.
         let session_ms = session_clock(self.session_started_at, self.last_line_at, now);
         let value_fe = open_farming.map(|r| s.value_fe + run_value(r, &*pricing)).unwrap_or(s.value_fe);
@@ -1720,8 +1722,9 @@ impl Engine {
             recent: agg.recent.clone(),
             rate: agg.rate.clone(),
             fe_rate: agg.fe_rate.clone(),
-            // В час за сессию: весь её итог, с тюрьмой и Vorax, ÷ её время по часам.
-            live_rate: per_hour(value_fe - cost_fe, session_ms as f64),
+            // В час — по зонам, как у других трекеров: итог сессии (карты, бои
+            // Vorax и тюрьма) ÷ активное время в них. Город не в счёт.
+            live_rate: per_hour(value_fe - cost_fe, (in_map_ms + prison_ms) as f64),
             norm: agg.norm,
             jackpot_auto_fe: self.jackpot_auto_fe(),
             strategies: agg.strategies.clone(),
@@ -1760,6 +1763,7 @@ impl Engine {
             totals: Totals {
                 runs: s.rated_runs + open_rated.is_some() as usize,
                 in_map_ms,
+                prison_ms,
                 session_ms,
                 fe_gained,
                 value_fe,
@@ -1862,6 +1866,7 @@ impl Engine {
                 rated_runs: session_rated.len(),
                 prison_runs: session_prison.len(),
                 prison_fe: session_prison.iter().fold(0.0, |a, r| a + run_net(r, pricing)),
+                prison_ms: session_prison.iter().fold(0, |a, r| a + active_duration(r, IDLE_CAP_MS, None)),
                 in_map_ms: session_rated.iter().fold(0, |a, r| a + active_duration(r, IDLE_CAP_MS, None)),
                 value_fe: session_farming.iter().fold(0.0, |a, r| a + run_value(r, pricing)),
                 cost_fe: session_farming.iter().fold(0.0, |a, r| a + run_cost(r, pricing)),

@@ -211,6 +211,8 @@ export function OverlayApp() {
   const elapsed = run ? now - run.startedAt : 0;
   const liveRate = snapshot?.liveRate ?? 0;
   const sessionNet = snapshot ? snapshot.totals.valueFe - snapshot.totals.costFe : 0;
+  // Время, на которое делится «в час»: карты и тюрьма, без города.
+  const zoneMs = snapshot ? snapshot.totals.inMapMs + snapshot.totals.prisonMs : 0;
 
   const pace = run && elapsed >= WARMUP_MS ? (run.netFe / elapsed) * 3_600_000 : null;
   // К норме — в час за последние 20 забегов, как в главном окне и таблице забегов:
@@ -357,7 +359,7 @@ export function OverlayApp() {
           Процент рядом — темп самой карты к норме. */}
       {place !== 'offline' && (
         <>
-          <div className="ov-hero" title={tr('Итог сессии ÷ время сессии по часам', 'Session total ÷ session wall-clock time')}>
+          <div className="ov-hero" title={tr('Итог сессии (карты и тюрьма) ÷ активное время в них', 'Session total (maps and prison) ÷ active time in them')}>
             <Fe value={liveRate} />
             <span className="ov-hero-sub">{tr('в час', 'per hour')}</span>
             {place === 'map' && delta !== null && <Delta value={delta} heat={heat} />}
@@ -365,7 +367,8 @@ export function OverlayApp() {
           {/* Формула главной цифры — чтобы её можно было проверить в уме. */}
           {snapshot && (
             <div className="ov-formula">
-              = <Fe value={sessionNet} signed /> {tr('за', 'in')} {duration(snapshot.totals.sessionMs)}
+              = <Fe value={sessionNet} signed /> {tr('за', 'in')} {duration(zoneMs)}{' '}
+              {snapshot.totals.prisonMs > 0 ? tr('на картах и в тюрьме', 'in maps and prison') : tr('на картах', 'in maps')}
             </div>
           )}
         </>
@@ -543,8 +546,7 @@ function StripLine({
             <b>
               {sessionNet > 0 ? '+' : ''}
               {num(sessionNet)}
-            </b>{' '}
-            {tr('за', 'in')} {duration(snapshot.totals.sessionMs)}
+            </b>
           </span>
           {place === 'town' && previous && (
             <span className="ov-kv">

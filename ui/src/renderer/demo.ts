@@ -211,6 +211,7 @@ export const demoSnapshot: Snapshot = {
   totals: {
     runs: 23,
     inMapMs: 41 * 60_000,
+    prisonMs: 4 * 60_000,
     sessionMs: 62 * 60_000,
     feGained: 508,
     valueFe: 1_180,

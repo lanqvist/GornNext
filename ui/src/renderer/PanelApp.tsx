@@ -317,7 +317,7 @@ const SessionTab = memo(function SessionTab({ snapshot }: { snapshot: Snapshot }
     <div className="pn-cols">
       <section className="pn-col pn-wide">
         <div className="pn-tiles">
-          <div title={tr('Итог сессии ÷ время сессии по часам', 'Session total ÷ session wall-clock time')}>
+          <div title={tr('Итог сессии (карты и тюрьма) ÷ активное время в них', 'Session total (maps and prison) ÷ active time in them')}>
             <small>{tr('в час', 'per hour')}</small>
             <b>{num(snapshot.liveRate)}</b>
           </div>
@@ -331,16 +331,16 @@ const SessionTab = memo(function SessionTab({ snapshot }: { snapshot: Snapshot }
             <small>{tr('сезон на картах, /ч', 'season in maps, /h')}</small>
             <b>{num(snapshot.rate.perHour)}</b>
           </div>
-          <div title={tr('По часам, с запуска игры: карты, город, тюрьма и перерывы', 'Wall-clock, since the game launched: maps, town, prison and breaks')}>
-            <small>{tr('время сессии', 'session time')}</small>
-            <b>{duration(snapshot.totals.sessionMs)}</b>
+          <div title={tr('Активное время на картах; пауза дольше 3 минут не в счёт', 'Active time in maps; pauses longer than 3 minutes don’t count')}>
+            <small>{tr('на картах', 'in maps')}</small>
+            <b>{duration(snapshot.totals.inMapMs)}</b>
           </div>
         </div>
         {snapshot.prison.runs > 0 && (
           <p className="pn-muted">
             {tr('тюрьма', 'prison')}: <Fe value={snapshot.prison.netFe} signed /> {tr('за', 'in')}{' '}
             {pluralize(snapshot.prison.runs, VISIT)} —{' '}
-            {tr('в итоге и «в час» сессии есть, в темпе карт нет', 'in the session total and per hour, not in map pace')}
+            {tr('в итоге сессии и в «в час» есть, в темпе карт нет', 'in the session total and per hour, not in map pace')}
           </p>
         )}
         <h3>
