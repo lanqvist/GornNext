@@ -317,7 +317,7 @@ const SessionTab = memo(function SessionTab({ snapshot }: { snapshot: Snapshot }
     <div className="pn-cols">
       <section className="pn-col pn-wide">
         <div className="pn-tiles">
-          <div>
+          <div title={tr('Итог сессии ÷ время сессии по часам', 'Session total ÷ session wall-clock time')}>
             <small>{tr('в час', 'per hour')}</small>
             <b>{num(snapshot.liveRate)}</b>
           </div>
@@ -331,7 +331,7 @@ const SessionTab = memo(function SessionTab({ snapshot }: { snapshot: Snapshot }
             <small>{tr('сезон на картах, /ч', 'season in maps, /h')}</small>
             <b>{num(snapshot.rate.perHour)}</b>
           </div>
-          <div title={tr('Карты, город и тюрьма; перерывы дольше 5 минут не в счёт', 'Maps, town and prison; breaks longer than 5 minutes don’t count')}>
+          <div title={tr('По часам, с запуска игры: карты, город, тюрьма и перерывы', 'Wall-clock, since the game launched: maps, town, prison and breaks')}>
             <small>{tr('время сессии', 'session time')}</small>
             <b>{duration(snapshot.totals.sessionMs)}</b>
           </div>

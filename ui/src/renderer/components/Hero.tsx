@@ -66,9 +66,10 @@ function RateSparkline({ snapshot }: { snapshot: Snapshot }) {
  * Медианы здесь нет: она описывает «типичную карту», а не сколько
  * на деле приносит час фарма, — и расходилась с итогом сессии.
  *
- * Главная цифра делится на всё время сессии (город и тюрьма тоже время
- * фарма), а темп последних забегов и сезона — только на время в картах:
- * он про выгодность карт. Поэтому их и не сравниваем в процентах.
+ * Главная цифра — итог сессии ÷ её время по часам, без вычетов: город,
+ * тюрьма, Vorax и перерывы — всё время. Под ней — сама формула, чтобы
+ * цифру можно было проверить в уме. Темп последних забегов и сезона —
+ * только по времени в картах: он про выгодность карт, а не про доход.
  */
 export function Hero({ snapshot }: { snapshot: Snapshot }) {
   const { rate, feRate, totals } = snapshot;
@@ -84,8 +85,8 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
         <div className="hero-label">
           <Tip
             tip={tr(
-              'Итог сессии (добыча по ценам минус вложения, вместе с тюрьмой), делённый на всё время сессии: карты, город и тюрьма. Перерывы дольше 5 минут не в счёт. Сессия начинается с запуском игры или кнопкой «Новая сессия».',
-              'The session total (loot at prices minus map costs, prison included) divided by the whole session time: maps, town and prison. Breaks longer than 5 minutes don’t count. A session starts when the game launches or with the “New session” button.',
+              'Итог сессии (вся добыча по ценам минус вложения, с тюрьмой и Vorax), делённый на время сессии по часам — без вычетов за город и перерывы. Сессия начинается с запуском игры или кнопкой «Новая сессия»; игру закрыли — часы стоят.',
+              'The session total (all loot at prices minus map costs, prison and Vorax included) divided by the session’s wall-clock time — nothing deducted for town or breaks. A session starts when the game launches or with the “New session” button; the clock stops when the game is closed.',
             )}
           >
             {tr('В час за сессию, за вычетом вложений', 'Per hour this session, net of map costs')}
@@ -93,6 +94,9 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
         </div>
         <div className="hero-value">
           <Fe value={snapshot.liveRate} />
+        </div>
+        <div className="hero-formula">
+          = <Fe value={sessionNet} signed /> {tr('за', 'in')} {duration(totals.sessionMs)}
         </div>
         <div className="hero-sub">
           <Tip
@@ -143,8 +147,8 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
           <Tile
             label={tr('Время сессии', 'Session time')}
             tip={tr(
-              `Карты, город и тюрьма; перерывы дольше 5 минут не в счёт. Из них на картах — ${duration(totals.inMapMs)}.`,
-              `Maps, town and prison; breaks longer than 5 minutes don't count. Of that, in maps — ${duration(totals.inMapMs)}.`,
+              `По часам, с запуска игры: карты, город, тюрьма и перерывы. Из них на картах — ${duration(totals.inMapMs)}.`,
+              `Wall-clock, since the game launched: maps, town, prison and breaks. Of that, in maps — ${duration(totals.inMapMs)}.`,
             )}
             value={duration(totals.sessionMs)}
           />

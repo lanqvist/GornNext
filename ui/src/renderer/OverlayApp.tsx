@@ -5,7 +5,7 @@ import { RUN, pluralize } from '../core/plural.js';
 import type { DropView, RunView, SessionDropView, Snapshot } from '../main/engine.js';
 import type { OverlayMode } from '../main/settings.js';
 import { Fe, FeIcon } from './components/Fe.js';
-import { ago, clock, NBSP, num } from './format.js';
+import { ago, clock, duration, NBSP, num } from './format.js';
 import { heatOf, type Heat } from './overlay/heat.js';
 import { Icon } from './overlay/icons.js';
 import { Sparks } from './overlay/Sparks.js';
@@ -356,11 +356,19 @@ export function OverlayApp() {
       {/* Главная цифра: сколько в час за сессию, вместе с этим забегом.
           Процент рядом — темп самой карты к норме. */}
       {place !== 'offline' && (
-        <div className="ov-hero" title={tr('Темп сессии вместе с этим забегом', 'Session pace including this run')}>
-          <Fe value={liveRate} />
-          <span className="ov-hero-sub">{tr('в час', 'per hour')}</span>
-          {place === 'map' && delta !== null && <Delta value={delta} heat={heat} />}
-        </div>
+        <>
+          <div className="ov-hero" title={tr('Итог сессии ÷ время сессии по часам', 'Session total ÷ session wall-clock time')}>
+            <Fe value={liveRate} />
+            <span className="ov-hero-sub">{tr('в час', 'per hour')}</span>
+            {place === 'map' && delta !== null && <Delta value={delta} heat={heat} />}
+          </div>
+          {/* Формула главной цифры — чтобы её можно было проверить в уме. */}
+          {snapshot && (
+            <div className="ov-formula">
+              = <Fe value={sessionNet} signed /> {tr('за', 'in')} {duration(snapshot.totals.sessionMs)}
+            </div>
+          )}
+        </>
       )}
 
       {/* Забег и сессия одним взглядом — на карте, кроме минимума. */}
@@ -369,15 +377,6 @@ export function OverlayApp() {
       )}
 
       <div className="ov-rows">
-        {place === 'town' && (
-          <div className="ov-row">
-            <Icon name="pace" />
-            <span>{tr('итог сессии', 'session total')}</span>
-            <b>
-              <Fe value={sessionNet} signed />
-            </b>
-          </div>
-        )}
         {mode !== 'minimal' && place === 'map' && ghost !== null && (
           <div
             className="ov-row ov-row-dim"
@@ -544,7 +543,8 @@ function StripLine({
             <b>
               {sessionNet > 0 ? '+' : ''}
               {num(sessionNet)}
-            </b>
+            </b>{' '}
+            {tr('за', 'in')} {duration(snapshot.totals.sessionMs)}
           </span>
           {place === 'town' && previous && (
             <span className="ov-kv">
