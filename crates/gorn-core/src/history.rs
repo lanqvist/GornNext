@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use serde::Serialize;
 
 use crate::analysis::{active_duration, is_prison_run, run_end, run_net, RunPricing, IDLE_CAP_MS};
-use crate::stats::{per_hour, summarize, RateSummary};
+use crate::stats::{per_hour, summarize_timed, RateSummary};
 use crate::types::Run;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -46,7 +46,7 @@ pub fn group_by_map(runs: &[Run], name_of: &dyn Fn(&Run) -> String, pricing: Run
             MapStats {
                 name,
                 runs: list.len(),
-                rate: summarize(&rates, None),
+                rate: summarize_timed(&rates, None, net, active_ms),
                 net_per_run: net / list.len() as f64,
                 avg_active_ms: active_ms as f64 / list.len() as f64,
                 total_active_ms: active_ms,

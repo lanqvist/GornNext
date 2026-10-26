@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashMap};
 use indexmap::IndexMap;
 use serde::Serialize;
 
-use crate::stats::{per_hour, percentile, sort_num, summarize, RateSummary};
+use crate::stats::{per_hour, percentile, sort_num, summarize_timed, RateSummary};
 use crate::types::*;
 
 /// Цена предмета для забега: своя таблица у каждого сезона.
@@ -164,7 +164,7 @@ pub fn group_by_strategy(runs: &[Run], pricing: RunPricing, idle_cap: i64) -> Ve
                 cost_items: if key == "none" { vec![] } else { key.split('+').map(|s| s.parse().unwrap()).collect() },
                 key,
                 runs: list.len(),
-                rate: summarize(&rates, None),
+                rate: summarize_timed(&rates, None, net, active_ms),
                 cost_per_run: cost / list.len() as f64,
                 net_per_run: net / list.len() as f64,
                 total_active_ms: active_ms,
@@ -237,8 +237,16 @@ pub fn missing_prices(runs: &[Run], pricing: RunPricing, base: Option<&MissingTa
     v
 }
 
-/// Норма — медиана последних N забегов.
+/// Норма — темп последних N забегов.
 pub const NORM_WINDOW: usize = 20;
+
+/// Норма в час: последние N забегов вместе — их добыча ÷ их время.
+pub fn rolling_per_hour(nets: &[f64], active_ms: &[i64], window: usize) -> f64 {
+    let from = nets.len().saturating_sub(window);
+    let total: f64 = nets[from..].iter().sum();
+    let ms: i64 = active_ms[from.min(active_ms.len())..].iter().sum();
+    per_hour(total, ms as f64)
+}
 
 pub fn rolling_norm(rates: &[f64], window: usize) -> f64 {
     let recent = &rates[rates.len().saturating_sub(window)..];

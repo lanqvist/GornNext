@@ -314,15 +314,16 @@ async fn gorn(
             tr.post(move |e| e.set_min_drop_fe(v));
             json!(v)
         }
+        // Выбора персонажа нет: забеги считаются по всем, иначе при смене
+        // персонажа оверлей молча пустеет. Остался только «все сезоны».
         "settings:setRunScope" => {
-            let pid = a0["playerId"].as_str().map(str::to_string);
             let all = a0["allSeasons"].as_bool() == Some(true);
             {
                 let mut s = st.settings.lock().unwrap();
-                s.set("playerFilter", json!(pid));
+                s.set("playerFilter", Value::Null);
                 s.set("allSeasons", json!(all));
             }
-            tr.post(move |e| e.set_run_scope(pid, all));
+            tr.post(move |e| e.set_run_scope(None, all));
             Value::Null
         }
         "settings:uiLanguage" => json!(st
@@ -710,7 +711,7 @@ fn main() {
                     log_dir: s["logDir"].as_str().map(PathBuf::from),
                     options: EngineOptions {
                         community_prices: s["communityPrices"].as_bool().unwrap_or(true),
-                        player_filter: s["playerFilter"].as_str().map(str::to_string),
+                        player_filter: None,
                         all_seasons: s["allSeasons"].as_bool().unwrap_or(false),
                         excluded_items: settings_now.excluded(),
                         min_drop_fe: s["minDropFe"].as_f64().unwrap_or(0.0),

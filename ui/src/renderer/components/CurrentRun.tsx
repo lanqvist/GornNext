@@ -21,9 +21,9 @@ function RunTimer({ startedAt }: { startedAt: number }) {
 }
 
 /** Темп к обычному: зависит от времени, поэтому тоже тикает сам. */
-function RunPace({ startedAt, netFe, median }: { startedAt: number; netFe: number; median: number }) {
+function RunPace({ startedAt, netFe, norm }: { startedAt: number; netFe: number; norm: number }) {
   const now = useNow(1000);
-  if (median <= 0) return null;
+  if (norm <= 0) return null;
   const elapsed = now - startedAt;
   // Пока карта только началась, темп считается по крошечному знаменателю
   // и скачет на сотни процентов от одной находки. Показывать такое число —
@@ -32,12 +32,12 @@ function RunPace({ startedAt, netFe, median }: { startedAt: number; netFe: numbe
     return <span className="delta muted">{tr('темп считается…', 'calculating pace…')}</span>;
   }
   const pace = (netFe / elapsed) * 3_600_000;
-  const delta = pace - median;
-  const pct = Math.round((delta / median) * 100);
+  const delta = pace - norm;
+  const pct = Math.round((delta / norm) * 100);
   return (
     <span className={`delta ${delta >= 0 ? 'up' : 'down'}`}>
-      {delta >= 0 ? '↑' : '↓'}{' '}
-      {tr(`${Math.abs(pct)}% к обычному темпу`, `${Math.abs(pct)}% vs usual pace`)}
+      {num(pace)} {tr('в час', 'per hour')} · {delta >= 0 ? '↑' : '↓'}{' '}
+      {tr(`${Math.abs(pct)}% к обычному`, `${Math.abs(pct)}% vs usual`)}
     </span>
   );
 }
@@ -68,7 +68,7 @@ export function CurrentRun({ snapshot }: { snapshot: Snapshot }) {
 
       <div className="current-value">
         <Fe value={run.netFe} />
-        <RunPace startedAt={run.startedAt} netFe={run.netFe} median={snapshot.rate.median} />
+        <RunPace startedAt={run.startedAt} netFe={run.netFe} norm={snapshot.norm} />
       </div>
 
       <DropList drops={run.drops} minFe={snapshot.minDropFe} />

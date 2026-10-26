@@ -183,7 +183,7 @@ const RunTab = memo(function RunTab({ snapshot, tiers }: { snapshot: Snapshot; t
     return <p className="pn-empty">{tr('Забегов ещё нет.', 'No runs yet.')}</p>;
   }
   const live = snapshot.current !== null;
-  // К норме — медиане последних 20 забегов, как везде.
+  // К норме — в час за последние 20 забегов, как везде.
   const norm = snapshot.norm;
   const delta = norm > 0 ? Math.round(((run.perHour - norm) / norm) * 100) : null;
   const previous = live ? snapshot.recent[0] ?? null : snapshot.recent[1] ?? null;
@@ -200,17 +200,18 @@ const RunTab = memo(function RunTab({ snapshot, tiers }: { snapshot: Snapshot; t
           </span>
         </div>
         <div className="pn-hero">
-          <Fe value={run.netFe} signed />
+          <Fe value={run.perHour} />
+          <span className="pn-sub">{tr('в час', 'per hour')}</span>
           {delta !== null && (
             <span
               className={`pn-delta ${delta >= 0 ? 'up' : 'down'}`}
-              title={tr('Темп карты к норме — медиане последних 20 забегов', 'Map pace vs the norm — the median of the last 20 runs')}
+              title={tr('Темп карты к норме — сколько в час дали последние 20 забегов', 'Map pace vs the norm — the per-hour pace of the last 20 runs')}
             >
               {delta >= 0 ? '↑' : '↓'} {Math.abs(delta)}%
             </span>
           )}
           <span className="pn-sub">
-            {num(run.perHour)} {tr('в час', 'per hour')}
+            <Fe value={run.netFe} signed /> {tr('за карту', 'this map')}
           </span>
         </div>
         <DropList drops={run.drops} snapshot={snapshot} tiers={tiers} />
@@ -317,18 +318,18 @@ const SessionTab = memo(function SessionTab({ snapshot }: { snapshot: Snapshot }
       <section className="pn-col pn-wide">
         <div className="pn-tiles">
           <div>
+            <small>{tr('в час', 'per hour')}</small>
+            <b>{num(snapshot.liveRate)}</b>
+          </div>
+          <div>
             <small>{tr('сессия', 'session')}</small>
             <b className="pn-green">
               <Fe value={net} signed />
             </b>
           </div>
-          <div>
-            <small>{tr('в час', 'per hour')}</small>
-            <b>{num(snapshot.liveRate)}</b>
-          </div>
-          <div>
-            <small>{tr('медиана, /ч', 'median, /h')}</small>
-            <b>{num(snapshot.rate.median)}</b>
+          <div title={tr('Все забеги сезона вместе: добыча за вычетом вложений ÷ время в картах', 'All runs of the season together: net loot ÷ time in maps')}>
+            <small>{tr('сезон, /ч', 'season, /h')}</small>
+            <b>{num(snapshot.rate.perHour)}</b>
           </div>
           <div>
             <small>{tr('на картах', 'in maps')}</small>
@@ -706,28 +707,28 @@ const MapsTab = memo(function MapsTab({ snapshot }: { snapshot: Snapshot }) {
   if (snapshot.maps.length === 0) {
     return <p className="pn-empty">{tr('Карт ещё нет.', 'No maps yet.')}</p>;
   }
-  const best = Math.max(...snapshot.maps.filter((m) => m.runs >= 5).map((m) => m.rate.median));
-  const max = Math.max(1, ...snapshot.maps.map((m) => m.rate.median));
+  const best = Math.max(...snapshot.maps.filter((m) => m.runs >= 5).map((m) => m.rate.perHour));
+  const max = Math.max(1, ...snapshot.maps.map((m) => m.rate.perHour));
   return (
     <table className="pn-maps">
       <thead>
         <tr>
           <th>{tr('Карта', 'Map')}</th>
           <th className="num">{tr('Забегов', 'Runs')}</th>
-          <th>{tr('В час, медиана', 'Per hour, median')}</th>
+          <th>{tr('В час', 'Per hour')}</th>
           <th className="num">{tr('За карту', 'Per map')}</th>
           <th className="num">{tr('Время', 'Time')}</th>
         </tr>
       </thead>
       <tbody>
         {snapshot.maps.map((m) => (
-          <tr key={m.name} className={m.runs >= 5 && m.rate.median === best ? 'best' : ''}>
+          <tr key={m.name} className={m.runs >= 5 && m.rate.perHour === best ? 'best' : ''}>
             <td>{m.name}</td>
             <td className="num">{m.runs}</td>
             <td>
               <span className="pn-bar">
-                <i style={{ width: `${(Math.max(0, m.rate.median) / max) * 100}%` }} />
-                <b>{num(m.rate.median)}</b>
+                <i style={{ width: `${(Math.max(0, m.rate.perHour) / max) * 100}%` }} />
+                <b>{num(m.rate.perHour)}</b>
               </span>
             </td>
             <td className="num">

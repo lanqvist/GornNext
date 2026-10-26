@@ -22,9 +22,9 @@ export function Maps({ snapshot }: { snapshot: Snapshot }) {
   const comparable = maps.filter((m) => m.runs >= MIN_RUNS);
   const best =
     comparable.length >= 2
-      ? comparable.reduce((a, b) => (b.rate.median > a.rate.median ? b : a))
+      ? comparable.reduce((a, b) => (b.rate.perHour > a.rate.perHour ? b : a))
       : null;
-  const top = Math.max(...maps.map((m) => m.rate.p75), 1);
+  const top = Math.max(...maps.map((m) => m.rate.perHour), 1);
 
   return (
     <section className="card">
@@ -37,8 +37,8 @@ export function Maps({ snapshot }: { snapshot: Snapshot }) {
             <th>
               <Tip
                 tip={tr(
-                  'Медиана чистыми в час; полоса — обычный разброс P25–P75.',
-                  'Median net per hour; the bar shows the typical range (P25–P75).',
+                  'Все забеги карты вместе: добыча за вычетом вложений ÷ время на карте.',
+                  'All runs of the map together: loot net of costs ÷ time on the map.',
                 )}
               >
                 {tr('В час', 'Per hour')}
@@ -75,25 +75,11 @@ export function Maps({ snapshot }: { snapshot: Snapshot }) {
                 </td>
                 <td>
                   <div className="map-rate">
-                    <span className="map-rate-value">{num(m.rate.median)}</span>
-                    <span
-                      className="map-track"
-                      role="img"
-                      aria-label={tr(
-                        `разброс ${num(m.rate.p25)}–${num(m.rate.p75)}, медиана ${num(m.rate.median)}`,
-                        `typical range ${num(m.rate.p25)}–${num(m.rate.p75)}, median ${num(m.rate.median)}`,
-                      )}
-                    >
+                    <span className="map-rate-value">{num(m.rate.perHour)}</span>
+                    <span className="map-track" aria-hidden="true">
                       <span
                         className="map-band"
-                        style={{
-                          left: `${(Math.max(0, m.rate.p25) / top) * 100}%`,
-                          width: `${(Math.max(0, m.rate.p75 - Math.max(0, m.rate.p25)) / top) * 100}%`,
-                        }}
-                      />
-                      <span
-                        className="map-median"
-                        style={{ left: `${(Math.max(0, m.rate.median) / top) * 100}%` }}
+                        style={{ left: 0, width: `${(Math.max(0, m.rate.perHour) / top) * 100}%` }}
                       />
                     </span>
                   </div>

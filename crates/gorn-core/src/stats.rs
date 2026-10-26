@@ -14,6 +14,9 @@ pub enum Confidence {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RateSummary {
+    /// В час: всё, что принесли забеги, ÷ всё их активное время. Главное число:
+    /// медиана по забегам описывает «типичную карту», а не сколько выходит за час.
+    pub per_hour: f64,
     pub median: f64,
     pub mean: f64,
     pub p25: f64,
@@ -85,6 +88,7 @@ pub fn summarize(values: &[f64], amounts: Option<&[f64]>) -> RateSummary {
     let n = values.len();
     if n == 0 {
         return RateSummary {
+            per_hour: 0.0,
             median: 0.0,
             mean: 0.0,
             p25: 0.0,
@@ -98,6 +102,7 @@ pub fn summarize(values: &[f64], amounts: Option<&[f64]>) -> RateSummary {
     sort_num(&mut sorted);
     let total = values.iter().fold(0.0, |a, b| a + b);
     RateSummary {
+        per_hour: 0.0,
         median: percentile(&sorted, 0.5),
         mean: total / n as f64,
         p25: percentile(&sorted, 0.25),
@@ -106,6 +111,11 @@ pub fn summarize(values: &[f64], amounts: Option<&[f64]>) -> RateSummary {
         confidence: confidence_of(n),
         top_share: top_share_of(amounts.unwrap_or(values)),
     }
+}
+
+/// Сводка вместе с темпом «в час»: total — сумма за забеги, total_ms — их время.
+pub fn summarize_timed(values: &[f64], amounts: Option<&[f64]>, total: f64, total_ms: i64) -> RateSummary {
+    RateSummary { per_hour: per_hour(total, total_ms as f64), ..summarize(values, amounts) }
 }
 
 /// Доход в час из количества и длительности.

@@ -4,12 +4,11 @@ import { NORM_WINDOW } from '../../core/analysis.js';
 import type { Snapshot } from '../../main/engine.js';
 import { NBSP, cacheDate, duration, num, time } from '../format.js';
 import { Fe } from './Fe.js';
-import { spreadText } from '../heroText.js';
-import { ConfidenceBadge, Tile, Tip } from './ui.js';
+import { Tile, Tip } from './ui.js';
 
 /**
- * Спарклайн темпа: последние забеги в хронологии. Полоса — P25–P75
- * («обычный разброс»), пунктир — медиана, точка — самый свежий забег.
+ * Спарклайн темпа: последние забеги в хронологии. Пунктир — в час за
+ * последние 20 забегов (норма), точка — самый свежий забег.
  * Один взгляд отвечает на «расту я или проседаю» лучше таблицы.
  */
 function RateSparkline({ snapshot }: { snapshot: Snapshot }) {
@@ -17,12 +16,12 @@ function RateSparkline({ snapshot }: { snapshot: Snapshot }) {
   if (runs.length < 5) return null;
 
   const values = runs.map((r) => r.perHour);
-  const { p25, p75, median } = snapshot.rate;
+  const norm = snapshot.norm;
   const w = 300;
   const h = 54;
   const pad = 5;
-  const max = Math.max(...values, p75);
-  const min = Math.min(...values, p25, 0);
+  const max = Math.max(...values, norm);
+  const min = Math.min(...values, norm, 0);
   const span = max - min || 1;
   const x = (i: number) => pad + (i / (values.length - 1)) * (w - pad * 2);
   const y = (v: number) => h - pad - ((v - min) / span) * (h - pad * 2);
@@ -41,15 +40,7 @@ function RateSparkline({ snapshot }: { snapshot: Snapshot }) {
           `Pace of the last ${values.length} runs, FE per hour`,
         )}
       >
-        {/* Обычный разброс: половина забегов внутри этой полосы. */}
-        <rect
-          x={pad}
-          y={y(p75)}
-          width={w - pad * 2}
-          height={Math.max(2, y(p25) - y(p75))}
-          className="spark-band"
-        />
-        <line x1={pad} x2={w - pad} y1={y(median)} y2={y(median)} className="spark-median" />
+        <line x1={pad} x2={w - pad} y1={y(norm)} y2={y(norm)} className="spark-median" />
         <polyline points={points} className="spark-line" />
         <circle cx={x(last)} cy={y(values[last]!)} r={3} className="spark-dot" />
         {/* Невидимые увеличенные цели наведения: подсказка на каждую точку. */}
@@ -69,27 +60,24 @@ function RateSparkline({ snapshot }: { snapshot: Snapshot }) {
 }
 
 /**
- * Главный блок. Крупно — медиана последних забегов: «как идёт сейчас».
- * Медиана всего сезона копит ранние слабые недели (412 в час при сессии
- * в 1 446) и отвечает на другой вопрос — она стоит ниже, как норма.
- * Среднее рядом мелко — сознательно: в ARPG оно задирается одной редкой
- * находкой и описывает забег, которого не бывает.
+ * Главный блок. Крупно — сколько выходит в час за сессию: вся добыча
+ * за вычетом вложений ÷ время в картах, вместе с текущим забегом.
+ * Ниже — то же «в час» за последние 20 забегов и за весь сезон.
+ * Медианы здесь нет: она описывает «типичную карту», а не сколько
+ * на деле приносит час фарма, — и расходилась с итогом сессии.
  */
 export function Hero({ snapshot }: { snapshot: Snapshot }) {
   const { rate, feRate, totals } = snapshot;
-  const spread = rate.p75 - rate.p25;
   // «Вложено 0» при потраченном маяке выглядит как поломка. Причина обычно
   // одна: у расходника нет цены, и вычесть нечего.
   const unpricedCost = snapshot.missing.find((m) => m.isCost);
-
-  // norm — медиана последних 20 забегов (как у сравнений «к норме»).
   const recentCount = Math.min(NORM_WINDOW, rate.sampleSize);
-  const now = rate.sampleSize > 0 ? snapshot.norm : 0;
+  const sessionNet = totals.valueFe - totals.costFe;
+  // Сравнение с сезоном — когда у сессии набралось время, иначе процент скачет.
   const vsSeason =
-    rate.sampleSize > NORM_WINDOW && rate.median > 0
-      ? Math.round(((now - rate.median) / rate.median) * 100)
+    totals.inMapMs >= 10 * 60_000 && rate.sampleSize > NORM_WINDOW && rate.perHour > 0
+      ? Math.round(((snapshot.liveRate - rate.perHour) / rate.perHour) * 100)
       : null;
-  const spreadNote = spreadText(rate.sampleSize, spread > rate.median * 0.8);
 
   return (
     <section className="hero">
@@ -97,19 +85,19 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
         <div className="hero-label">
           <Tip
             tip={tr(
-              'Оценка всей добычи по ценам (свои пробивки + база сообщества) минус вложения в карты. Медиана последних 20 забегов: показывает, как идёт сейчас, и устойчива к одной редкой дорогой находке.',
-              'All loot valued at prices (your own price checks + community prices) minus map costs. Median of the last 20 runs: shows how things go right now and holds steady against a single rare expensive drop.',
+              'Вся добыча сессии по ценам (свои пробивки + база сообщества) минус вложения в карты, делённая на активное время в картах. Двигается при каждом подборе, между подборами медленно сползает — это идёт время, не поломка.',
+              'All loot this session valued at prices (your own price checks + community prices) minus map costs, divided by active time in maps. It moves with every pickup and slowly drifts down between pickups — that is time passing, not a bug.',
             )}
           >
-            {tr('Добыча в час сейчас, за вычетом вложений', 'Loot per hour now, net of map costs')}
+            {tr('В час за сессию, за вычетом вложений', 'Per hour this session, net of map costs')}
           </Tip>
         </div>
         <div className="hero-value">
-          <Fe value={now} />
+          <Fe value={snapshot.liveRate} />
           {vsSeason !== null && (
             <span
               className={`hero-vs ${vsSeason >= 0 ? 'up' : 'down'}`}
-              title={tr('Последние забеги к медиане сезона', 'Recent runs vs the season median')}
+              title={tr('Сессия к темпу сезона', 'This session vs the season pace')}
             >
               {vsSeason === 0
                 ? tr('на уровне сезона', 'on par with the season')
@@ -118,74 +106,50 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
           )}
         </div>
         <div className="hero-sub">
-          <span className="muted">
-            {tr('медиана · последние', 'median · last')} {pluralize(recentCount, RUN)}
-          </span>
           <Tip
             tip={tr(
-              'Медиана по всем забегам сезона (или выбранного персонажа) — норма, с которой сравниваются забеги.',
-              'Median across all runs of the season (or the chosen character) — the norm runs are compared against.',
+              'Последние забеги вместе: их добыча за вычетом вложений ÷ их время. С этим темпом сравниваются карты.',
+              'The latest runs together: their loot net of costs ÷ their time. Maps are compared against this pace.',
             )}
           >
             <span>
-              {tr('сезон', 'season')} <Fe value={rate.median} /> · {pluralize(rate.sampleSize, RUN)}
-            </span>
-          </Tip>
-          <ConfidenceBadge level={rate.confidence} />
-          <Tip
-            tip={tr(
-              'P25–P75: половина забегов укладывается в эти границы.',
-              'P25–P75: half of all runs fall within this range.',
-            )}
-          >
-            <span className="muted">
-              {tr('обычный разброс', 'typical range')} {num(rate.p25)}–{num(rate.p75)}
+              {tr('последние', 'last')} {pluralize(recentCount, RUN)}: <Fe value={snapshot.norm} />{' '}
+              {tr('в час', 'per hour')}
             </span>
           </Tip>
           <Tip
             tip={tr(
-              'Среднее задирается одной редкой находкой и описывает забег, которого не бывает. Решения принимайте по медиане.',
-              'The mean gets inflated by a single rare drop and describes a run that never happens. Make decisions by the median.',
+              'Все забеги сезона вместе: добыча за вычетом вложений ÷ время в картах.',
+              'All runs of the season together: loot net of costs ÷ time in maps.',
             )}
           >
             <span className="muted">
-              {tr('среднее', 'mean')} {num(rate.mean)}
+              {tr('сезон', 'season')}: <Fe value={rate.perHour} /> {tr('в час', 'per hour')} ·{' '}
+              {pluralize(rate.sampleSize, RUN)}
             </span>
           </Tip>
         </div>
-        {spreadNote && <p className="note">{spreadNote}</p>}
-        {rate.topShare > 0.3 && rate.sampleSize > 1 && (
-          <p className="note warn">
-            {tr(
-              `Один забег дал ${Math.round(rate.topShare * 100)}% всей добычи — среднее держится на нём, медиана нет.`,
-              `A single run brought in ${Math.round(rate.topShare * 100)}% of all loot — the mean rests on it, the median doesn't.`,
-            )}
-          </p>
-        )}
         <RateSparkline snapshot={snapshot} />
       </div>
 
       <div className="hero-side">
         <div className="hero-tiles">
-          {/* Накопительный темп: двигается при подборе, медиана — намеренно нет.
-              Подпись «за сессию» важна, иначе медленное сползание между
-              подборами выглядит как ошибка, а не как рост знаменателя. */}
           <Tile
-            label={tr('За сессию, в час', 'This session, per hour')}
+            label={tr('Итог сессии', 'Session total')}
             tip={tr(
-              'Накопительный темп: вся добыча сессии ÷ активное время в картах. Двигается при каждом подборе, между подборами медленно сползает — это рост знаменателя, не поломка.',
-              'Cumulative pace: all session loot ÷ active time in maps. It moves with every pickup and slowly drifts down between pickups — that is the denominator growing, not a bug.',
+              'Вся добыча сессии по ценам минус вложения в карты, вместе с тюрьмой.',
+              'All loot this session at prices minus map costs, prison included.',
             )}
-            value={<Fe value={snapshot.liveRate} />}
+            value={<Fe value={sessionNet} signed />}
             live
           />
           <Tile
             label={tr('Чистый ФЕ в час', 'Raw FE per hour')}
             tip={tr(
-              'Только сама валюта ФЕ, упавшая в сумку, — без оценки предметов по ценам.',
-              'Only the FE currency itself that landed in your bag — no item valuation.',
+              'Только сама валюта ФЕ, упавшая в сумку, — без оценки предметов по ценам. За сезон: вся ФЕ ÷ всё время в картах.',
+              'Only the FE currency itself that landed in your bag — no item valuation. Season-wide: all FE ÷ all time in maps.',
             )}
-            value={<Fe value={feRate.median} />}
+            value={<Fe value={feRate.perHour} />}
           />
           <Tile
             label={tr('На картах', 'In maps')}
@@ -210,8 +174,8 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
         {snapshot.prison.runs > 0 && (
           <Tip
             tip={tr(
-              'Тюрьма Талоса входит в итог сессии, но не в темп, медианы, рекорды, карты и стратегии: игра на доске идёт вне карт, и её время лог не видит.',
-              'Tartarus Prison counts toward the session total but not the pace, medians, records, maps or strategies: the board is played outside maps, and the log cannot see that time.',
+              'Тюрьма Талоса входит в итог сессии, но не в темп «в час», рекорды, карты и стратегии: игра на доске идёт вне карт, и её время лог не видит.',
+              'Tartarus Prison counts toward the session total but not the per-hour pace, records, maps or strategies: the board is played outside maps, and the log cannot see that time.',
             )}
           >
             <span className="hero-prison">
@@ -229,7 +193,7 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
 /**
  * Границы сессии: с какого момента считают плитки, и кнопка начать заново.
  *
- * Сброс ничего не удаляет — прошлые забеги остаются в истории и медиане,
+ * Сброс ничего не удаляет — прошлые забеги остаются в истории и сезоне,
  * поэтому подтверждение не нужно. Итог прошлой сессии остаётся на экране:
  * без него сброс выглядит потерей цифр.
  */
@@ -260,8 +224,8 @@ function SessionBar({ snapshot }: { snapshot: Snapshot }) {
       <button
         className="session-reset"
         title={tr(
-          'Плитки и цель оверлея начнут отсчёт заново. История, медиана и стратегии никуда не денутся.',
-          'The tiles and the overlay goal will start counting from scratch. History, median and strategies stay put.',
+          'Темп сессии, плитки и цель оверлея начнут отсчёт заново. История, сезон и стратегии никуда не денутся.',
+          'The session pace, tiles and the overlay goal will start counting from scratch. History, season and strategies stay put.',
         )}
         onClick={() => window.gorn && void window.gorn.session.reset()}
       >

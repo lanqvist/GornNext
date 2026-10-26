@@ -14,9 +14,10 @@ import { useNow } from './useNow.js';
 type Mode = OverlayMode;
 
 /**
- * Где сейчас игрок. Оверлей перестраивает главную цифру под момент:
- * на карте важен доход этого забега, в городе — итог сессии, без игры —
- * только то, что Горн жив и ждёт.
+ * Где сейчас игрок. Главная цифра везде одна — сколько выходит в час за
+ * сессию; вокруг неё оверлей перестраивается под момент: на карте —
+ * таймер и доход забега, в городе — итог сессии, без игры — только то,
+ * что Горн жив и ждёт.
  */
 type Place = 'map' | 'town' | 'offline';
 
@@ -207,12 +208,12 @@ export function OverlayApp() {
   const run = snapshot?.current ?? null;
   const previous = snapshot?.recent[0] ?? null;
   const elapsed = run ? now - run.startedAt : 0;
-  const median = snapshot?.rate.median ?? 0;
+  const liveRate = snapshot?.liveRate ?? 0;
   const sessionNet = snapshot ? snapshot.totals.valueFe - snapshot.totals.costFe : 0;
 
   const pace = run && elapsed >= WARMUP_MS ? (run.netFe / elapsed) * 3_600_000 : null;
-  // К норме — медиане последних 20 забегов, как в главном окне и таблице забегов:
-  // медиана всего сезона копит слабые первые недели и завышала бы процент.
+  // К норме — в час за последние 20 забегов, как в главном окне и таблице забегов:
+  // темп всего сезона копит слабые первые недели и завышал бы процент.
   const norm = snapshot?.norm ?? 0;
   const delta = pace !== null && norm > 0 ? Math.round(((pace - norm) / norm) * 100) : null;
   // Жар темпа — только на карте и когда темп уже посчитан.
@@ -351,35 +352,28 @@ export function OverlayApp() {
         )}
       </div>
 
-      {/* Главная цифра: доход забега на карте, итог сессии в городе. */}
-      {place === 'map' && run && (
-        <div className="ov-hero">
-          <Fe value={run.netFe} signed />
-          {delta !== null && <Delta value={delta} heat={heat} />}
-        </div>
-      )}
-      {place === 'town' && (
-        <div className="ov-hero">
-          <Fe value={sessionNet} signed />
-          <span className="ov-hero-sub">{tr('за сессию', 'this session')}</span>
+      {/* Главная цифра: сколько в час за сессию, вместе с этим забегом.
+          Процент рядом — темп самой карты к норме. */}
+      {place !== 'offline' && (
+        <div className="ov-hero" title={tr('Темп сессии вместе с этим забегом', 'Session pace including this run')}>
+          <Fe value={liveRate} />
+          <span className="ov-hero-sub">{tr('в час', 'per hour')}</span>
+          {place === 'map' && delta !== null && <Delta value={delta} heat={heat} />}
         </div>
       )}
 
-      {/* Забег, час и сессия одним взглядом — на карте, кроме минимума. */}
-      {place === 'map' && run && mode !== 'minimal' && snapshot && (
-        <RunTrio pace={pace} liveRate={snapshot.liveRate} sessionNet={sessionNet} />
+      {/* Забег и сессия одним взглядом — на карте, кроме минимума. */}
+      {place === 'map' && run && mode !== 'minimal' && (
+        <RunTrio pace={pace} runNet={run.netFe} sessionNet={sessionNet} />
       )}
 
       <div className="ov-rows">
-        {/* В компактном режиме на карте норма уже стоит за процентом у
-            главной цифры, а строка ушла под тройку. */}
-        {!(place === 'map' && mode === 'compact') && (
+        {place === 'town' && (
           <div className="ov-row">
             <Icon name="pace" />
-            <span>{tr('темп, медиана', 'pace, median')}</span>
+            <span>{tr('итог сессии', 'session total')}</span>
             <b>
-              <Fe value={median} />
-              <small>{tr('/ч', '/h')}</small>
+              <Fe value={sessionNet} signed />
             </b>
           </div>
         )}
@@ -412,7 +406,7 @@ export function OverlayApp() {
           <div className="ov-row ov-row-dim">
             <Icon name="runs" />
             <span>
-              {pluralize(snapshot.totals.runs, RUN)} · {confidence(snapshot)}
+              {pluralize(snapshot.totals.runs, RUN)} {tr('за сессию', 'this session')}
             </span>
           </div>
         )}
@@ -443,8 +437,8 @@ export function OverlayApp() {
 
 function Delta({ value, heat }: { value: number; heat: Heat | null }) {
   const title = tr(
-    'Темп этой карты к норме — медиане последних 20 забегов',
-    'This map’s pace vs the norm — the median of the last 20 runs',
+    'Темп этой карты к норме — сколько в час дали последние 20 забегов',
+    'This map’s pace vs the norm — the per-hour pace of the last 20 runs',
   );
   return (
     <span
@@ -459,7 +453,7 @@ function Delta({ value, heat }: { value: number; heat: Heat | null }) {
 
 /**
  * «Лента» — оверлей в одну строку у края экрана, как HUD в гонках:
- * таймер и карта, доход забега с отклонением, темп и итог сессии, цель,
+ * таймер и карта, в час за сессию с отклонением карты, забег и итог сессии, цель,
  * находки чипами по ступеням ценности и крупное за сессию. Подробности
  * не разворачиваются в самой ленте — их открывает пульт (Ctrl+Alt+T).
  */
@@ -498,9 +492,10 @@ function StripLine({
           </span>
           <span className="ov-mapname">{run.name}</span>
           <i className="ov-sep" />
-          <span className="ov-line-hero">
-            <Fe value={run.netFe} signed />
+          <span className="ov-line-hero" title={tr('Темп сессии вместе с этим забегом', 'Session pace including this run')}>
+            <Fe value={snapshot.liveRate} />
           </span>
+          <span className="ov-kv">{tr('в час', 'per hour')}</span>
           {delta !== null && <Delta value={delta} heat={heat} />}
         </>
       )}
@@ -511,10 +506,10 @@ function StripLine({
             {tr('в городе', 'in town')}
           </span>
           <i className="ov-sep" />
-          <span className="ov-line-hero">
-            <Fe value={sessionNet} signed />
+          <span className="ov-line-hero" title={tr('Темп сессии', 'Session pace')}>
+            <Fe value={snapshot.liveRate} />
           </span>
-          <span className="ov-kv">{tr('за сессию', 'this session')}</span>
+          <span className="ov-kv">{tr('в час', 'per hour')}</span>
         </>
       )}
       {place === 'offline' && (
@@ -526,8 +521,7 @@ function StripLine({
               : tr('нет игры', 'no game')}
           </span>
           <span className="ov-kv">
-            {tr('медиана', 'median')} <b>{num(snapshot.rate.median)}</b>
-            {tr('/ч', '/h')}
+            {tr('в час', 'per hour')} <b>{num(snapshot.liveRate)}</b>
           </span>
         </>
       )}
@@ -535,18 +529,22 @@ function StripLine({
       {place !== 'offline' && (
         <>
           <i className="ov-sep" />
-          <span className="ov-kv" title={tr('Темп сессии вместе с этим забегом', 'Session pace including this run')}>
-            {tr('в час', 'per hour')} <b>{num(snapshot.liveRate)}</b>
-          </span>
-          {place === 'map' && (
+          {place === 'map' && run && (
             <span className="ov-kv">
-              {tr('сессия', 'session')}{' '}
+              {tr('забег', 'run')}{' '}
               <b>
-                {sessionNet > 0 ? '+' : ''}
-                {num(sessionNet)}
+                {run.netFe > 0 ? '+' : ''}
+                {num(run.netFe)}
               </b>
             </span>
           )}
+          <span className="ov-kv">
+            {tr('сессия', 'session')}{' '}
+            <b>
+              {sessionNet > 0 ? '+' : ''}
+              {num(sessionNet)}
+            </b>
+          </span>
           {place === 'town' && previous && (
             <span className="ov-kv">
               <span className="ov-mapname">{previous.name}</span>
@@ -643,17 +641,17 @@ function goldOf(prefs: GornOverlayPrefs, snapshot: Snapshot): number {
 }
 
 /**
- * Забег, час и сессия рядом: «иду ли я лучше обычного» и «сколько всего»
- * читаются одним взглядом, без режима «полный». Темп забега до минуты
- * не показывается — знаменатель слишком мал.
+ * Забег и сессия рядом с главной цифрой: «иду ли я лучше обычного» и
+ * «сколько всего» читаются одним взглядом, без режима «полный». Темп
+ * забега до минуты не показывается — знаменатель слишком мал.
  */
 function RunTrio({
   pace,
-  liveRate,
+  runNet,
   sessionNet,
 }: {
   pace: number | null;
-  liveRate: number;
+  runNet: number;
   sessionNet: number;
 }) {
   return (
@@ -662,9 +660,12 @@ function RunTrio({
         <small>{tr('забег, /ч', 'run, /h')}</small>
         <b>{pace === null ? '—' : num(pace)}</b>
       </div>
-      <div title={tr('Темп сессии вместе с этим забегом', 'Session pace including this run')}>
-        <small>{tr('в час', 'per hour')}</small>
-        <b>{num(liveRate)}</b>
+      <div title={tr('Доход этого забега', 'This run’s income')}>
+        <small>{tr('забег', 'run')}</small>
+        <b>
+          {runNet > 0 ? '+' : ''}
+          {num(runNet)}
+        </b>
       </div>
       <div title={tr('Итог сессии', 'Session total')}>
         <small>{tr('сессия', 'session')}</small>
@@ -809,14 +810,3 @@ const GoalProgress = memo(function GoalProgress({
     </div>
   );
 });
-
-function confidence(snapshot: Snapshot): string {
-  switch (snapshot.rate.confidence) {
-    case 'insufficient':
-      return tr('данных мало', 'not enough data');
-    case 'emerging':
-      return tr('есть картина', 'taking shape');
-    default:
-      return tr('надёжно', 'reliable');
-  }
-}

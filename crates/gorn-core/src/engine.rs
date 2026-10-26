@@ -31,7 +31,7 @@ use crate::patterns::{is_map_key_type, is_untracked_loot_type, patterns, UNTRACK
 use crate::prices::{choose_price, community_reference, is_bound_name, price_trend, PriceSource, PriceStore, PriceTrend, OWN_PRICE_TTL_MS};
 use crate::retroscan::{retro_scan, run_cost, run_value, RetroScanProgress};
 use crate::segmenter::RunSegmenter;
-use crate::stats::{percentile, per_hour, sort_num, summarize, RateSummary};
+use crate::stats::{percentile, per_hour, sort_num, summarize_timed, RateSummary};
 use crate::storage::Storage;
 use crate::trade::{merge_by_key, recall_key, TradeLedger};
 use crate::types::*;
@@ -1272,7 +1272,7 @@ impl Engine {
         let (closed, _, _) = self.visible_runs();
         let matched: Vec<&Run> = closed.farming.iter().filter(|r| needle.is_empty() || self.search_text(r).contains(&needle)).collect();
         let (mut net_fe, mut in_map_ms) = (0.0, 0i64);
-        let (mut rates, mut nets) = (vec![], vec![]);
+        let (mut rates, mut nets, mut rated_net) = (vec![], vec![], 0.0);
         let pricing = self.run_pricing();
         for run in &matched {
             let net = run_net(run, &*pricing);
@@ -1285,13 +1285,14 @@ impl Engine {
             in_map_ms += active;
             rates.push(per_hour(net, active as f64));
             nets.push(net);
+            rated_net += net;
         }
         let start = matched.len().saturating_sub(RUN_QUERY_LIMIT);
         RunQueryResult {
             total: matched.len(),
             net_fe,
             in_map_ms,
-            rate: summarize(&rates, Some(&nets)),
+            rate: summarize_timed(&rates, Some(&nets), rated_net, in_map_ms),
             runs: matched[start..].iter().rev().map(|r| self.to_view(r)).collect(),
         }
     }
@@ -1736,8 +1737,10 @@ impl Engine {
         let farming = &closed.farming;
         let rated: Vec<Run> = farming.iter().filter(|r| !is_prison_run(r)).cloned().collect();
         let nets: Vec<f64> = rated.iter().map(|r| run_net(r, pricing)).collect();
-        let net_rates: Vec<f64> = rated.iter().zip(&nets).map(|(r, n)| per_hour(*n, active_duration(r, IDLE_CAP_MS, None) as f64)).collect();
-        let fe_rates: Vec<f64> = rated.iter().map(|r| per_hour(run_fe(r) as f64, active_duration(r, IDLE_CAP_MS, None) as f64)).collect();
+        let actives: Vec<i64> = rated.iter().map(|r| active_duration(r, IDLE_CAP_MS, None)).collect();
+        let active_total: i64 = actives.iter().sum();
+        let net_rates: Vec<f64> = nets.iter().zip(&actives).map(|(n, a)| per_hour(*n, *a as f64)).collect();
+        let fe_rates: Vec<f64> = rated.iter().zip(&actives).map(|(r, a)| per_hour(run_fe(r) as f64, *a as f64)).collect();
         let fe_amounts: Vec<f64> = rated.iter().map(|r| run_fe(r) as f64).collect();
 
         let unpriced_drops = farming.iter().map(|r| r.drops.iter().filter(|d| pricing(r, d.config_base_id).is_none()).count()).sum();
@@ -1764,9 +1767,9 @@ impl Engine {
         let agg = HistoryAggregates {
             version: self.version.get(),
             valid_until: self.aggregates_expire_at(now),
-            rate: summarize(&net_rates, Some(&nets)),
-            fe_rate: summarize(&fe_rates, Some(&fe_amounts)),
-            norm: rolling_norm(&net_rates, NORM_WINDOW),
+            rate: summarize_timed(&net_rates, Some(&nets), nets.iter().sum(), active_total),
+            fe_rate: summarize_timed(&fe_rates, Some(&fe_amounts), fe_amounts.iter().sum(), active_total),
+            norm: rolling_per_hour(&nets, &actives, NORM_WINDOW),
             recent: rated[start..].iter().rev().map(|r| self.to_view(r)).collect(),
             strategies: group_by_strategy(&rated, pricing, IDLE_CAP_MS)
                 .into_iter()

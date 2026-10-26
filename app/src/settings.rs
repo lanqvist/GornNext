@@ -173,6 +173,8 @@ fn normalize(s: &Value, fresh: &Value) -> Value {
         }
     }
     d["allSeasons"] = json!(s["allSeasons"].as_bool() == Some(true));
+    // Выбор персонажа убран: старый фильтр из файла не действует.
+    d["playerFilter"] = Value::Null;
     let excluded: Vec<i64> = s["excludedItems"]
         .as_array()
         .map(|a| a.iter().filter_map(Value::as_i64).collect())

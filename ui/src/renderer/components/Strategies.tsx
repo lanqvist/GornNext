@@ -3,7 +3,7 @@ import { RUN, pluralize } from '../../core/plural.js';
 import type { Snapshot } from '../../main/engine.js';
 import { num } from '../format.js';
 import { Fe } from './Fe.js';
-import { ConfidenceBadge, ItemIcon } from './ui.js';
+import { ItemIcon } from './ui.js';
 
 /**
  * Сравнение стратегий.
@@ -21,7 +21,7 @@ export function Strategies({ snapshot }: { snapshot: Snapshot }) {
   // Подсвечивать «1 136 в час» на двух забегах — ровно та ошибка,
   // против которой построен весь остальной интерфейс.
   const trustworthy = strategies.filter((s) => s.rate.confidence !== 'insufficient');
-  const best = trustworthy.length > 1 ? Math.max(...trustworthy.map((s) => s.rate.median)) : null;
+  const best = trustworthy.length > 1 ? Math.max(...trustworthy.map((s) => s.rate.perHour)) : null;
 
   return (
     <section className="card">
@@ -32,7 +32,7 @@ export function Strategies({ snapshot }: { snapshot: Snapshot }) {
           return (
             <div
               key={s.key}
-              className={`strategy ${best !== null && s.rate.median === best ? 'best' : ''}`}
+              className={`strategy ${best !== null && s.rate.perHour === best ? 'best' : ''}`}
             >
               <div className="strategy-head">
                 {s.costItems.length > 0 && (
@@ -48,16 +48,12 @@ export function Strategies({ snapshot }: { snapshot: Snapshot }) {
               </div>
 
               <div className="strategy-rate">
-                <Fe value={s.rate.median} />
+                <Fe value={s.rate.perHour} />
                 <span className="muted small">{tr('в час', 'per hour')}</span>
               </div>
 
               <div className="strategy-meta">
-                <ConfidenceBadge level={s.rate.confidence} />
                 <span className="muted">{pluralize(s.runs, RUN)}</span>
-                <span className="muted">
-                  {tr('разброс', 'range')} {num(s.rate.p25)}–{num(s.rate.p75)}
-                </span>
               </div>
 
               <div className="strategy-money">
@@ -86,7 +82,7 @@ export function Strategies({ snapshot }: { snapshot: Snapshot }) {
 }
 
 /**
- * Сравнение стратегий одним взглядом: полосы медиан с усами P25–P75.
+ * Сравнение стратегий одним взглядом: полосы «в час».
  * Честность про размер выборки закодирована в геометрию: «данных мало» —
  * тонкая полупрозрачная полоса, ей веришь ровно настолько, насколько видно.
  */
@@ -97,7 +93,7 @@ function StrategyBars({
   strategies: Snapshot['strategies'];
   best: number | null;
 }) {
-  const max = Math.max(...strategies.map((s) => Math.max(s.rate.p75, s.rate.median)));
+  const max = Math.max(...strategies.map((s) => s.rate.perHour));
   if (max <= 0) return null;
   const pct = (v: number) => `${Math.max(0, Math.min(100, (v / max) * 100))}%`;
 
@@ -113,24 +109,12 @@ function StrategyBars({
             <div className="stratbar-track">
               <i
                 className={`stratbar-bar ${weak ? 'stratbar-weak' : ''} ${
-                  best !== null && s.rate.median === best ? 'stratbar-best' : ''
+                  best !== null && s.rate.perHour === best ? 'stratbar-best' : ''
                 }`}
-                style={{ width: pct(s.rate.median) }}
+                style={{ width: pct(s.rate.perHour) }}
               />
-              {s.rate.p75 > s.rate.p25 && (
-                <i
-                  className="stratbar-band"
-                  style={{
-                    left: pct(s.rate.p25),
-                    width: `${Math.max(
-                      1,
-                      ((s.rate.p75 - s.rate.p25) / max) * 100,
-                    )}%`,
-                  }}
-                />
-              )}
             </div>
-            <span className="stratbar-value num">{num(s.rate.median)}</span>
+            <span className="stratbar-value num">{num(s.rate.perHour)}</span>
           </div>
         );
       })}

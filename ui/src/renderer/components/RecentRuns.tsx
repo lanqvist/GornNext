@@ -9,9 +9,9 @@ import { Fe, FeIcon } from './Fe.js';
 import { Tip } from './ui.js';
 
 /**
- * Мини-распределение темпа по забегам: текст «разброс шире медианы»
- * становится картинкой. Пунктир — медиана; корзина с самым удачным
- * забегом горит акцентом, когда на нём держится заметная доля дохода.
+ * Мини-распределение темпа по забегам. Пунктир — норма, в час за
+ * последние 20 забегов; корзина с самым удачным забегом горит акцентом,
+ * когда на нём держится заметная доля дохода.
  */
 function RateHistogram({ snapshot }: { snapshot: Snapshot }) {
   const rates = snapshot.recent.map((r) => r.perHour);
@@ -29,7 +29,7 @@ function RateHistogram({ snapshot }: { snapshot: Snapshot }) {
   const top = Math.max(...bins);
   const bestBin = Math.min(BIN_COUNT - 1, Math.floor(((max - min) / span) * BIN_COUNT));
   const highlightBest = snapshot.rate.topShare > 0.3;
-  const medianX = ((snapshot.rate.median - min) / span) * 100;
+  const normX = Math.max(0, Math.min(100, ((snapshot.norm - min) / span) * 100));
 
   const w = 160;
   const h = 40;
@@ -70,17 +70,11 @@ function RateHistogram({ snapshot }: { snapshot: Snapshot }) {
           </rect>
         );
       })}
-      <line
-        x1={`${medianX}%`}
-        x2={`${medianX}%`}
-        y1={0}
-        y2={h}
-        className="hist-median"
-      >
+      <line x1={`${normX}%`} x2={`${normX}%`} y1={0} y2={h} className="hist-median">
         <title>
           {tr(
-            `медиана ${num(snapshot.rate.median)} ФЕ/час`,
-            `median ${num(snapshot.rate.median)} FE/h`,
+            `последние 20 забегов: ${num(snapshot.norm)} ФЕ/час`,
+            `last 20 runs: ${num(snapshot.norm)} FE/h`,
           )}
         </title>
       </line>
@@ -102,11 +96,14 @@ function localQuery(runs: RunView[], query: string): RunQueryResult {
   );
   const rates = matched.map((r) => r.perHour).sort((a, b) => a - b);
   const median = rates.length > 0 ? rates[Math.floor(rates.length / 2)]! : 0;
+  const netFe = matched.reduce((a, r) => a + r.netFe, 0);
+  const inMapMs = matched.reduce((a, r) => a + r.activeMs, 0);
   return {
     total: matched.length,
-    netFe: matched.reduce((a, r) => a + r.netFe, 0),
-    inMapMs: matched.reduce((a, r) => a + r.activeMs, 0),
+    netFe,
+    inMapMs,
     rate: {
+      perHour: inMapMs > 0 ? (netFe / inMapMs) * 3_600_000 : 0,
       median,
       mean: median,
       p25: median,
@@ -145,11 +142,11 @@ export function RecentRuns({ snapshot }: { snapshot: Snapshot }) {
       else setFound(localQuery(snapshot.recent, q));
     }, 250);
     return () => clearTimeout(timer);
-  }, [query, latestKey, snapshot.playerFilter]);
+  }, [query, latestKey]);
 
   const searching = query.trim() !== '';
   const runs = searching ? (found?.runs ?? []) : snapshot.recent;
-  const median = snapshot.norm;
+  const norm = snapshot.norm;
   if (snapshot.recent.length === 0 && !searching) return null;
 
   const exportCsv = async () => {
@@ -180,8 +177,8 @@ export function RecentRuns({ snapshot }: { snapshot: Snapshot }) {
             onClick={() => void exportCsv()}
             disabled={!window.gorn}
             title={tr(
-              'Все забеги в CSV для Excel: время, карта, стратегия, добыча, вложения, чистыми. С учётом фильтра по персонажу.',
-              'All runs to CSV for Excel: time, map, strategy, loot, map costs, net. Respects the character filter.',
+              'Все забеги в CSV для Excel: время, карта, стратегия, добыча, вложения, чистыми.',
+              'All runs to CSV for Excel: time, map, strategy, loot, map costs, net.',
             )}
           >
             ⤓ CSV
@@ -198,7 +195,7 @@ export function RecentRuns({ snapshot }: { snapshot: Snapshot }) {
             <>
               {pluralize(found.total, RUN)} · {tr('чистыми', 'net')}{' '}
               <Fe value={found.netFe} signed /> ·{' '}
-              {tr('медиана', 'median')} {num(found.rate.median)}/{tr('час', 'h')} ·{' '}
+              {num(found.rate.perHour)} {tr('в час', 'per hour')} ·{' '}
               {duration(found.inMapMs)} {tr('в картах', 'in maps')}
               {found.total > found.runs.length && (
                 <span className="muted">
@@ -227,8 +224,8 @@ export function RecentRuns({ snapshot }: { snapshot: Snapshot }) {
               <th className="r">
                 <Tip
                   tip={tr(
-                    'Отклонение темпа забега от «нормы» — медианы последних забегов.',
-                    "How far the run's rate is from the “norm”: the median of recent runs.",
+                    'Отклонение темпа забега от «нормы» — сколько в час дали последние 20 забегов вместе.',
+                    "How far the run's rate is from the “norm”: the per-hour pace of the last 20 runs together.",
                   )}
                 >
                   {tr('К норме', 'Vs norm')}
@@ -238,7 +235,7 @@ export function RecentRuns({ snapshot }: { snapshot: Snapshot }) {
           </thead>
           <tbody>
             {runs.map((r) => {
-              const delta = median > 0 ? Math.round(((r.perHour - median) / median) * 100) : 0;
+              const delta = norm > 0 ? Math.round(((r.perHour - norm) / norm) * 100) : 0;
               const isOpen = openKey === r.key;
               const toggle = () => setOpenKey(isOpen ? null : r.key);
               // Поиск достаёт и старые забеги — им нужна дата, не только время.
@@ -273,7 +270,7 @@ export function RecentRuns({ snapshot }: { snapshot: Snapshot }) {
                   </td>
                   <td className="r muted">{num(r.perHour)}</td>
                   <td className={`r ${delta >= 0 ? 'up' : 'down'}`}>
-                    {median > 0 ? `${delta >= 0 ? '+' : '−'}${Math.abs(delta)}%` : '—'}
+                    {norm > 0 ? `${delta >= 0 ? '+' : '−'}${Math.abs(delta)}%` : '—'}
                   </td>
                 </tr>,
                 isOpen && (

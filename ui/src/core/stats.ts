@@ -8,14 +8,18 @@
  * описывать типичный забег. Игрок принимает решения по числу,
  * которого не увидит ни в одном забеге.
  *
- * Поэтому главная метрика — медиана, а рядом всегда показывается,
- * насколько ей можно верить.
+ * Главное число на экране — perHour: вся добыча ÷ всё время в картах.
+ * Медиана по забегам описывает «типичную карту», а не сколько выходит
+ * за час, — на экраны она больше не выводится.
  */
 
 export interface RateSummary {
-  /** Медиана — главное число на экране. */
+  /**
+   * В час — главное число на экране: вся добыча забегов за вычетом
+   * вложений ÷ всё их активное время. Считает ядро (summarize_timed).
+   */
+  perHour: number;
   median: number;
-  /** Среднее — рядом мелким шрифтом, для сравнения с другими трекерами. */
   mean: number;
   p25: number;
   p75: number;
@@ -82,6 +86,7 @@ export function summarize(values: number[], amounts: number[] = values): RateSum
   const n = values.length;
   if (n === 0) {
     return {
+      perHour: 0,
       median: 0,
       mean: 0,
       p25: 0,
@@ -95,6 +100,8 @@ export function summarize(values: number[], amounts: number[] = values): RateSum
   const total = values.reduce((a, b) => a + b, 0);
 
   return {
+    // Без времени забегов темпа «в час» нет — его досчитывает ядро.
+    perHour: 0,
     median: percentile(sorted, 0.5),
     mean: total / n,
     p25: percentile(sorted, 0.25),

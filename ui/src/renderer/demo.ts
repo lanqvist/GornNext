@@ -41,6 +41,7 @@ const compassCosts = [
 ];
 
 const rateOf = (median: number, p25: number, p75: number, n: number) => ({
+  perHour: Math.round((p25 + median + p75) / 3),
   median,
   mean: Math.round((p25 + median + p75) / 3),
   p25,
@@ -188,6 +189,7 @@ export const demoSnapshot: Snapshot = {
     ),
   ],
   rate: {
+    perHour: 913,
     median: 702,
     mean: 913,
     p25: 388,
@@ -197,6 +199,7 @@ export const demoSnapshot: Snapshot = {
     topShare: 0.34,
   },
   feRate: {
+    perHour: 602,
     median: 415,
     mean: 602,
     p25: 0,
@@ -228,6 +231,7 @@ export const demoSnapshot: Snapshot = {
       ],
       runs: 14,
       rate: {
+        perHour: 1_104,
         median: 918,
         mean: 1_104,
         p25: 640,
@@ -246,6 +250,7 @@ export const demoSnapshot: Snapshot = {
       costItems: [],
       runs: 9,
       rate: {
+        perHour: 455,
         median: 412,
         mean: 455,
         p25: 300,

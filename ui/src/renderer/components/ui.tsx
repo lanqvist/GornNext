@@ -18,47 +18,6 @@ export function Tip({ tip, children }: { tip: string; children: React.ReactNode 
   );
 }
 
-type ConfidenceLevel = 'insufficient' | 'emerging' | 'solid';
-
-/** Функция, а не константа: подписи зависят от языка, а он ставится после импорта. */
-function confidence(level: ConfidenceLevel): { label: string; tone: string; tip: string } {
-  switch (level) {
-    case 'insufficient':
-      return {
-        label: tr('данных мало', 'not enough data'),
-        tone: 'weak',
-        tip: tr(
-          'Меньше 15 забегов — цифра ещё гуляет от каждой находки.',
-          'Fewer than 15 runs — every drop still swings the number.',
-        ),
-      };
-    case 'emerging':
-      return {
-        label: tr('есть картина', 'taking shape'),
-        tone: 'mid',
-        tip: tr(
-          'От 15 забегов — картина складывается, но редкие дорогие находки ещё недооценены.',
-          '15+ runs — the picture is taking shape, but rare expensive drops are still underweighted.',
-        ),
-      };
-    case 'solid':
-      return {
-        label: tr('надёжно', 'reliable'),
-        tone: 'good',
-        tip: tr('От 50 забегов — медиане можно верить.', '50+ runs — the median can be trusted.'),
-      };
-  }
-}
-
-export function ConfidenceBadge({ level }: { level: ConfidenceLevel }) {
-  const conf = confidence(level);
-  return (
-    <Tip tip={conf.tip}>
-      <span className={`badge badge-${conf.tone}`}>{conf.label}</span>
-    </Tip>
-  );
-}
-
 /**
  * Имя предмета, копируемое кликом. Цену пробивают поиском на бирже,
  * и перепечатывать «Voidlands Beacon (Timemark 8)» руками — мучение.
