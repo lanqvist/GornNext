@@ -164,3 +164,46 @@ fn tongs_tusk_mark() {
     a.board(&swapped);
     assert!(!a.mem.cells[5].tusk);
 }
+
+/// «Выберите цель» по нажатию карточки решения у льва с «Капканом» — добыча, даже
+/// если ряда с «Выслеживанием» не видели [кадры 26.10 23:50:53–54]; после «Подтвердить»
+/// окна события — крысиная тропа.
+#[test]
+fn target_screen_after_action_click_is_hunt() {
+    use gorn_prison::view::Decision;
+    let board = |decision: Option<Decision>| {
+        let mut cells: Vec<CellView> = (0..CELLS).map(|_| CellView::new(CellKind::Locked)).collect();
+        cells[0] = CellView::new(CellKind::Office);
+        for (n, b, t) in [(3, 1, 4), (15, 2, 4), (10, 3, 4)] {
+            cells[n] = CellView::new(CellKind::Inmate);
+            cells[n].beast = Some(b);
+            cells[n].tier = Some(t);
+        }
+        BoardView {
+            cells,
+            warden: Some(3),
+            days_left: Some(7),
+            doors: vec![],
+            decision,
+            chain: None,
+            tools: vec![],
+            tool_slots: None,
+            chromatic: -1,
+            objective: None,
+            at: BoardAt { cells: vec![], door_cards: vec![], decision_cards: vec![], decision_kinds: vec![], cancel: None },
+        }
+    };
+    for (click, trap, want) in [(true, true, Step::Hunt), (false, true, Step::Ratway), (true, false, Step::Ratway)] {
+        let mut a = PrisonAdapter::new(None);
+        a.start_run();
+        a.log_day(Some((13, 20)));
+        a.mem.tools = if trap { vec![tool::TRAP] } else { vec![] };
+        // Утренний обход уже был: «Выберите цель» в начале дня — вчерашняя надпись.
+        let mut patrol = board(None);
+        patrol.doors = vec![3];
+        a.board(&patrol);
+        a.action_click = click;
+        a.board(&board(Some(Decision::Ratway)));
+        assert_eq!(a.mem.step, want, "нажатие {click}, капкан {trap}");
+    }
+}

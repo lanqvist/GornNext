@@ -285,6 +285,8 @@ impl OwnAdvisor {
         }
         // День — по логу (главный источник), экран — запасной.
         self.adapter.log_day(msg.day);
+        let click = |b: &str| msg.events.iter().any(|e| e.strip_prefix("click:") == Some(b));
+        self.adapter.action_click = click("Btn_S16Board_ActionCell") && !click("Btn_S16Board_EventPop_Confirm");
         let (w, h) = (msg.width, msg.height);
         let mut ctx_gifts: Option<Vec<[f64; 4]>> = None;
         let mut ctx_reason = String::new();

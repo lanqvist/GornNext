@@ -115,18 +115,24 @@ pub fn read_door_number(frame: &Frame, geo: &Geometry, cx: f64, digits: &DigitSe
     }
 }
 
+/// Сдвиги значка по вертикали (опорные px): карточка под курсором приподнята
+/// [кадр 26.10 23:50:45, 21:9: «Выслеживание» не узналось, совет — без него].
+const CARD_DY: [f64; 4] = [0.0, -5.0, -10.0, -15.0];
+
 /// Значок карточки решения → класс по прототипам.
 pub fn classify_card<'a>(frame: &Frame, geo: &Geometry, cx: f64, protos: &'a [Proto]) -> (&'a str, f64) {
     let mut buf = [0.0f32; 12 * 12 * 3];
-    sample_into(frame, geo, [cx - 48.0, 770.0, cx + 48.0, 866.0], 12, 12, 3, &mut buf);
-    normalize(&mut buf);
     let mut label = "";
     let mut score = -2.0;
-    for p in protos {
-        let s = dot(&buf, &p.v);
-        if s > score {
-            score = s;
-            label = &p.label;
+    for dy in CARD_DY {
+        sample_into(frame, geo, [cx - 48.0, 770.0 + dy, cx + 48.0, 866.0 + dy], 12, 12, 3, &mut buf);
+        normalize(&mut buf);
+        for p in protos {
+            let s = dot(&buf, &p.v);
+            if s > score {
+                score = s;
+                label = &p.label;
+            }
         }
     }
     (label, score)

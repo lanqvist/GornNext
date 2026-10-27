@@ -585,6 +585,10 @@ pub struct PrisonAdapter {
     /// Доска до окна или сразу после «Подтвердить» — со старыми призмами
     /// (анимация): по ней остаток только растёт.
     pub board_viewed: bool,
+    /// Кадр снят по нажатию карточки решения (не «Подтвердить» окна события):
+    /// «Выберите цель» за ним у льва-надзирателя с «Капканом» — выбор добычи,
+    /// даже если ряда с «Выслеживанием» не видели.
+    pub action_click: bool,
 }
 
 impl PrisonAdapter {
@@ -606,6 +610,7 @@ impl PrisonAdapter {
             chain_taken: 0,
             gift_prediction: 0,
             board_viewed: false,
+            action_click: false,
         }
     }
 
@@ -659,9 +664,15 @@ impl PrisonAdapter {
         m.first_bite = false;
         // Выбор добычи «Выслеживания»: редкости с неё не перечитываем.
         let stale = self.fresh_day && ratway;
+        // Ряд с «Выслеживанием» не снят, а цель выбирают по нажатию карточки решения
+        // у льва с «Капканом» — это добыча [кадры 26.10 23:50:53–54: совет «Выбери №7»
+        // как для крысиной тропы].
+        let lion_click = self.action_click
+            && m.tools.contains(&tool::TRAP)
+            && v.warden.is_some_and(|w| v.cells[w].beast.map(|b| b as i32) == Some(LION) || m.cells[w].b == Some(LION));
         let hunt_screen = !stale
             && ratway
-            && (m.step == Step::Hunt || (m.step == Step::Manage && m.decision.is_some_and(|d| d.hunt)));
+            && (m.step == Step::Hunt || (m.step == Step::Manage && m.decision.is_some_and(|d| d.hunt)) || lion_click);
         let claws = m.tools.contains(&tool::CLAWS);
         for (n, c) in v.cells.iter().enumerate() {
             if n as i32 == OFFICE || hunt_screen {
