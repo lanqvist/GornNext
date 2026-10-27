@@ -132,8 +132,8 @@ pub struct PrisonShot {
 
 struct Burst {
     kind: ShotKind,
-    settle: f64,
     lines: Vec<String>,
+    /// Снимать не раньше: самый поздний из сроков строк пачки, каждый — от своей строки.
     due: Instant,
 }
 
@@ -247,18 +247,22 @@ impl PrisonTriggers {
         }
         let b = self.burst.get_or_insert(Burst {
             kind,
-            settle: 0.0,
             lines: vec![],
             due: now,
         });
         if rank(kind) > rank(b.kind) {
             b.kind = kind;
         }
-        b.settle = b.settle.max((rule.settle_ms * self.pace).max(250.0));
         if b.lines.len() < 40 {
             b.lines.push(line.to_string());
         }
-        b.due = now + Duration::from_secs_f64(b.settle / 1000.0);
+        // Пауза каждой строки — от неё самой. Раньше наибольшая пауза пачки шла от
+        // последней строки: «дверь» (800) и через ~0,5 с «карточки поднялись» (400)
+        // давали 800 мс после карточек вместо 400 — лишние 0,3–0,4 с на каждом
+        // ходе «дверь → решение» [кадры 26–27.10: 246 пачек из 1 019; ряд решений
+        // после одних «карточек» (400 мс) распознан с первого кадра во всех 19].
+        let settle = (rule.settle_ms * self.pace).max(250.0);
+        b.due = b.due.max(now + Duration::from_secs_f64(settle / 1000.0));
     }
 
     fn fire(&mut self) -> Option<PrisonShot> {
@@ -417,6 +421,26 @@ mod tests {
         assert!(t.poll(now).is_none());
         let s = t.poll(now + Duration::from_millis(900)).expect("кадр");
         assert_eq!(s.kind, ShotKind::Board);
+    }
+
+    /// Карточки решения после двери: 400 мс от карточек, но не раньше 800 мс от двери.
+    #[test]
+    fn settle_from_each_line() {
+        let mut t = PrisonTriggers::new();
+        let now = Instant::now();
+        let mut out = vec![];
+        t.feed(&[l("LogTemp: normal-click Btn_S16Board_RouteCell_3 S16")], now, &mut out);
+        let up = now + Duration::from_millis(500);
+        t.feed(&[l("AudioMgr@PlayAudio  AudioEnum  == UI_S16_Card_Up S16")], up, &mut out);
+        assert!(t.poll(up + Duration::from_millis(350)).is_none());
+        assert!(t.poll(up + Duration::from_millis(410)).is_some());
+        // Карточки сразу за дверью — ждём срок двери.
+        let mut t = PrisonTriggers::new();
+        t.feed(&[l("LogTemp: normal-click Btn_S16Board_RouteCell_3 S16")], now, &mut out);
+        let up = now + Duration::from_millis(150);
+        t.feed(&[l("AudioMgr@PlayAudio  AudioEnum  == UI_S16_Card_Up S16")], up, &mut out);
+        assert!(t.poll(now + Duration::from_millis(790)).is_none());
+        assert!(t.poll(now + Duration::from_millis(810)).is_some());
     }
 
     #[test]
