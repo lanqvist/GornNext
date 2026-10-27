@@ -72,17 +72,19 @@ impl Shots {
         base
     }
 
-    /// Ответ советника — в описание кадра; итоговый ответ записывает файл.
+    /// Ответ советника — в описание кадра, файл переписывается сразу: игрок часто
+    /// ходит раньше итогового ответа, и показанная первой подсказка иначе терялась
+    /// [кадры 27.10: 6 досок с «пустым» советом, хотя стрелка была].
     pub fn reply(&mut self, id: u64, reply: Value, done: bool) {
-        let Some((_, info)) = self.saving.get_mut(&id) else {
+        let Some((base, info)) = self.saving.get_mut(&id) else {
             return;
         };
         if let Some(h) = info["hints"].as_array_mut() {
             h.push(reply);
         }
+        write_info(base, info);
         if done {
-            let (base, info) = self.saving.remove(&id).unwrap();
-            write_info(&base, &info);
+            self.saving.remove(&id);
         }
     }
 }

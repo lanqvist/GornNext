@@ -246,6 +246,9 @@ struct Prev {
     storage: i32,
     picks_pending: u32,
     day: i32,
+    /// Совет и живой совет на прошлой доске.
+    hint: String,
+    live: String,
 }
 
 #[derive(Default)]
@@ -276,7 +279,7 @@ pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, o
         adv.chain_gifts = true;
         adv.init(None, None);
         let stop = StopRule { max_rounds: rounds, ..STOP_DEFAULTS };
-        let mut prev = Prev { board: None, tools: 0, storage: 0, picks_pending: 0, day: -1 };
+        let mut prev = Prev { board: None, tools: 0, storage: 0, picks_pending: 0, day: -1, hint: String::new(), live: String::new() };
         crate::replay::run(dir, from, to, 1000.0, stop, f64::INFINITY, &mut adv, |adv, o| {
             let Some(saved) = o.saved else { return };
             if o.png.is_none() {
@@ -394,6 +397,20 @@ pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, o
                         }
                     }
                 }
+                // Нажали Пожирание по совету — на выборе первой цели совет не отступает
+                // [кадры 27.10 11:15:08–10: «съесть №6», затем «Отменить»: дверь-цель не видели].
+                let live = crate::replay::saved_last_hint(&saved["hints"]);
+                let bite = events.iter().any(|e| e == "click:Btn_S16Board_ActionCell");
+                let turned = |before: &str, now: &str| chain && bite && before.starts_with("Пожирание: съесть") && now.starts_with("Отменить");
+                if turned(&prev.hint, &hint) {
+                    fails.push(format!("совет развернулся: «{}» → «{hint}»", prev.hint));
+                    t.flag("совет развернулся (повтор)", format!("{id}: «{}» → «{hint}»", prev.hint));
+                }
+                if turned(&prev.live, &live) {
+                    t.flag("совет развернулся (вживую)", format!("{id}: «{}» → «{live}»", prev.live));
+                }
+                prev.hint = hint.clone();
+                prev.live = live;
                 // Взятое орудие не прибавилось.
                 if b.tool_slots.is_some() {
                     if prev.picks_pending > 0 && mem.tools.len() < prev.tools + prev.picks_pending as usize && !chain {

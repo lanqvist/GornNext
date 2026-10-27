@@ -100,6 +100,10 @@ pub fn read_cell(frame: &Frame, geo: &Geometry, cell: usize, t: &CellsTemplate, 
         view.kind = CellKind::Locked;
         if label == "unknown" && score >= PORTRAIT_MIN {
             view.shown_tier = Some(read_tier(frame, geo, cell, false));
+            // Цель цепочки сквозь дверь (Когти): клыки вокруг «?» [кадр 27.10 11:18:03, №10].
+            if chain && chain_jaw_share(frame, geo, cell) >= CHAIN_JAW_MIN {
+                view.jaws = Some(true);
+            }
         }
     } else if is_beast {
         view.kind = CellKind::Inmate;

@@ -87,6 +87,8 @@ pub struct Assist {
     enabled: bool,
     next_id: u64,
     latest: Arc<AtomicU64>,
+    /// Кадр, для которого задержка первой подсказки уже в журнале.
+    hint_logged: u64,
     jobs: Option<Sender<Job>>,
     display: Option<Display>,
     game_display: Option<Display>,
@@ -117,6 +119,7 @@ impl Assist {
             enabled: true,
             next_id: 0,
             latest: Arc::new(AtomicU64::new(0)),
+            hint_logged: 0,
             jobs: None,
             display: None,
             game_display: None,
@@ -598,10 +601,26 @@ impl Assist {
             Reply::Settled { id, .. } | Reply::Clear { id } => (*id, true),
             _ => return,
         };
-        if let Some(s) = self.shots.as_mut() {
-            s.reply(id, r.to_json(), done);
-        }
         let sent = self.sent.iter().find(|s| s.0 == id).cloned();
+        // Сколько прошло от хода игрока (метка строки лога, UTC) до этого ответа:
+        // так видно, успевает ли стрелка до следующего хода.
+        let after_click = sent.as_ref().and_then(|s| {
+            let at = s.1.shot.lines.iter().rev().find(|l| player_action(l)).and_then(|l| stamp_ms(l))?;
+            Some(chrono::Utc::now().timestamp_millis() - at)
+        });
+        let mut json = r.to_json();
+        if let Some(ms) = after_click {
+            json["afterClickMs"] = ms.into();
+        }
+        if let Some(s) = self.shots.as_mut() {
+            s.reply(id, json, done);
+        }
+        if let (Reply::Hint { phase, .. }, Some(ms)) = (&r, after_click) {
+            if id == self.next_id && self.hint_logged != id {
+                self.hint_logged = id;
+                crate::log(&format!("[тюрьма] подсказка ({phase}) через {ms} мс после хода — кадр {id}"));
+            }
+        }
         // Подсказка пришла с монитора — это монитор игры.
         if let (Reply::Hint { .. }, Some((_, _, d))) = (&r, &sent) {
             if self.game_display.map(|g| g.hmonitor) != Some(d.hmonitor) {

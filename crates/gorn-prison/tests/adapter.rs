@@ -207,3 +207,48 @@ fn target_screen_after_action_click_is_hunt() {
         assert_eq!(a.mem.step, want, "нажатие {click}, капкан {trap}");
     }
 }
+
+/// Царапина Когтей: «?» за дверью гаснет под окном подарков (память держит),
+/// а на яркой доске его нет — узника съели сквозь дверь, царапины больше нет
+/// [кадры 27.10 11:15:43–11:16:01: «съесть №12» в уже съеденную дверь].
+#[test]
+fn claws_scratch_gone_on_bright_board() {
+    use gorn_prison::view::Decision;
+    let mut a = PrisonAdapter::new(None);
+    a.start_run();
+    a.log_day(Some((5, 20)));
+    a.mem.tools = vec![tool::CLAWS];
+    let mut cells: Vec<CellView> = (0..CELLS).map(|_| CellView::new(CellKind::Locked)).collect();
+    cells[0] = CellView::new(CellKind::Office);
+    cells[3] = CellView::new(CellKind::Inmate);
+    cells[3].beast = Some(3);
+    cells[3].tier = Some(1);
+    cells[11].shown_tier = Some(1);
+    let at = BoardAt { cells: vec![], door_cards: vec![], decision_cards: vec![], decision_kinds: vec![], cancel: None };
+    let patrol = BoardView {
+        cells,
+        warden: Some(3),
+        days_left: None,
+        doors: vec![4],
+        decision: None,
+        chain: None,
+        tools: vec![],
+        tool_slots: None,
+        chromatic: -1,
+        objective: None,
+        at,
+    };
+    a.board(&patrol);
+    assert!(a.mem.cells[11].scratch && a.mem.cells[11].shown == Some(1));
+    // Окно подарков поверх доски: «?» не видно — память держит.
+    let mut overlay = patrol.clone();
+    overlay.doors = vec![];
+    overlay.cells[11].shown_tier = None;
+    a.board(&overlay);
+    assert!(a.mem.cells[11].scratch && a.mem.cells[11].shown == Some(1));
+    // Ряд решений: «?» нет — двери-цели больше нет.
+    let mut manage = overlay.clone();
+    manage.decision = Some(Decision::Manage { consume: true, replace: false, end: true, hunt: false });
+    a.board(&manage);
+    assert!(!a.mem.cells[11].scratch && a.mem.cells[11].shown.is_none());
+}

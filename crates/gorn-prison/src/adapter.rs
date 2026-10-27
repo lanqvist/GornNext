@@ -674,6 +674,8 @@ impl PrisonAdapter {
             && ratway
             && (m.step == Step::Hunt || (m.step == Step::Manage && m.decision.is_some_and(|d| d.hunt)) || lion_click);
         let claws = m.tools.contains(&tool::CLAWS);
+        // Доска без окон поверх: двери патруля или ряд решений камеры/допросной.
+        let bright = !v.doors.is_empty() || matches!(v.decision, Some(Decision::Manage { .. }) | Some(Decision::Office));
         for (n, c) in v.cells.iter().enumerate() {
             if n as i32 == OFFICE || hunt_screen {
                 continue;
@@ -701,7 +703,12 @@ impl PrisonAdapter {
                             m.day
                         });
                     }
-                    let shown = c.shown_tier.map(|x| x as i32).or(if was.kind() == CellK::Locked { was.shown } else { None });
+                    // На яркой доске «?» за дверью видно всегда: нет его — нет и узника
+                    // за ней (съеден сквозь дверь Когтями). Под окнами (подарки, событие)
+                    // значок гаснет — там редкость из памяти [кадры 27.10 11:15:43–11:16:01:
+                    // «Пожирание: съесть №12» в съеденную дверь, дважды].
+                    let kept = if was.kind() == CellK::Locked && !bright { was.shown } else { None };
+                    let shown = c.shown_tier.map(|x| x as i32).or(kept);
                     if let Some(shown) = shown {
                         cell.shown = Some(shown.min(SUPREME));
                         // «Царапины» Когти ставят утром: редкость, впервые показанная на утренней доске.
@@ -807,6 +814,14 @@ impl PrisonAdapter {
                     l.ev = prev.ev || c.event == Some(true);
                     m.cells[n] = l;
                     eaten += 1;
+                } else if c.kind == CellKind::Locked && prev.kind() == CellK::Locked && prev.shown.is_some() && c.shown_tier.is_none() {
+                    // «?» за дверью пропал — узника съели сквозь дверь (Когти).
+                    let mut l = CellMemory::locked();
+                    l.ev = prev.ev || c.event == Some(true);
+                    l.nest = prev.nest;
+                    l.nest_day = prev.nest_day;
+                    m.cells[n] = l;
+                    eaten += 1;
                 } else if c.kind == CellKind::Inmate && prev.kind() != CellK::Inmate {
                     m.cells[n] = CellMemory::inmate(beast_no(c.beast), (c.tier.unwrap_or(0) as i32).min(SUPREME));
                 }
@@ -842,7 +857,12 @@ impl PrisonAdapter {
         for &n in &targets_v {
             let c = m.cells[n].clone();
             if c.kind() == CellK::Locked {
-                continue; // сквозь дверь (Когти)
+                // Сквозь дверь (Когти): клыки у «?» — значит, царапина и редкость с экрана.
+                if let Some(t) = v.cells.get(n).and_then(|s| s.shown_tier) {
+                    m.cells[n].shown = Some((t as i32).min(SUPREME));
+                    m.cells[n].scratch = true;
+                }
+                continue;
             }
             let seen = v.cells.get(n);
             let seen_beast = seen.and_then(|s| s.beast);
