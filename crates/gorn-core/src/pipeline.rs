@@ -135,6 +135,11 @@ pub fn analyze_bytes(bytes: &[u8], opts: AnalyzeOptions) -> AnalysisResult {
         if matches!(ev, LogEvent::FilteredPrice(_)) {
             continue;
         }
+        // Окна механик — только для начала их забега.
+        if let LogEvent::Page { ts, page, open, .. } = &ev {
+            segmenter.page(*ts, page, *open);
+            continue;
+        }
         diag.lines_matched += 1;
         let ts = ev.ts();
         if ts > 0 {
@@ -168,7 +173,7 @@ pub fn analyze_bytes(bytes: &[u8], opts: AnalyzeOptions) -> AnalysisResult {
             LogEvent::LevelIds { level_type, .. } => segmenter.note_level_type(level_type),
             LogEvent::EnterLevel { ts, area_id, .. } => segmenter.enter_level(ts, area_id),
             LogEvent::PriceObservation(p) => prices.push(p),
-            LogEvent::FilteredPrice(_) | LogEvent::GearIdentity { .. } => {}
+            LogEvent::FilteredPrice(_) | LogEvent::GearIdentity { .. } | LogEvent::Page { .. } => {}
             LogEvent::PlayerInfo(p) => {
                 let merged = merge_player_info(players.get(&p.player_id), &p);
                 players.insert(p.player_id.clone(), merged);

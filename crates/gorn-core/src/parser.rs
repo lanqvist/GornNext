@@ -35,6 +35,7 @@ fn may_carry_event(raw: &str) -> bool {
         || raw.contains("LevelMgr")
         || raw.contains("PlayerIdTrace@")
         || raw.contains("SetPlayerEquipment")
+        || (raw.contains("[Game] S") && matches!(raw.trim_end().rsplit(' ').next(), Some("Run" | "Destory")))
 }
 
 fn may_socket_marker(raw: &str) -> bool {
@@ -175,6 +176,9 @@ impl EventParser {
                 return None;
             }
             return Some(LogEvent::GearIdentity { ts: ts?, line, base_id: digits(&m[1]), unique_id });
+        }
+        if let Some(m) = p.season_page.captures(raw) {
+            return Some(LogEvent::Page { ts: ts?, line, page: m[1].to_string(), open: &m[2] == "Run" });
         }
         if let Some(m) = p.player_login.captures(raw) {
             // Id остаётся строкой: в double не влезает.
@@ -411,4 +415,23 @@ pub fn find_value(node: &IndexMap<String, BodyNode>, key: &str) -> Option<String
         }
     }
     None
+}
+
+#[cfg(test)]
+mod season_page_tests {
+    use super::*;
+
+    #[test]
+    fn season_pages() {
+        let mut p = EventParser::new();
+        let ev = p.parse("[2026.10.27-17.49.48:975][443]TLLua: Display: [Game] S16BoardMain Run");
+        assert!(matches!(ev, Some(LogEvent::Page { ref page, open: true, .. }) if page == "S16BoardMain"));
+        let ev = p.parse("[2026.10.27-18.15.22:648][ 12]TLLua: Display: [Game] S13GamePlay Destory\r");
+        assert!(matches!(ev, Some(LogEvent::Page { ref page, open: false, .. }) if page == "S13GamePlay"));
+        // Не окно: «Hide» и строки о страницах с хвостом.
+        assert!(p.parse("[2026.10.27-18.16.57:010][443]TLLua: Display: [Game] S16GamePlayEntry Hide").is_none());
+        assert!(p
+            .parse("[2026.10.27-17.37.36:870][443]TLLua: Display: [Game] TipMsgShowMgr@DispatchPageRunChange PageName = S16BoardMain , PageRunState = Run ")
+            .is_none());
+    }
 }

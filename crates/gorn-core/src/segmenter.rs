@@ -3,6 +3,11 @@
 //! Забег — отрезок между входом в зону и входом в следующую. Хабы (город,
 //! укрытие) помечаются is_hub. Портал в город и обратно — один забег.
 //! Вложения, сделанные в городе перед входом, принадлежат следующей карте.
+//!
+//! Механики вне карт идут в окне убежища и только потом ведут в зону: доска
+//! «Тюрьмы Талоса» (S16BoardMain, минуты ходов) → зона сбора на минуту,
+//! Vorax (S13GamePlay) → операционная. Окно, из которого сразу вошли в зону, —
+//! начало её забега (`entered_at`) [лог 27.10: доска 2,5–3 мин, зона ~1 мин].
 
 use serde::Serialize;
 
@@ -13,6 +18,10 @@ use crate::types::*;
 const RESUME_TTL_MS: i64 = 480_000;
 /// Вложения ждут своей карты не дольше этого.
 const PENDING_TTL_MS: i64 = 300_000;
+/// Окно механики закрылось не раньше этого до входа в зону — значит, вело в неё
+/// (доска → тюрьма и Vorax → операционная: ~1 с; окно наёмников за 11 с до
+/// Разлома в него не вело).
+const PAGE_TO_ZONE_MS: i64 = 5_000;
 
 /// Незакрытое состояние нарезки — передаётся живому дочитыванию.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -25,6 +34,16 @@ pub struct SegmenterState {
     pub pending_level_type: Option<i64>,
     pub player_id: Option<String>,
     pub season_id: Option<f64>,
+    pub mechanic: Mechanic,
+}
+
+/// Окна сезонной механики в убежище: какие открыты, с какого момента, когда закрылись все.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mechanic {
+    pub open: Vec<String>,
+    pub since: Option<i64>,
+    pub closed_at: Option<i64>,
 }
 
 #[derive(Default)]
@@ -36,6 +55,7 @@ pub struct RunSegmenter {
     player_id: Option<String>,
     season_id: Option<f64>,
     pending_costs: Vec<ItemDelta>,
+    mechanic: Mechanic,
 }
 
 impl RunSegmenter {
@@ -59,9 +79,48 @@ impl RunSegmenter {
         self.season_id = s;
     }
 
+    /// Окно сезонной механики (`S16BoardMain`, `S13GamePlay`…) открылось или закрылось.
+    /// Считаются только окна в убежище: на карте доску лишь смотрят.
+    pub fn page(&mut self, ts: i64, page: &str, open: bool) {
+        if self.current.as_ref().is_some_and(|c| !c.is_hub) {
+            return;
+        }
+        let m = &mut self.mechanic;
+        if open {
+            if m.open.is_empty() && (m.since.is_none() || m.closed_at.is_some()) {
+                m.since = Some(ts);
+                m.closed_at = None;
+            }
+            if !m.open.iter().any(|p| p == page) {
+                m.open.push(page.to_string());
+            }
+        } else if let Some(i) = m.open.iter().position(|p| p == page) {
+            m.open.remove(i);
+            if m.open.is_empty() {
+                m.closed_at = Some(ts);
+            }
+        }
+    }
+
+    /// Начало забега механики: её окно открыто или только что закрылось входом в зону.
+    fn take_entered(&mut self, ts: i64, is_hub: bool) -> Option<i64> {
+        let m = std::mem::take(&mut self.mechanic);
+        let led_in = !m.open.is_empty() || m.closed_at.is_some_and(|c| ts - c <= PAGE_TO_ZONE_MS);
+        m.since.filter(|&s| !is_hub && led_in && s < ts)
+    }
+
     pub fn enter_level(&mut self, ts: i64, area_id: i64) {
-        self.close_current(ts);
         let is_hub = is_hub_asset(self.pending_asset.as_deref());
+        let entered = self.take_entered(ts, is_hub);
+        self.close_current(ts);
+        // Время в окне механики — уже её забег, не убежища.
+        if let Some(e) = entered {
+            if let Some(hub) = self.runs.last_mut().filter(|r| r.is_hub && r.ended_at == Some(ts)) {
+                let end = e.max(hub.started_at);
+                hub.ended_at = Some(end);
+                hub.duration_ms = Some(end - hub.started_at);
+            }
+        }
         if !is_hub && self.try_resume(ts, area_id) {
             return;
         }
@@ -71,6 +130,7 @@ impl RunSegmenter {
             asset: self.pending_asset.take(),
             level_type: self.pending_level_type.take(),
             started_at: ts,
+            entered_at: entered,
             ended_at: None,
             duration_ms: None,
             is_hub,
@@ -153,6 +213,7 @@ impl RunSegmenter {
             pending_level_type: self.pending_level_type,
             player_id: self.player_id.clone(),
             season_id: self.season_id,
+            mechanic: self.mechanic.clone(),
         }
     }
 
@@ -165,6 +226,7 @@ impl RunSegmenter {
         self.pending_level_type = st.pending_level_type;
         self.player_id = st.player_id.clone();
         self.season_id = st.season_id;
+        self.mechanic = st.mechanic.clone();
     }
 
     /// Закрытые забеги — без открытого.
@@ -185,5 +247,58 @@ impl RunSegmenter {
     pub fn finish(&mut self, last_ts: i64) -> Vec<Run> {
         self.close_current(last_ts);
         std::mem::take(&mut self.runs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RunSegmenter;
+
+    fn zone(s: &mut RunSegmenter, ts: i64, asset: &str) {
+        s.note_asset(asset);
+        s.enter_level(ts, 1);
+    }
+
+    #[test]
+    fn prison_board_starts_its_run() {
+        // Лог 27.10 17:49–17:54: вход в механику, доска 2,5 мин, зона сбора.
+        let mut s = RunSegmenter::new();
+        zone(&mut s, 0, "XZ_YuJinZhiXiBiNanSuo200");
+        s.page(100_000, "S16GamePlayEntry", true);
+        s.page(105_000, "S16BoardMain", true);
+        s.page(106_000, "S16BoardRelicPop", true);
+        s.page(107_000, "S16BoardRelicPop", false);
+        s.page(250_000, "S16BoardMain", false);
+        s.page(250_002, "S16GamePlayEntry", false);
+        zone(&mut s, 251_000, "ZhongZuiDiYu");
+        zone(&mut s, 390_000, "XZ_YuJinZhiXiBiNanSuo200");
+        let runs = s.finish(400_000);
+        assert_eq!(runs[0].ended_at, Some(100_000), "убежище — до входа в окно");
+        assert_eq!((runs[1].started_at, runs[1].entered_at), (251_000, Some(100_000)));
+        assert_eq!(runs[2].entered_at, None);
+    }
+
+    #[test]
+    fn board_glance_is_not_an_entry() {
+        let mut s = RunSegmenter::new();
+        zone(&mut s, 0, "XZ_YuJinZhiXiBiNanSuo200");
+        // Посмотрел доску и закрыл; на карту — через полторы минуты.
+        s.page(10_000, "S16BoardMain", true);
+        s.page(190_000, "S16BoardMain", false);
+        zone(&mut s, 272_000, "DD_ChaoBaiZhiLu200");
+        // Доска, открытая на карте, не в счёт.
+        s.page(280_000, "S16BoardMain", true);
+        s.page(281_000, "S16BoardMain", false);
+        zone(&mut s, 290_000, "XZ_YuJinZhiXiBiNanSuo200");
+        // Окно открыто, закрыто и открыто снова — начало с последнего открытия.
+        s.page(300_000, "S13GamePlay", true);
+        s.page(301_000, "S13GamePlay", false);
+        s.page(500_000, "S13GamePlay", true);
+        s.page(600_000, "S13GamePlay", false);
+        zone(&mut s, 601_000, "DiXiaZhenSuo");
+        let runs = s.finish(700_000);
+        assert_eq!(runs[0].ended_at, Some(272_000));
+        assert_eq!(runs[1].entered_at, None);
+        assert_eq!(runs[3].entered_at, Some(500_000));
     }
 }

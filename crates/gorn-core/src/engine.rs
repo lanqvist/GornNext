@@ -911,6 +911,11 @@ impl Engine {
             if matches!(ev, LogEvent::GearIdentity { .. }) {
                 continue;
             }
+            // Окна механик — только для начала их забега, не событие для счётчиков.
+            if let LogEvent::Page { ts, page, open, .. } = &ev {
+                self.segmenter.page(*ts, page, *open);
+                continue;
+            }
             // Пробивка с фильтрами — не событие для счётчиков (как у эталона),
             // но цена экземпляра, если она включена.
             if let LogEvent::FilteredPrice(p) = &ev {
@@ -956,7 +961,7 @@ impl Engine {
                     self.invalidate();
                     self.persist_finished();
                 }
-                LogEvent::FilteredPrice(_) | LogEvent::GearIdentity { .. } => {}
+                LogEvent::FilteredPrice(_) | LogEvent::GearIdentity { .. } | LogEvent::Page { .. } => {}
                 LogEvent::PriceObservation(p) => {
                     let season = self.prices.season();
                     if let Some(record) = self.prices.observe(&p, season) {

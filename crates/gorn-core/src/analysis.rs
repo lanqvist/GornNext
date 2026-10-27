@@ -89,8 +89,13 @@ pub fn session_clock(started_at: i64, last_line_at: i64, now: i64) -> i64 {
 }
 
 /// Сколько времени карта была «живой»: промежутки между событиями обрезаются порогом.
+/// Механика вне карт (доска тюрьмы, Vorax) — от входа в её окно до выхода
+/// целиком: ходы на доске добычи не дают, и порог съел бы их время.
 pub fn active_duration(run: &Run, idle_cap: i64, until: Option<i64>) -> i64 {
     let end = run.ended_at.or(until).unwrap_or(run.started_at);
+    if let Some(entered) = run.entered_at {
+        return (end - entered).max(0);
+    }
     let total = (end - run.started_at).max(0);
     if total <= idle_cap {
         return total;

@@ -41,6 +41,7 @@ pub struct Patterns {
     pub body_value: Regex,
     pub season_id: Regex,
     pub hub: Regex,
+    pub season_page: Regex,
 }
 
 pub fn patterns() -> &'static Patterns {
@@ -79,6 +80,8 @@ pub fn patterns() -> &'static Patterns {
             body_key: rx(r"\+([^+\s\[\]|]+)"),
             body_value: rx(r"\[([^\]]*)\]\s*$"),
             season_id: rx(r"\+SeasonId \[(\d+)\]"),
+            // Окно сезонной механики: `[Game] S16BoardMain Run`, `[Game] S13GamePlay Destory`.
+            season_page: rx(&format!(r"{c}(S\d+\w+) (Run|Destory)\s*$")),
             hub: Regex::new(r"(?i)hideout|town|hub|lobby|social|LoginScene|SelectRole|YuJinZhiXiBiNanSuo|ZhuCheng").unwrap(),
         }
     })

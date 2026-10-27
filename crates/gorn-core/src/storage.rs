@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS run (
   -- Персонаж хранится СТРОКОЙ: id вида 956082728577617920 не помещается
   -- в double, а INTEGER-колонку node:sqlite отдал бы как number.
   player_id    TEXT,
+  -- Вход в окно механики вне карт (доска тюрьмы, Vorax) раньше зоны.
+  entered_at   INTEGER,
   UNIQUE (started_at, area_id)
 );
 
@@ -133,7 +135,7 @@ const DROP_NESTED_RUNS: &str = r#"
 /// каждая один раз, в своей транзакции. Каждая сама проверяет схему: до
 /// появления номера они гонялись на каждом запуске, а новая база, созданная
 /// SCHEMA, проходит их вхолостую. Добавлять — только в конец.
-const MIGRATIONS: [fn(&Connection) -> rusqlite::Result<()>; 6] = [
+const MIGRATIONS: [fn(&Connection) -> rusqlite::Result<()>; 7] = [
     // 1. Цены: season_id был NULL, а NULL в SQLite не равен NULL — дубли.
     |db| {
         db.execute_batch(
@@ -185,6 +187,13 @@ const MIGRATIONS: [fn(&Connection) -> rusqlite::Result<()>; 6] = [
                  AND o.qty > listing.qty
              )",
         )
+    },
+    // 7. Забеги: добавилась колонка entered_at (вход в окно механики вне карт).
+    |db| {
+        if !has_column(db, "run", "entered_at")? {
+            db.execute_batch("ALTER TABLE run ADD COLUMN entered_at INTEGER")?;
+        }
+        Ok(())
     },
 ];
 
@@ -302,8 +311,8 @@ impl Storage {
         let saved = in_tx(&self.db, |db| {
             let mut insert_run = db.prepare_cached(
                 "INSERT OR IGNORE INTO run
-                   (season_id, area_id, asset, level_type, started_at, ended_at, duration_ms, is_hub, player_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                   (season_id, area_id, asset, level_type, started_at, ended_at, duration_ms, is_hub, player_id, entered_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )?;
             let mut find_run = db.prepare_cached("SELECT id, duration_ms, ended_at FROM run WHERE started_at = ? AND area_id = ?")?;
             let mut update_run = db.prepare_cached(
@@ -313,7 +322,8 @@ impl Storage {
                    level_type = COALESCE(?, level_type),
                    ended_at   = ?,
                    duration_ms = ?,
-                   player_id  = COALESCE(?, player_id)
+                   player_id  = COALESCE(?, player_id),
+                   entered_at = COALESCE(?, entered_at)
                  WHERE id = ?",
             )?;
             let mut insert_drop = db.prepare_cached("INSERT INTO drop_item (run_id, config_base_id, qty, proto, ts) VALUES (?, ?, ?, ?, ?)")?;
@@ -332,7 +342,8 @@ impl Storage {
                     run.ended_at,
                     run.duration_ms,
                     run.is_hub as i64,
-                    run.player_id
+                    run.player_id,
+                    run.entered_at
                 ])?;
                 let row: Option<(i64, Option<i64>, Option<i64>)> =
                     find_run.query_row(params![run.started_at, run.area_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
@@ -352,6 +363,7 @@ impl Storage {
                     run.ended_at,
                     run.duration_ms,
                     run.player_id,
+                    run.entered_at,
                     id
                 ])?;
                 // Состав перезаписывается: повторный разбор мог стать точнее.
@@ -417,7 +429,7 @@ impl Storage {
     /// Забеги из базы вместе с составом дропа и расхода.
     pub fn load_runs(&self) -> rusqlite::Result<Vec<Run>> {
         let mut st = self.db.prepare(
-            "SELECT id, area_id, asset, level_type, started_at, ended_at, duration_ms, is_hub, player_id, season_id
+            "SELECT id, area_id, asset, level_type, started_at, ended_at, duration_ms, is_hub, player_id, season_id, entered_at
              FROM run ORDER BY started_at",
         )?;
         let mut drops = self.db.prepare("SELECT config_base_id, qty, proto, ts FROM drop_item WHERE run_id = ?")?;
@@ -431,6 +443,7 @@ impl Storage {
                         asset: r.get(2)?,
                         level_type: r.get(3)?,
                         started_at: r.get(4)?,
+                        entered_at: r.get(10)?,
                         ended_at: r.get(5)?,
                         duration_ms: r.get(6)?,
                         is_hub: r.get::<_, i64>(7)? == 1,

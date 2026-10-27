@@ -85,8 +85,8 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
         <div className="hero-label">
           <Tip
             tip={tr(
-              'Как у других трекеров — по зонам: вся добыча сессии по ценам минус вложения (карты, бои Vorax и тюрьма), делённая на активное время в них. Город не в счёт, пауза в зоне дольше 3 минут — тоже. Сессия начинается с запуском игры или кнопкой «Новая сессия».',
-              'Like other trackers — by zone: all loot this session at prices minus map costs (maps, Vorax fights and prison), divided by active time in them. Town doesn’t count, nor do pauses longer than 3 minutes in a zone. A session starts when the game launches or with the “New session” button.',
+              'Как у других трекеров — по зонам: вся добыча сессии по ценам минус вложения (карты, бои Vorax и тюрьма), делённая на активное время в них. Город не в счёт, пауза на карте дольше 3 минут — тоже; тюрьма и Vorax — целиком, от входа в их окно до выхода из зоны. Сессия начинается с запуском игры или кнопкой «Новая сессия».',
+              'Like other trackers — by zone: all loot this session at prices minus map costs (maps, Vorax fights and prison), divided by active time in them. Town doesn’t count, nor do pauses longer than 3 minutes in a map; prison and Vorax count whole, from opening their window to leaving the zone. A session starts when the game launches or with the “New session” button.',
             )}
           >
             {tr('В час за сессию, за вычетом вложений', 'Per hour this session, net of map costs')}
@@ -96,8 +96,7 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
           <Fe value={snapshot.liveRate} />
         </div>
         <div className="hero-formula">
-          = <Fe value={sessionNet} signed /> {tr('за', 'in')} {duration(zoneMs)}{' '}
-          {totals.prisonMs > 0 ? tr('на картах и в тюрьме', 'in maps and prison') : tr('на картах', 'in maps')}
+          = <Fe value={sessionNet} signed /> {tr('за', 'in')} {duration(zoneMs)}
         </div>
         <div className="hero-sub">
           <Tip

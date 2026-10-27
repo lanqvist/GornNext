@@ -57,6 +57,8 @@ pub enum LogEvent {
     PlayerInfo(PlayerInfo),
     /// Вещь на базе `base_id` — легендарка `unique_id` (сравнение при наведении).
     GearIdentity { ts: i64, line: i64, base_id: ConfigBaseId, unique_id: ConfigBaseId },
+    /// Окно сезонной механики открылось (`[Game] S16BoardMain Run`) или закрылось (`Destory`).
+    Page { ts: i64, line: i64, page: String, open: bool },
 }
 
 impl LogEvent {
@@ -71,7 +73,8 @@ impl LogEvent {
             | LogEvent::EnterLevel { ts, .. }
             | LogEvent::LevelPath { ts, .. }
             | LogEvent::LevelIds { ts, .. }
-            | LogEvent::GearIdentity { ts, .. } => *ts,
+            | LogEvent::GearIdentity { ts, .. }
+            | LogEvent::Page { ts, .. } => *ts,
             LogEvent::PriceObservation(p) | LogEvent::FilteredPrice(p) => p.ts,
             LogEvent::PlayerInfo(p) => p.ts,
         }
@@ -166,6 +169,9 @@ pub struct Run {
     pub asset: Option<String>,
     pub level_type: Option<i64>,
     pub started_at: i64,
+    /// Вход в механику вне карт: окно (доска тюрьмы, Vorax) открыто в убежище
+    /// раньше входа в зону. Время такого забега — от него до выхода целиком.
+    pub entered_at: Option<i64>,
     pub ended_at: Option<i64>,
     pub duration_ms: Option<i64>,
     pub is_hub: bool,

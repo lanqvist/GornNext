@@ -367,8 +367,7 @@ export function OverlayApp() {
           {/* Формула главной цифры — чтобы её можно было проверить в уме. */}
           {snapshot && (
             <div className="ov-formula">
-              = <Fe value={sessionNet} signed /> {tr('за', 'in')} {duration(zoneMs)}{' '}
-              {snapshot.totals.prisonMs > 0 ? tr('на картах и в тюрьме', 'in maps and prison') : tr('на картах', 'in maps')}
+              = <Fe value={sessionNet} signed /> {tr('за', 'in')} {duration(zoneMs)}
             </div>
           )}
         </>

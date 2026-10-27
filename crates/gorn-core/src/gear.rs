@@ -84,6 +84,7 @@ mod tests {
             asset: None,
             level_type: None,
             started_at,
+            entered_at: None,
             ended_at: None,
             duration_ms: None,
             is_hub: false,
