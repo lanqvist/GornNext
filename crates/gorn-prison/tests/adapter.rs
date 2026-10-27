@@ -252,3 +252,55 @@ fn claws_scratch_gone_on_bright_board() {
     a.board(&manage);
     assert!(!a.mem.cells[11].scratch && a.mem.cells[11].shown.is_none());
 }
+
+/// «Цепная реакция» (кадры 27.10 10:06:21–26): окно снято, пока в памяти
+/// надзиратель ещё в допросной; ряд решений в камере 1 — реакция ждёт, утренние
+/// двери из 1 — совет знает о ней; ушёл в 6 — отработала.
+#[test]
+fn chain_reaction_waits_for_next_patrol() {
+    use gorn_prison::adapter::Position;
+    use gorn_prison::state::CHAIN_REACTION;
+    use gorn_prison::view::Decision;
+    let mut a = PrisonAdapter::new(None);
+    a.start_run();
+    a.log_day(Some((1, 20)));
+    let mut cells: Vec<CellView> = (0..CELLS).map(|_| CellView::new(CellKind::Locked)).collect();
+    cells[0] = CellView::new(CellKind::Office);
+    cells[1] = CellView::new(CellKind::Empty);
+    let at = BoardAt { cells: vec![], door_cards: vec![], decision_cards: vec![], decision_kinds: vec![], cancel: None };
+    let manage = BoardView {
+        cells,
+        warden: Some(1),
+        days_left: None,
+        doors: vec![],
+        decision: Some(Decision::Manage { consume: false, replace: false, end: true, hunt: false }),
+        chain: None,
+        tools: vec![],
+        tool_slots: None,
+        chromatic: -1,
+        objective: None,
+        at,
+    };
+    assert_eq!(a.mem.warden, 0);
+    a.chain_reaction();
+    a.board(&manage);
+    assert_eq!(a.mem.chain_reaction, Some(1));
+    let mut patrol = manage.clone();
+    patrol.decision = None;
+    patrol.doors = vec![3, 5, 6];
+    a.log_day(Some((2, 20)));
+    a.board(&patrol);
+    assert_eq!(a.mem.chain_reaction, Some(1));
+    assert_eq!(load_memory(&a.mem.to_json()), a.mem);
+    match a.position() {
+        Position::Ok { state, .. } => assert_eq!(state.m[CHAIN_REACTION], 1),
+        Position::No { problem, .. } => panic!("{problem}"),
+    }
+    let mut moved = patrol.clone();
+    moved.cells[6] = CellView::new(CellKind::Empty);
+    moved.warden = Some(6);
+    moved.doors = vec![];
+    moved.decision = Some(Decision::Manage { consume: false, replace: false, end: true, hunt: false });
+    a.board(&moved);
+    assert_eq!(a.mem.chain_reaction, None);
+}

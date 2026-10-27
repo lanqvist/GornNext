@@ -538,7 +538,7 @@ impl Assist {
                     adv.card_text = Some(Box::new(move |f: &Frame, b| {
                         let img = crate::ocr::light_text(f.data, f.width, f.height, b);
                         let text = ocr.read(&img).unwrap_or_default();
-                        crate::log(&format!("[тюрьма] карта по названию: «{}»", text.replace('\n', " ")));
+                        crate::log(&format!("[тюрьма] текст на кадре: «{}»", text.replace('\n', " ")));
                         text
                     }));
                 }
@@ -720,7 +720,7 @@ fn below_normal() {
 }
 
 /// `gorn --prison-cards отчёт.txt кадр.png…`: названия всех трёх карт выбора
-/// орудий текстом (OCR) и орудие по ним — проверка запасного пути без игры.
+/// орудий и заголовок окна события текстом (OCR) — проверка запасного пути без игры.
 pub fn read_cards(out: &str, paths: &[String]) {
     unsafe {
         let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
@@ -745,6 +745,10 @@ pub fn read_cards(out: &str, paths: &[String]) {
                 report += &format!("  [{card}{}] {id:?} «{}»\n", if k == 1 { " под курсором" } else { "" }, text.replace('\n', " / "));
             }
         }
+        let b = gorn_prison::recognize::pick::event_title_box(&geo);
+        let text = ocr.read(&crate::ocr::light_text(&img.data, img.width, img.height, b)).unwrap_or_default();
+        let chain = gorn_prison::model::is_chain_reaction(&text);
+        report += &format!("  [событие] цепная реакция: {chain} «{}»\n", text.replace('\n', " / "));
     }
     let _ = std::fs::write(out, report);
 }

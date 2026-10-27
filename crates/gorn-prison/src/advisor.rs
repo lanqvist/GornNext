@@ -347,6 +347,16 @@ impl OwnAdvisor {
             self.save_state();
             self.reply(Reply::Clear { id: msg.id });
             return;
+        } else if kind == ShotKind::Board && seen == Some(ScreenView::Other) {
+            // Окно события поверх доски: «Цепная реакция» меняет следующий обход.
+            if let Some(f) = frame {
+                if self.event_is_chain_reaction(f) {
+                    self.adapter.chain_reaction();
+                    self.save_state();
+                }
+            }
+            self.reply(Reply::Clear { id: msg.id });
+            return;
         } else if (kind == ShotKind::Objective && !matches!(seen, Some(ScreenView::Pick(_)))) || seen.is_none() {
             self.reply(Reply::Clear { id: msg.id });
             return;
@@ -464,6 +474,18 @@ impl OwnAdvisor {
                 }
             }
         }
+    }
+
+    /// Заголовок окна события — «Цепная реакция»? Читается текстом (OCR): у
+    /// окон событий нет эталонов, а иначе флаг ждёт следующего обхода незамеченным
+    /// [кадры 27.10: совет обхода не знал, что путь откроется целиком].
+    fn event_is_chain_reaction(&mut self, frame: &Frame) -> bool {
+        let Some(read_text) = self.card_text.as_mut() else { return false };
+        let geo = match self.geo {
+            Some(g) if g.width == frame.width && g.height == frame.height => g,
+            _ => default_geometry(frame),
+        };
+        crate::model::is_chain_reaction(&read_text(frame, crate::recognize::pick::event_title_box(&geo)))
     }
 
     fn read(&mut self, frame: &Frame, expect_board: bool) -> ScreenView {

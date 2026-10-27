@@ -239,6 +239,10 @@ pub struct RunMemory {
     pub marks: Vec<Mark>,
     /// Экран выбора добычи: лев надзирателя и день.
     pub hunt_at: Option<(i32, i32)>,
+    /// Принята «Цепная реакция» в этой камере: следующий обход из неё откроет
+    /// все камеры на пути. −1 — камеру покажет первая доска после окна (окно
+    /// снято, пока в памяти ещё прежняя камера надзирателя).
+    pub chain_reaction: Option<i32>,
 }
 
 pub fn blank_memory() -> RunMemory {
@@ -272,6 +276,7 @@ pub fn blank_memory() -> RunMemory {
         tool_sightings: vec![],
         marks: vec![],
         hunt_at: None,
+        chain_reaction: None,
     }
 }
 
@@ -337,6 +342,9 @@ impl RunMemory {
             Value::Array(self.marks.iter().map(|k| json!({ "cell": k.cell, "lion": k.lion, "day": k.day })).collect()),
         );
         m.insert("huntAt".into(), self.hunt_at.map(|(lion, day)| json!({ "lion": lion, "day": day })).unwrap_or(Value::Null));
+        if let Some(c) = self.chain_reaction {
+            m.insert("chainReaction".into(), json!(c));
+        }
         Value::Object(m)
     }
 }
@@ -473,6 +481,7 @@ pub fn load_memory(x: &Value) -> RunMemory {
         tool_sightings: tool_list(g("toolSightings")),
         marks,
         hunt_at,
+        chain_reaction: int_in(g("chainReaction"), -1, CELLS as i64 - 1),
     }
 }
 
@@ -496,6 +505,16 @@ pub fn theme_by_voice(voice: i32) -> Option<i32> {
         2 => Some(start_event::ABUNDANCE),
         3 => Some(start_event::IRONLAW),
         4 => Some(start_event::CAGEFIGHT),
+        _ => None,
+    }
+}
+
+/// «Цепная реакция» после доски с надзирателем в камере w: первая доска после
+/// окна события ставит камеру, уход из неё — реакция отработала на этом обходе.
+fn chain_left(chain: Option<i32>, w: i32) -> Option<i32> {
+    match chain {
+        Some(-1) => Some(w),
+        Some(c) if c == w => Some(c),
         _ => None,
     }
 }
@@ -725,6 +744,7 @@ impl PrisonAdapter {
             }
         }
         if let Some(w) = v.warden {
+            m.chain_reaction = chain_left(m.chain_reaction, w as i32);
             m.warden = w as i32;
         }
         m.chain_targets = vec![];
@@ -880,6 +900,7 @@ impl PrisonAdapter {
                 m.cells[n].tusk = tusk_kept(&was_cells[n], c);
             }
         }
+        m.chain_reaction = chain_left(m.chain_reaction, warden);
         m.warden = warden;
         m.step = Step::Chain;
         m.chain_targets = targets_v.iter().map(|&n| n as i32).collect();
@@ -1044,6 +1065,12 @@ impl PrisonAdapter {
         }
         m.resume = Step::Patrol;
         m.resume_after = Cause::Morning;
+    }
+
+    /// Окно события «Цепная реакция» (у него одна кнопка — «Подтвердить»):
+    /// следующий обход откроет все неоткрытые камеры на пути.
+    pub fn chain_reaction(&mut self) {
+        self.mem.chain_reaction = Some(-1);
     }
 
     /// Новый забег: доска за выбором — чистая; цель и тему с окон перед выбором не теряем.
@@ -1294,6 +1321,7 @@ impl PrisonAdapter {
         x[OBJ_DONE] = m.objective_done as i32;
         x[USURP] = event::USURP1;
         x[CHAIN_EATER] = -1;
+        x[CHAIN_REACTION] = m.chain_reaction.is_some() as i32;
         // Метки «Добыча»: поставлена в день d — к утру дня d+k осталось trapMornings − k.
         for k in &m.marks {
             x[PREY_LEFT + k.cell as usize] = 1.max(p.trap_mornings - (m.day - k.day));

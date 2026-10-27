@@ -129,6 +129,16 @@ pub fn tool_by_title(text: &str) -> Option<u32> {
     (best >= 0.75 && best - scored[1].0 >= 0.15).then_some(id)
 }
 
+/// Заголовок окна события — «Цепная реакция» (OCR, с ошибками распознавания):
+/// название где-то в строке, до трёх правок.
+pub fn is_chain_reaction(text: &str) -> bool {
+    let t = plain_title(text);
+    ["цепная реакция", "chain reaction"].iter().any(|name| {
+        let n: Vec<char> = name.chars().collect();
+        t.len() >= n.len() && t.windows(n.len()).any(|w| edit_distance(w, &n) <= 3)
+    })
+}
+
 // ── подарки сокровищницы (§9) ───────────────────────────────────────────────
 
 pub const GIFT_IDS: [&str; 4] = ["ring", "horn", "wine", "brand"];
@@ -478,5 +488,11 @@ mod tests {
         assert_eq!(id("Гильотина"), None);
         assert_eq!(id("Условие срабатывания"), None);
         assert_eq!(id(""), None);
+        assert!(is_chain_reaction("Цепная реакция"));
+        // Латинские «e» вместо кириллических — частая ошибка OCR.
+        assert!(is_chain_reaction("Цeпная рeакция"));
+        assert!(is_chain_reaction("» Цепная реакцпя"));
+        assert!(!is_chain_reaction("Казнь"));
+        assert!(!is_chain_reaction(""));
     }
 }

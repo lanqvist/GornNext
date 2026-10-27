@@ -145,6 +145,12 @@ pub fn reroll_box(geo: &Geometry) -> Box4 {
     box_to_frame(geo, PICK_REROLL)
 }
 
+/// Заголовок окна события («Цепная реакция») справа от картинки — для чтения
+/// текстом [кадр 27.10 10:06:21, 21:9: заголовок 1302–1580 × 217–255 опорных].
+pub fn event_title_box(geo: &Geometry) -> Box4 {
+    box_to_frame(geo, [1200.0, 198.0, 1690.0, 272.0])
+}
+
 /// Сокровищница: все четыре места похожи на подарки.
 pub fn read_treasure(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> Option<Vec<Box4>> {
     let mut buf = [0.0f32; 16 * 16 * 3];

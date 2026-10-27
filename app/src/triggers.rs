@@ -64,6 +64,8 @@ fn rules() -> &'static [Rule] {
             r(Speed, r"Btn_S16Board_Top_Speed", 0.0),
             r(Shot(Board), r"UI_S16_Click_Cancel", 500.0),
             r(Shot(Board), r"Btn_S16Board_EventPop_Confirm", 500.0),
+            // Окно события: его заголовок читается текстом («Цепная реакция»).
+            r(Shot(Board), r"S16BoardEventPop Run", 600.0),
         ]
     })
 }

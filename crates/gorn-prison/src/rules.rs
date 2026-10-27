@@ -882,8 +882,10 @@ pub fn patrol(s: &mut State, r: &mut Rng, p: &Params, cell: i32) {
     }
     if s.m[CHAIN_REACTION] == 1 {
         s.m[CHAIN_REACTION] = 0;
+        // Клиент: «открывает все неоткрытые камеры на пути (без срабатывания
+        // других эффектов)» — как Трёхглавое кольцо, Крюк редкость не поднимает.
         for k in 1..steps {
-            open_cell(s, r, p, (from + k) & CM);
+            open_cell_counted(s, r, p, (from + k) & CM, true, p.ring_hook);
         }
     }
     s.m[WARDEN] = cell;
