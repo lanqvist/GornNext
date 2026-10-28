@@ -1535,11 +1535,13 @@ dependencies = [
  "chrono",
  "gorn-core",
  "gorn-prison",
+ "gorn-vorax-scan",
  "indexmap 2.14.2",
  "png 0.17.16",
  "rayon",
  "rusqlite",
  "serde_json",
+ "windows",
 ]
 
 [[package]]

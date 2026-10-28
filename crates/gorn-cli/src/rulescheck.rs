@@ -45,7 +45,7 @@ pub(crate) fn with_variants(names: &str) -> Result<Params, String> {
     Ok(p)
 }
 
-pub(crate) const VARIANTS: [Variant; 15] = [
+pub(crate) const VARIANTS: [Variant; 16] = [
     Variant { name: "swap_ends_day", about: "замена кончает день (до 22.10)", apply: |p| p.swap_then_devour = false },
     Variant { name: "blacklist_after_open", about: "«Чёрный список»: запертые после открытия (до 22.10)", apply: |p| p.blacklist_before_open = false },
     Variant { name: "reward_after_move", about: "цель засчитывается после хода надзирателя, «Волнения» — по «Принять» (до вечера 22.10)", apply: |p| p.reward_on_click = false },
@@ -67,6 +67,11 @@ pub(crate) const VARIANTS: [Variant; 15] = [
     Variant { name: "revenge_door_tier", about: "«Железная дева»: узник по шансам двери, не редкости едока", apply: |p| p.revenge_door_tier = true },
     Variant { name: "ring_hook", about: "«Трёхглавое кольцо» с «Крюком отбора» (до 24.10)", apply: |p| p.ring_hook = true },
     Variant { name: "maiden_new_tier", about: "«Рассечённый саркофаг»: Высшие и Низшие относительно нового узника (до 27.10)", apply: |p| p.maiden_new_tier = true },
+    Variant {
+        name: "doors_start_uncounted",
+        about: "«За дверью камеры»: стартовые камеры не засчитываются (до 28.10)",
+        apply: |p| p.doors_start_uncounted = true,
+    },
     Variant {
         name: "odds_community",
         about: "редкость за дверью и на замену — таблицы сообщества, 7 191 дверь и 696 замен (до 28.10)",

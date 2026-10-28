@@ -1484,7 +1484,7 @@ pub fn new_run(s: &mut State, r: &mut Rng, p: &Params, setup: RunSetup) {
         }
     }
     s.m[USURP] = event::USURP1;
-    s.m[OBJECTIVE_ID] = -1; // цель ставится в конце: стартовые камеры её не двигают
+    s.m[OBJECTIVE_ID] = -1; // цель ставится в конце: «Загнанный зверь-царь» видит стартовую доску
     s.m[TOOLS] = setup.tools & ALL_TOOLS;
     s.m[START] = setup.start;
     s.m[WARDEN] = OFFICE;
@@ -1504,10 +1504,14 @@ pub fn new_run(s: &mut State, r: &mut Rng, p: &Params, setup: RunSetup) {
         start_board(s, r, p);
     }
     set_objective(s, r, p, setup.objective);
+    if !setup.start_pick && !p.doors_start_uncounted {
+        progress(s, r, p, objective::DOORS, s.m[STAT_OPENED]);
+    }
 }
 
 /// Стартовая доска: startOpen случайных камер открыто, метки событий до eventMin.
 fn start_board(s: &mut State, r: &mut Rng, p: &Params) {
+    let mut opened = 0;
     for _ in 0..p.start_open {
         let c = pick_bit(locked_mask(s), r);
         if c < 0 {
@@ -1515,8 +1519,13 @@ fn start_board(s: &mut State, r: &mut Rng, p: &Params) {
         }
         let tier = roll_tier(r, &p.door_odds, 0);
         s.m[STAT_OPENED] += 1;
+        opened += 1;
         let beast = r.int(4);
         place(s, r, p, c, beast, tier);
+    }
+    // Доска после стартового выбора орудия: цель уже поставлена.
+    if !p.doors_start_uncounted {
+        progress(s, r, p, objective::DOORS, opened);
     }
     for c in 1..C {
         if s.m[LOCK + u(c)] == 1 && chance(r, "door_event", p.door_event) {
@@ -1580,6 +1589,26 @@ mod tests {
             assert_eq!(s.m[TIER + 14], -1);
             assert_eq!(s.m[TIER + 7], 4);
         }
+    }
+
+    /// Кадры 28.10: на первой доске цели «За дверью камеры» — «4/10», стартовые
+    /// камеры засчитаны; и сразу, и после стартового выбора орудия.
+    #[test]
+    fn start_cells_count_for_doors_objective() {
+        let p = DEFAULT_PARAMS;
+        for start_pick in [false, true] {
+            let mut s = State::new();
+            let mut r = Rng::new(5);
+            new_run(&mut s, &mut r, &p, RunSetup { start: 0, objective: objective::DOORS, tools: 0, start_pick });
+            if start_pick {
+                morning(&mut s, &mut r, &p);
+            }
+            assert_eq!(s.m[OBJ_PROGRESS], p.start_open, "start_pick {start_pick}");
+        }
+        let old = Params { doors_start_uncounted: true, ..DEFAULT_PARAMS };
+        let mut s = State::new();
+        new_run(&mut s, &mut Rng::new(5), &old, RunSetup { start: 0, objective: objective::DOORS, tools: 0, start_pick: false });
+        assert_eq!(s.m[OBJ_PROGRESS], 0);
     }
 
     /// Журнал фактов 20–22.10: «Скрытые волнения» выполняются по клику на дверь

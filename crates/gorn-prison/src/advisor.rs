@@ -37,6 +37,9 @@ pub const PICK_ROUNDS: u64 = 1500;
 /// Столько кадров подряд прежняя геометрия не нашла доску — искать заново.
 pub const GEO_MISSES: u32 = 3;
 
+/// Описание цели не изменилось: тот же кадр панели — 1,0, другая цифра
+/// прогресса — 0,994 [кадры 28.10, 21:9].
+const OBJECTIVE_SAME: f64 = 0.9995;
 const TREASURE_ASK: &str = "Подарок: нажми «Посмотреть состояние тюрьмы» и вернись — подскажу, какой взять";
 const PICK_UNKNOWN: &str = "Не узнал карты выбора — выбери сам";
 
@@ -210,6 +213,9 @@ pub struct OwnAdvisor {
     /// Текст в прямоугольнике кадра (OCR приложения): по нему читается название
     /// карты выбора, чью картинку эталоны не узнали. None — без запасного пути.
     pub card_text: Option<Box<dyn FnMut(&Frame, Box4) -> String + Send>>,
+    /// Отпечаток описания цели при последнем чтении прогресса и прогресс в
+    /// памяти после него (новый забег с тем же текстом — перечитать).
+    objective_print: Option<(Vec<f32>, i32)>,
 }
 
 impl Default for OwnAdvisor {
@@ -242,6 +248,7 @@ impl OwnAdvisor {
             chain_gifts: false,
             last_view: None,
             card_text: None,
+            objective_print: None,
         }
     }
 
@@ -375,6 +382,9 @@ impl OwnAdvisor {
             }
             self.adapter.board_viewed = msg.treasure_view;
             self.adapter.board(&b);
+            if let Some(f) = frame {
+                self.objective_progress(f);
+            }
             self.board_behind_treasure = msg.treasure_closed;
             // Просмотр доски из сокровищницы: совет по подарку сразу.
             if msg.treasure_view {
@@ -474,6 +484,37 @@ impl OwnAdvisor {
                 }
             }
         }
+    }
+
+    /// Прогресс цели «N/M» с панели — текстом (OCR), пока цель не выполнена:
+    /// без него решатель считал цель не начатой и недооценивал ходы, которые её
+    /// закрывают [журнал 28.10: 1 205 из 6 174 решений с невыполненной целью,
+    /// прогноз «Скрытых волнений» ниже итога на 1,5 призмы]. Перечитывается,
+    /// только когда описание на кадре изменилось.
+    fn objective_progress(&mut self, frame: &Frame) {
+        let mem = &self.adapter.mem;
+        let Some(obj) = mem.objective else { return };
+        let target = DEFAULT_PARAMS.objective_target[obj as usize];
+        if mem.objective_done || target <= 1 {
+            return;
+        }
+        let Some(read_text) = self.card_text.as_mut() else { return };
+        let geo = match self.geo {
+            Some(g) if g.width == frame.width && g.height == frame.height => g,
+            _ => default_geometry(frame),
+        };
+        let print = crate::recognize::panels::objective_text_print(frame, &geo);
+        if let Some((last, n)) = &self.objective_print {
+            let same: f64 = last.iter().zip(&print).map(|(a, b)| (a * b) as f64).sum();
+            if same >= OBJECTIVE_SAME && *n == mem.objective_progress {
+                return;
+            }
+        }
+        let text = read_text(frame, crate::recognize::panels::objective_text_box(&geo));
+        if let Some(n) = crate::model::objective_progress(&text, target) {
+            self.adapter.objective_progress(n);
+        }
+        self.objective_print = Some((print, self.adapter.mem.objective_progress));
     }
 
     /// Заголовок окна события — «Цепная реакция»? Читается текстом (OCR): у

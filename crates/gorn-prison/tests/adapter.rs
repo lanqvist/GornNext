@@ -304,3 +304,28 @@ fn chain_reaction_waits_for_next_patrol() {
     a.board(&moved);
     assert_eq!(a.mem.chain_reaction, None);
 }
+
+/// Прогресс цели с панели: в памяти только растёт, в состоянии решателя — не
+/// больше цели − 1, после выполнения цели не передаётся.
+#[test]
+fn objective_progress_goes_to_solver() {
+    use gorn_prison::model::objective;
+    use gorn_prison::state::{OBJECTIVE_ID, OBJ_PROGRESS};
+    let mut a = PrisonAdapter::new(None);
+    a.start_run();
+    a.log_day(Some((3, 20)));
+    a.mem.objective = Some(objective::DOORS);
+    a.mem.step = Step::Patrol;
+    a.objective_progress(7);
+    a.objective_progress(1);
+    assert_eq!(a.mem.objective_progress, 7);
+    assert_eq!(load_memory(&a.mem.to_json()), a.mem);
+    let st = a.build();
+    assert_eq!((st.m[OBJECTIVE_ID], st.m[OBJ_PROGRESS]), (objective::DOORS, 7));
+    a.objective_progress(30);
+    assert_eq!(a.build().m[OBJ_PROGRESS], 9);
+    a.mem.objective_done = true;
+    assert_eq!((a.build().m[OBJECTIVE_ID], a.build().m[OBJ_PROGRESS]), (-1, 0));
+    a.start_run();
+    assert_eq!(a.mem.objective_progress, 0);
+}

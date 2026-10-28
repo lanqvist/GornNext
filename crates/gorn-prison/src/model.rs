@@ -139,6 +139,55 @@ pub fn is_chain_reaction(text: &str) -> bool {
     })
 }
 
+/// Прогресс цели из описания на панели (OCR): «…событий0/2», «на 18 клеток12/18»,
+/// «7/10». Берётся «N/M» с M = target и N < target; буквы, похожие на цифры
+/// (О, l, I, З), — цифры. None — прогресса в тексте нет или он не сходится.
+pub fn objective_progress(text: &str, target: i32) -> Option<i32> {
+    let t: Vec<char> = text
+        .chars()
+        .map(|c| match c {
+            'О' | 'о' | 'O' | 'o' => '0',
+            'l' | 'I' | '|' | 'і' => '1',
+            'З' => '3',
+            _ => c,
+        })
+        .collect();
+    let num = |chars: &[char]| -> Option<i32> {
+        (!chars.is_empty() && chars.len() <= 2).then(|| chars.iter().collect::<String>().parse().ok()).flatten()
+    };
+    let mut found = None;
+    for (i, &c) in t.iter().enumerate() {
+        if c != '/' {
+            continue;
+        }
+        let mut a = i;
+        while a > 0 && t[a - 1] == ' ' {
+            a -= 1;
+        }
+        let mut a0 = a;
+        while a0 > 0 && t[a0 - 1].is_ascii_digit() {
+            a0 -= 1;
+        }
+        let mut b0 = i + 1;
+        while b0 < t.len() && t[b0] == ' ' {
+            b0 += 1;
+        }
+        let mut b = b0;
+        while b < t.len() && t[b].is_ascii_digit() {
+            b += 1;
+        }
+        // «12/18» после «клеток» читается как «клеток12/18»: у N не больше двух цифр,
+        // лишние слева — от слова или числа перед ним.
+        let a0 = a0.max(a.saturating_sub(target.to_string().len()));
+        if let (Some(n), Some(m)) = (num(&t[a0..a]), num(&t[b0..b])) {
+            if m == target && (0..target).contains(&n) {
+                found = Some(n);
+            }
+        }
+    }
+    found
+}
+
 // ── подарки сокровищницы (§9) ───────────────────────────────────────────────
 
 pub const GIFT_IDS: [&str; 4] = ["ring", "horn", "wine", "brand"];
@@ -378,6 +427,9 @@ pub struct Params {
     /// «Рассечённый саркофаг»: Высших и Низших считают относительно нового
     /// узника (до 27.10); иначе — относительно заменяемого, до замены.
     pub maiden_new_tier: bool,
+    /// Стартовые открытые камеры не засчитываются в цель «За дверью камеры»
+    /// (до 28.10); иначе засчитываются — на первой доске игра пишет «4/10».
+    pub doors_start_uncounted: bool,
 }
 
 pub const DEFAULT_PARAMS: Params = Params {
@@ -472,6 +524,9 @@ pub const DEFAULT_PARAMS: Params = Params {
     // «Саркофаг» — относительно заменяемого узника [журнал фактов 25–26.10:
     // 19 замен с Саркофагом — прежний узник объясняет все, новый ошибается в 3].
     maiden_new_tier: false,
+    // Стартовые камеры — в цель «За дверью камеры» [кадры 28.10 00:00:03 и
+    // 10:28:34, 21:9: первая доска — «4/10»].
+    doors_start_uncounted: false,
 };
 
 #[cfg(test)]
@@ -499,5 +554,27 @@ mod tests {
         assert!(is_chain_reaction("» Цепная реакцпя"));
         assert!(!is_chain_reaction("Казнь"));
         assert!(!is_chain_reaction(""));
+    }
+
+    /// Описание цели на панели (кадры 27–28.10, 21:9) и ошибки OCR.
+    #[test]
+    fn objective_progress_from_panel_text() {
+        assert_eq!(objective_progress("Суммарное срабатывание
+2 ! тюремных событий0/2", 2), Some(0));
+        assert_eq!(objective_progress("2 ! тюремных событийО/2", 2), Some(0));
+        assert_eq!(objective_progress("2 ! тюремных событий 1 / 2", 2), Some(1));
+        assert_eq!(objective_progress("Переместиться суммарно
+на 18 клеток12/18", 18), Some(12));
+        assert_eq!(objective_progress("Всего выполнить 4 раза
+Пожирание3/4", 4), Some(3));
+        assert_eq!(objective_progress("Всего открыть 10 камер
+7/10", 10), Some(7));
+        assert_eq!(objective_progress("Всего открыть 10 камер
+l/10", 10), Some(1));
+        // Не та цель, выполнено, текста нет.
+        assert_eq!(objective_progress("на 18 клеток12/18", 10), None);
+        assert_eq!(objective_progress("0/2 2/2", 2), Some(0));
+        assert_eq!(objective_progress("Завершено", 2), None);
+        assert_eq!(objective_progress("", 4), None);
     }
 }

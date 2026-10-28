@@ -146,6 +146,7 @@ fn mem_json(m: &RunMemory) -> Value {
         "step": m.step.name(),
         "gifts": m.gifts,
         "objectiveDone": m.objective_done,
+        "objectiveProgress": m.objective_progress,
     })
 }
 
@@ -267,7 +268,7 @@ impl Tally {
 }
 
 /// Пройти папки дней по порядку и написать exam.jsonl / exam.md в out.
-pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, out: &Path) -> Result<(), String> {
+pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, out: &Path, ocr: bool) -> Result<(), String> {
     let labels = load_labels(labels)?;
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     let mut jsonl = String::new();
@@ -278,6 +279,15 @@ pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, o
         let mut adv = OwnAdvisor::new();
         adv.chain_gifts = true;
         adv.init(None, None);
+        // Текст на кадре — OCR Windows, как в приложении (assist.rs).
+        unsafe {
+            let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
+        }
+        if let Some(ocr) = ocr.then(crate::ocr::Ocr::new).and_then(Result::ok) {
+            adv.card_text = Some(Box::new(move |f: &gorn_prison::recognize::Frame, b| {
+                ocr.read(&crate::ocr::light_text(f.data, f.width, f.height, b)).unwrap_or_default()
+            }));
+        }
         let stop = StopRule { max_rounds: rounds, ..STOP_DEFAULTS };
         let mut prev = Prev { board: None, tools: 0, storage: 0, picks_pending: 0, day: -1, hint: String::new(), live: String::new() };
         crate::replay::run(dir, from, to, 1000.0, stop, f64::INFINITY, &mut adv, |adv, o| {

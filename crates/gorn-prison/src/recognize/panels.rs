@@ -2,8 +2,8 @@
 //! Игра прижимает их к краям экрана: на 21:9 — `Geometry::left` / `right`.
 //! Перенос `recognize/panels.ts`.
 
-use super::layout::{chromatic_slot, tool_slot, CHROMATIC_HEADER, OBJECTIVE, TOOL_SLOTS};
-use super::sample::{dot, jmax, normalize, sample_into, Frame, Geometry};
+use super::layout::{chromatic_slot, tool_slot, CHROMATIC_HEADER, OBJECTIVE, OBJECTIVE_TEXT, TOOL_SLOTS};
+use super::sample::{box_to_frame, dot, jmax, normalize, sample_into, Box4, Frame, Geometry};
 use super::templates::{get, nearest, scores_by_label, ScreensTemplate};
 use crate::model::TOOL_IDS;
 
@@ -88,6 +88,19 @@ pub fn read_chromatic(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> i32
     } else {
         n
     }
+}
+
+/// Описание цели с прогрессом «N/M» — прямоугольник кадра для чтения текстом.
+pub fn objective_text_box(geo: &Geometry) -> Box4 {
+    box_to_frame(&geo.left(), OBJECTIVE_TEXT)
+}
+
+/// Отпечаток описания цели: пока он тот же, прогресс не перечитывается.
+pub fn objective_text_print(frame: &Frame, geo: &Geometry) -> Vec<f32> {
+    let mut buf = vec![0.0f32; 64 * 12];
+    sample_into(frame, &geo.left(), OBJECTIVE_TEXT, 64, 12, 1, &mut buf);
+    normalize(&mut buf);
+    buf
 }
 
 /// Цель забега; None — не узнана.

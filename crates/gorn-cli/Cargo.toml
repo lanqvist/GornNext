@@ -14,3 +14,6 @@ rusqlite = "0.32"
 rayon.workspace = true
 serde_json.workspace = true
 png = "0.17"
+# OCR Windows для экзамена — тот же модуль, что у приложения (app/src/ocr.rs).
+gorn-vorax-scan.workspace = true
+windows = { version = "0.62", features = ["Win32_System_WinRT", "Foundation", "Globalization", "Graphics_Imaging", "Media_Ocr", "Storage_Streams"] }

@@ -17,6 +17,10 @@ mod facts;
 mod fit;
 mod learn;
 mod liveab;
+// OCR Windows (названия карт, окно события, прогресс цели) — модуль приложения.
+#[path = "../../../app/src/ocr.rs"]
+#[allow(dead_code)]
+mod ocr;
 mod debugtrace;
 mod frames;
 mod genlog;
@@ -74,8 +78,9 @@ gorn-cli protos ПАПКА|PNG [--from ЧЧММСС] [--to ЧЧММСС] [--slot
     --mark — значок внизу портретов: сходство с «Добычей» (п) и «Бивнем» (б), эталон — камеры N;
     --pick — карты выбора орудий (кадры не доски): итог=картинка+название, эталоны — карты N (0–2);
     --chromatic — места хранилища: сходство с «занято» (з) и «пусто» (п), эталон — места N (0–9)
-gorn-cli exam ПАПКА[,ПАПКА…] [--from ЧЧММСС] [--to ЧЧММСС] [--rounds R=300] [--labels ФАЙЛ] [--out ПАПКА=exam]
-    экзамен советника на кадрах: весь путь игрока (распознавание → память → совет) и проверки —
+gorn-cli exam ПАПКА[,ПАПКА…] [--from ЧЧММСС] [--to ЧЧММСС] [--rounds R=300] [--labels ФАЙЛ] [--out ПАПКА=exam] [--no-ocr]
+    экзамен советника на кадрах: весь путь игрока (распознавание → память → совет; текст на кадре —
+    OCR Windows, как в приложении, --no-ocr — без него) и проверки —
     разметка (labels/exam.json в папке данных), день против лога, память против экрана, мигание
     распознавания без нажатий, совет не про экран, потерянное орудие; exam.jsonl и exam.md в --out
 gorn-cli exam --data
@@ -106,7 +111,7 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
             i += 1;
             continue;
         };
-        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain" | "cells" | "data" | "calib");
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain" | "cells" | "data" | "calib" | "no-ocr");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -347,6 +352,7 @@ fn main() -> ExitCode {
                     num(&o, "rounds", 300)? as u64,
                     &labels,
                     std::path::Path::new(o.get("out").map(String::as_str).unwrap_or("exam")),
+                    !o.contains_key("no-ocr"),
                 )?;
                 Ok(true)
             }

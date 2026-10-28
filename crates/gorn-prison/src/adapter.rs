@@ -202,6 +202,8 @@ pub struct RunMemory {
     pub objective: Option<i32>,
     /// Цель забега выполнена (был выбор орудия в награду).
     pub objective_done: bool,
+    /// Прогресс цели с панели («N/M», прочитан текстом); 0 — не читался.
+    pub objective_progress: i32,
     /// Тема (start_event::*).
     pub start: i32,
     pub storage: i32,
@@ -254,6 +256,7 @@ pub fn blank_memory() -> RunMemory {
         tools: vec![],
         objective: None,
         objective_done: false,
+        objective_progress: 0,
         start: start_event::NONE,
         storage: 0,
         step: Step::Patrol,
@@ -296,6 +299,9 @@ impl RunMemory {
         m.insert("tools".into(), tool_ids(&self.tools));
         m.insert("objective".into(), json!(self.objective.map(|o| OBJECTIVE_IDS[o as usize])));
         m.insert("objectiveDone".into(), json!(self.objective_done));
+        if self.objective_progress > 0 {
+            m.insert("objectiveProgress".into(), json!(self.objective_progress));
+        }
         m.insert("start".into(), json!(START_EVENT_IDS[self.start as usize]));
         m.insert("storage".into(), json!(self.storage));
         m.insert("step".into(), json!(self.step.name()));
@@ -459,6 +465,7 @@ pub fn load_memory(x: &Value) -> RunMemory {
         tools: tool_list(g("tools")),
         objective: g("objective").as_str().and_then(|o| OBJECTIVE_IDS.iter().position(|&x| x == o)).map(|i| i as i32),
         objective_done: truthy(g("objectiveDone")),
+        objective_progress: int_in(g("objectiveProgress"), 0, 99).unwrap_or(0),
         start: g("start").as_str().and_then(|o| START_EVENT_IDS.iter().position(|&x| x == o)).map(|i| i as i32).unwrap_or(0),
         storage: int_in(g("storage"), 0, 99).unwrap_or(0),
         step: step(g("step")).unwrap_or(Step::Patrol),
@@ -1073,6 +1080,12 @@ impl PrisonAdapter {
         self.mem.chain_reaction = Some(-1);
     }
 
+    /// Прогресс цели, прочитанный с панели: в игре он только растёт, поэтому
+    /// меньшее (неверно прочитанная цифра) память не убавляет.
+    pub fn objective_progress(&mut self, n: i32) {
+        self.mem.objective_progress = self.mem.objective_progress.max(n);
+    }
+
     /// Новый забег: доска за выбором — чистая; цель и тему с окон перед выбором не теряем.
     pub fn start_run(&mut self) {
         let theme = self.mem.run_start || self.mem.theme_fresh;
@@ -1319,6 +1332,9 @@ impl PrisonAdapter {
         x[STORAGE] = m.storage.min(p.storage);
         x[OBJECTIVE_ID] = objective;
         x[OBJ_DONE] = m.objective_done as i32;
+        if objective >= 0 {
+            x[OBJ_PROGRESS] = m.objective_progress.clamp(0, p.objective_target[objective as usize] - 1);
+        }
         x[USURP] = event::USURP1;
         x[CHAIN_EATER] = -1;
         x[CHAIN_REACTION] = m.chain_reaction.is_some() as i32;
