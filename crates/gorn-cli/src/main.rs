@@ -56,6 +56,8 @@ gorn-cli live-ab [--db a.db,b.db] [--rounds R=300] [--ref-rounds RR=5000] [--thr
     A/B моделей правил на позициях живых забегов: ход прежней и нынешней модели (R раундов),
     расхождения — глубокой оценкой по нынешним правилам (RR раундов, без отсечения);
     --old — прежняя модель: варианты rules-check (по умолчанию все правки 22.10)
+gorn-cli live-ab --calib [--db …] [--ref-rounds RR=1000] [--old вариант,…]
+    калибровка: ожидание лучшего хода прежней и нынешней моделью против итога доигранных забегов, по дням
 gorn-cli solve-bench [--games 12] [--every 2] [--positions N] [--min 256] [--max R] [--cap 300]
               [--threads S=1] [--rate [--stride 5]] [--regret [--ref файл] [--ref-rounds 20000] [--ref-threads 14]]
     советы на позициях самоигры, как prison-solve-bench; 580 позиций аудита: --games 18 --positions 580
@@ -104,7 +106,7 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
             i += 1;
             continue;
         };
-        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain" | "cells" | "data");
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain" | "cells" | "data" | "calib");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -434,6 +436,15 @@ fn main() -> ExitCode {
                         vec![d.join("prison-facts-history.db"), d.join("prison-facts.db")]
                     }
                 };
+                if o.contains_key("calib") {
+                    liveab::calib(
+                        &dbs,
+                        num(&o, "ref-rounds", 1000)? as u64,
+                        num(&o, "threads", cores())? as usize,
+                        o.get("old").map(String::as_str).unwrap_or(rulescheck::LEGACY),
+                    )?;
+                    return Ok(true);
+                }
                 liveab::run(
                     &dbs,
                     num(&o, "rounds", 300)? as u64,

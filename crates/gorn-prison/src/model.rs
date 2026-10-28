@@ -265,6 +265,11 @@ pub struct Params {
     pub iron_law_days: i32,
     pub storage: i32,
     pub rerolls: i32,
+    /// Редкость за дверью и на замену — `gorn-cli fit` по журналу фактов
+    /// (92 забега, 782 двери и 426 замен без нижней границы, 28.10). Таблицы
+    /// сообщества (7 191 дверь, 696 замен) давали обычных 0,418 и 0,422 —
+    /// меньше, чем на своих кадрах 19.10 (0,498 и 0,482); вариант
+    /// `odds_community` в rules-check.
     pub door_odds: TierOdds,
     pub replace_odds: TierOdds,
     pub door_cards: i32,
@@ -380,8 +385,8 @@ pub const DEFAULT_PARAMS: Params = Params {
     iron_law_days: 30,
     storage: 10,
     rerolls: 1,
-    door_odds: [0.418, 0.359, 0.114, 0.092, 0.018, 0.0],
-    replace_odds: [0.422, 0.333, 0.145, 0.073, 0.023, 0.003],
+    door_odds: [0.476, 0.313, 0.117, 0.080, 0.014, 0.0],
+    replace_odds: [0.488, 0.324, 0.099, 0.066, 0.022, 0.001],
     door_cards: 3,
     one_less_door: 0.0,
     door_reach: 6,

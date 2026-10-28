@@ -114,3 +114,52 @@ pub fn run(dbs: &[PathBuf], rounds: u64, ref_rounds: u64, threads: usize, old: &
     }
     Ok(())
 }
+
+/// Калибровка обеих моделей: ожидание лучшего хода (глубокая оценка, каждая
+/// по своим правилам) против итога доигранного забега, по дням. Начало
+/// забега занижает и доигрывание мгновенной стратегией (слабее живого
+/// решателя), поздние дни — честнее про сами правила.
+pub fn calib(dbs: &[PathBuf], ref_rounds: u64, threads: usize, old: &str) -> Result<(), String> {
+    let mut facts = vec![];
+    for db in dbs.iter().filter(|d| d.exists()) {
+        facts.extend(crate::learn::load(db)?);
+    }
+    let mut pos: Vec<(i64, f64, String, State)> = vec![];
+    for run in facts.chunk_by(|a, b| a.run == b.run) {
+        let last = run.last().unwrap();
+        if last.day < last.state.m[gorn_prison::state::DAY_LIMIT] as i64 - 1 {
+            continue;
+        }
+        let mut buf: CodeBuf = [0; 32];
+        for f in run.iter().filter(|f| legal_codes(&f.state, &mut buf) > 1) {
+            pos.push((f.day, last.storage as f64, f.key.clone(), f.state));
+        }
+    }
+    pos.sort_by(|a, b| a.2.cmp(&b.2));
+    pos.dedup_by(|a, b| a.2 == b.2);
+    println!("прежняя модель — нынешние правила с вариантами: {old}; позиций {}, раундов {ref_rounds}", pos.len());
+    let old = crate::rulescheck::with_variants(old)?;
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().map_err(|e| e.to_string())?;
+    let t0 = std::time::Instant::now();
+    let best = |v: Vec<(i32, f64)>| v.iter().map(|o| o.1).fold(f64::MIN, f64::max);
+    let res: Vec<(i64, f64, f64, f64)> = pool.install(|| {
+        pos.par_iter()
+            .map(|(day, y, key, s)| {
+                let seed = seed_of(key);
+                (*day, best(evaluate(s, seed, ref_rounds, &old)), best(evaluate(s, seed, ref_rounds, &DEFAULT_PARAMS)), *y)
+            })
+            .collect()
+    });
+    println!("дни      позиций   прежняя → итог   нынешняя → итог");
+    let mut by_day: std::collections::BTreeMap<i64, (usize, f64, f64, f64)> = Default::default();
+    for (d, a, b, y) in &res {
+        let e = by_day.entry(d / 5 * 5).or_default();
+        *e = (e.0 + 1, e.1 + a, e.2 + b, e.3 + y);
+    }
+    for (d, (n, a, b, y)) in &by_day {
+        let n = *n as f64;
+        println!("{:>2}–{:<2}   {:>7}   {:>6.2} → {:.2}    {:>6.2} → {:.2}", d, d + 4, n, a / n, y / n, b / n, y / n);
+    }
+    println!("{:.0} с", t0.elapsed().as_secs_f64());
+    Ok(())
+}
