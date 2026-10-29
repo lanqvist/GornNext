@@ -282,6 +282,21 @@ struct ToastState {
     last_key: Option<String>,
     /// Поколение «спрятать»: новая плашка отменяет отложенное скрытие.
     hide_gen: u64,
+    /// На экране есть плашки (сообщает страница слоя).
+    active: bool,
+    /// Игрок в карте (не в тюрьме): слой не прячется до выхода из неё.
+    in_map: bool,
+}
+
+impl ToastState {
+    /// Окно должно быть видно. В карте — всё время, а не на каждую пачку
+    /// подборов: показ и скрытие окна поверх игры переводят её вывод из
+    /// прямого в сборку композитором и обратно, на каждом переключении
+    /// игра теряла кадр — статер на всплытии плашки. В карте переключений
+    /// два, и вход приходится на экран загрузки.
+    fn wanted(&self, popups: bool) -> bool {
+        self.active || (self.in_map && popups)
+    }
 }
 
 #[derive(Default)]
@@ -333,7 +348,7 @@ impl Layers {
     // ── срезы ────────────────────────────────────────────────────────────
 
     /// Новый срез движка: в каждое окно — по его правилам.
-    pub fn publish(&self, snap: &Value) {
+    pub fn publish(self: &Arc<Self>, snap: &Value) {
         *self.latest.lock().unwrap() = snap.clone();
         // Главное окно: свёрнутому или спрятанному — не слать, догонит при показе.
         match self.win("main") {
@@ -350,7 +365,14 @@ impl Layers {
         }
         // Плашкам — урезанный срез и только если для них что-то изменилось.
         {
+            let in_map = snap["current"].is_object() && snap["current"]["prison"] != json!(true);
             let mut t = self.toasts.lock().unwrap();
+            if t.in_map != in_map {
+                t.in_map = in_map;
+                drop(t);
+                self.refresh_toasts();
+                t = self.toasts.lock().unwrap();
+            }
             if t.open {
                 let key = toast_key(snap);
                 if t.last_key.as_deref() != Some(key.as_str()) {
@@ -640,13 +662,57 @@ impl Layers {
     // ── плашки ───────────────────────────────────────────────────────────
 
     /// Слой нужен, если включены всплывашки или звук: и то и другое живёт в нём.
-    pub fn sync_toasts(&self) {
+    pub fn sync_toasts(self: &Arc<Self>) {
         let p = self.overlay_prefs();
         if p["popups"].as_bool().unwrap_or(true) || p["sound"].as_bool().unwrap_or(true) {
             self.open_toasts();
+            // Всплывашки выключили в карте — пустой слой больше не нужен.
+            self.refresh_toasts();
         } else {
             self.close_toasts();
         }
+    }
+
+    fn popups_on(&self) -> bool {
+        self.overlay_prefs()["popups"].as_bool().unwrap_or(true)
+    }
+
+    /// Нужно окно — показать сразу; не нужно — спрятать с паузой: на анимацию
+    /// затухания и на плашку итога карты, которая приходит вместе с выходом.
+    fn refresh_toasts(self: &Arc<Self>) {
+        let popups = self.popups_on();
+        let (gen, want) = {
+            let mut t = self.toasts.lock().unwrap();
+            if !t.open {
+                return;
+            }
+            t.hide_gen += 1;
+            (t.hide_gen, t.wanted(popups))
+        };
+        let Some(w) = self.win("toasts") else { return };
+        if want {
+            if !w.is_visible().unwrap_or(false) {
+                show_inactive(&w);
+                // Показов и скрытий — пара на карту; чаще — снова статер.
+                crate::log("[плашки] слой показан");
+            }
+            return;
+        }
+        let me = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(600));
+            let popups = me.popups_on();
+            let t = me.toasts.lock().unwrap();
+            if t.hide_gen == gen && !t.wanted(popups) {
+                drop(t);
+                if let Some(w) = me.win("toasts") {
+                    if w.is_visible().unwrap_or(false) {
+                        hide(&w);
+                        crate::log("[плашки] слой спрятан");
+                    }
+                }
+            }
+        });
     }
 
     fn open_toasts(&self) {
@@ -701,6 +767,7 @@ impl Layers {
         t.left = left;
         t.width = w;
         t.scale = area.scale;
+        t.active = false;
         // Новое окно ничего не видело — следующий срез уходит в любом случае.
         t.last_key = None;
     }
@@ -712,32 +779,10 @@ impl Layers {
         }
     }
 
-    /// Есть плашки — показать; кончились — спрятать с паузой на анимацию.
+    /// Есть плашки или нет — сообщает страница слоя.
     pub fn toasts_active(self: &Arc<Self>, active: bool) {
-        let gen = {
-            let mut t = self.toasts.lock().unwrap();
-            if !t.open {
-                return;
-            }
-            t.hide_gen += 1;
-            t.hide_gen
-        };
-        let Some(w) = self.win("toasts") else { return };
-        if active {
-            if !w.is_visible().unwrap_or(false) {
-                show_inactive(&w);
-            }
-            return;
-        }
-        let me = self.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(600));
-            if me.toasts.lock().unwrap().hide_gen == gen {
-                if let Some(w) = me.win("toasts") {
-                    hide(&w);
-                }
-            }
-        });
+        self.toasts.lock().unwrap().active = active;
+        self.refresh_toasts();
     }
 
     /// Окно слоя — постоянного размера во всю высоту стека, плашки прижаты к
