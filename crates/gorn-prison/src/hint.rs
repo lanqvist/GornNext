@@ -146,6 +146,21 @@ pub struct HintContext<'a> {
     pub cancel_first: bool,
     /// Короткая причина хода от стратегии.
     pub reason: String,
+    /// Дней до конца забега (с сегодняшним): числа тепловизора — с поправкой
+    /// `forecast_gap`. None — числа как у решателя.
+    pub days_left: Option<i32>,
+}
+
+/// На сколько итог забега выше ожидания решателя: ожидание — доигрывание
+/// мгновенной стратегией, а ходит решатель, он сильнее. Самоигра 1 000 забегов
+/// (`gorn-cli forecast-gap`, 400 раундов, 72 446 решений): с 20 дней разрыв
+/// ~1,8, за день до конца ~0,1, у ожидания у потолка хранилища — меньше;
+/// ячейки дней × ожидания — в пределах ±0,3 от формулы. Живой журнал
+/// (92 забега): дни 0–4 — ожидание 6,09, с поправкой 7,67, итог 8,01; дни
+/// 15–19 — 7,67, 8,07, 7,91. Одна на позицию — порядок ходов не меняет.
+pub fn forecast_gap(days_left: i32, f: f64) -> f64 {
+    let ramp = 1.0 - (-(days_left.max(0) as f64) / 11.0).exp();
+    (ramp * (-0.5787 + 0.8256 * f - 0.0614 * f * f)).max(0.0)
 }
 
 /// Русское название орудия (без прозвища зверя после двоеточия).
@@ -465,8 +480,9 @@ pub fn heat(options: &[(i32, f64, f64)], ctx: &HintContext) -> Vec<HeatSpot> {
     if !best.is_finite() {
         return vec![];
     }
+    let shift = ctx.days_left.map_or(0.0, |d| forecast_gap(d, best));
     // Два знака после запятой, только если с одним разные оценки выглядят одинаково.
-    let one: Vec<String> = options.iter().map(|o| format!("{:.1}", o.1)).collect();
+    let one: Vec<String> = options.iter().map(|o| format!("{:.1}", o.1 + shift)).collect();
     let close = (1..one.len()).any(|i| one[..i].contains(&one[i]));
     let fmt = |v: f64| if close { format!("{v:.2}") } else { format!("{v:.1}") }.replace('.', ",");
     let mut ranked: Vec<&(i32, f64, f64)> = options.iter().collect();
@@ -481,7 +497,7 @@ pub fn heat(options: &[(i32, f64, f64)], ctx: &HintContext) -> Vec<HeatSpot> {
         out.push(HeatSpot {
             cell,
             card,
-            label: fmt(mean),
+            label: fmt(mean + shift),
             t: (1.0 - d).clamp(0.25, 1.0),
             near: d > 0.0 && !(d >= SWITCH_GAP && gap_se >= SWITCH_SE),
         });
@@ -575,6 +591,25 @@ mod tests {
         let h = heat(&[(A_DEVOUR << 6 | 5, 4.84, 0.0), (A_DEVOUR << 6 | 13, 4.81, 0.5)], &ctx);
         assert_eq!(h[0].label, "4,84");
         assert_eq!(h[1].label, "4,81");
+    }
+
+    /// Поправка на силу решателя: одна на позицию — числа выше, порядок,
+    /// жар и «≈» те же; к концу забега и у потолка хранилища — почти ноль.
+    #[test]
+    fn heat_labels_with_forecast_gap() {
+        let b = board(manage(), vec![]);
+        let opts = [(A_END << 6, 4.1, 6.0), (A_DEVOUR << 6 | 5, 4.8, 0.0), (A_DEVOUR << 6 | 13, 4.7, 1.2)];
+        let raw = heat(&opts, &HintContext { board: Some(&b), warden: Some(14), ..Default::default() });
+        let ctx = HintContext { board: Some(&b), warden: Some(14), days_left: Some(19), ..Default::default() };
+        let h = heat(&opts, &ctx);
+        let shift = forecast_gap(19, 4.8);
+        assert!((1.4..1.8).contains(&shift), "{shift}");
+        assert_eq!(h[0].label, format!("{:.1}", 4.8 + shift).replace('.', ","));
+        for (a, c) in raw.iter().zip(&h) {
+            assert_eq!((a.cell.map(|x| x.x), a.card, a.t, a.near), (c.cell.map(|x| x.x), c.card, c.t, c.near));
+        }
+        assert!(forecast_gap(1, 7.0) < 0.25 && forecast_gap(20, 12.5) < 0.2 && forecast_gap(20, 14.0) == 0.0);
+        assert!(forecast_gap(20, 7.0) > 1.6);
     }
 
     #[test]

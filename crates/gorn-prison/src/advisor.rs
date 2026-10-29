@@ -433,6 +433,7 @@ impl OwnAdvisor {
             ratway: mem.step == Step::Ratway,
             cancel_first: mem.step == Step::Chain && mem.first_bite,
             reason: ctx_reason,
+            days_left: Some(mem.day_limit - mem.day),
         };
 
         match self.adapter.position() {

@@ -187,6 +187,56 @@ pub fn play(from: u32, n: u32, mode: PlayMode, threads: usize, solver_threads: u
 
 // ── solve-bench ─────────────────────────────────────────────────────────────
 
+/// `gorn-cli forecast-gap`: самоигра решателем (R раундов, детерминированно);
+/// на каждом решении — ожидание лучшего хода (доигрывание мгновенной
+/// стратегией) и итог забега с красными. Строки CSV: дней осталось, день,
+/// хранилище, ожидание, итог — для поправки чисел подсказки.
+pub fn forecast_gap(from: u32, n: u32, rounds: u64, threads: usize, out: &str) -> Result<(), String> {
+    use gorn_prison::state::{DAY, DAY_LIMIT};
+    let p = &DEFAULT_PARAMS;
+    let w = default_weights();
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().map_err(|e| e.to_string())?;
+    let t0 = Clock::now();
+    let rows: Vec<String> = pool.install(|| {
+        (from..from + n)
+            .into_par_iter()
+            .with_max_len(1)
+            .flat_map_iter(|g| {
+                let mut s = State::new();
+                let mut r = Rng::new(777_000 + g);
+                start_run(&mut s, &mut r, p, RunOptions { start: (g % 5) as i32, ..RunOptions::default() });
+                let mut buf: CodeBuf = [0; 32];
+                let mut seen: Vec<(i32, i32, i32, f64)> = vec![];
+                let mut mv: u32 = 0;
+                while s.m[PHASE] != P_END {
+                    let c = if legal_codes(&s, &mut buf) > 1 {
+                        let stop = StopRule { max_rounds: rounds, ..STOP_DEFAULTS };
+                        let seed = g.wrapping_mul(1000).wrapping_add(mv);
+                        let res = Search::new(&s, SolveOptions { seed, stop, known_events: false }, p, w).step(f64::INFINITY, None);
+                        let f = res.options.iter().map(|o| o.mean).fold(f64::MIN, f64::max);
+                        seen.push((s.m[DAY_LIMIT] - s.m[DAY], s.m[DAY], s.m[STORAGE], f));
+                        res.best
+                    } else {
+                        let mut inst = Instant::new();
+                        inst.code(&s, p, w)
+                    };
+                    apply_code(&mut s, c, &mut r, p).unwrap_or_else(|e| panic!("забег {g}: {e}"));
+                    mv += 1;
+                }
+                let y = gorn_prison::rules::final_value(&s, p);
+                seen.into_iter().map(move |(left, day, st, f)| format!("{left},{day},{st},{f:.4},{y:.2}"))
+            })
+            .collect()
+    });
+    let text = format!("left,day,storage,forecast,final
+{}
+", rows.join("
+"));
+    std::fs::write(out, text).map_err(|e| format!("{out}: {e}"))?;
+    println!("забегов {n}, решений {}, {:.0} с → {out}", rows.len(), t0.elapsed().as_secs_f64());
+    Ok(())
+}
+
 fn q(a: &[f64], f: f64) -> f64 {
     let mut b = a.to_vec();
     b.sort_by(|x, y| x.partial_cmp(y).unwrap());

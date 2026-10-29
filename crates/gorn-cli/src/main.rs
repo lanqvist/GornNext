@@ -62,6 +62,9 @@ gorn-cli live-ab [--db a.db,b.db] [--rounds R=300] [--ref-rounds RR=5000] [--thr
     --old — прежняя модель: варианты rules-check (по умолчанию все правки 22.10)
 gorn-cli live-ab --calib [--db …] [--ref-rounds RR=1000] [--old вариант,…]
     калибровка: ожидание лучшего хода прежней и нынешней моделью против итога доигранных забегов, по дням
+gorn-cli forecast-gap [--seeds N=400] [--rounds R=400] [--threads T=ядра] [--out forecast-gap.csv]
+    самоигра решателем: на каждом решении ожидание лучшего хода и итог забега (CSV) — для поправки
+    чисел подсказки (`hint::forecast_gap`)
 gorn-cli solve-bench [--games 12] [--every 2] [--positions N] [--min 256] [--max R] [--cap 300]
               [--threads S=1] [--rate [--stride 5]] [--regret [--ref файл] [--ref-rounds 20000] [--ref-threads 14]]
     советы на позициях самоигры, как prison-solve-bench; 580 позиций аудита: --games 18 --positions 580
@@ -233,6 +236,16 @@ fn main() -> ExitCode {
                         (Some(m), None) => return Err(format!("--model: {m}")),
                     },
                 );
+                Ok(true)
+            }
+            "forecast-gap" => {
+                solverbench::forecast_gap(
+                    num(&o, "from", 0)?,
+                    num(&o, "seeds", 400)?,
+                    num(&o, "rounds", 400)? as u64,
+                    num(&o, "threads", cores())? as usize,
+                    o.get("out").map(String::as_str).unwrap_or("forecast-gap.csv"),
+                )?;
                 Ok(true)
             }
             "solve-bench" => {
