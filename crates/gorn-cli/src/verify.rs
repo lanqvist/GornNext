@@ -1443,6 +1443,15 @@ fn community_dump(dir: &std::path::Path, file: &str, season: i64, fetch: bool) -
     let changed = fetch.then(|| feed.refresh());
     let mut all = feed.all();
     all.sort_by_key(|p| p.config_base_id);
+    // changedAt — своё, у эталона его нет.
+    let all: Vec<serde_json::Value> = all
+        .iter()
+        .map(|p| {
+            let mut v = serde_json::to_value(p).unwrap_or_default();
+            v.as_object_mut().map(|o| o.remove("changedAt"));
+            v
+        })
+        .collect();
     serde_json::json!({ "loaded": loaded, "changed": changed, "stale": feed.stale(), "cursor": feed.cursor(), "all": all })
 }
 

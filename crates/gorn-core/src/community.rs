@@ -2,7 +2,8 @@
 //!
 //! Предметы — родной ConfigBaseId игры, сезон — тот же SeasonId, что в логе.
 //! Вежливость к чужому бесплатному серверу: первый заход — полная выборка,
-//! дальше только дельта по updated_at; опрос раз в 15 минут; при любой ошибке —
+//! дальше только дельта по updated_at (сервер, правда, пересчитывает почти все
+//! строки каждые ~20 минут, так что дельта близка к полной); опрос раз в 15 минут; при любой ошибке —
 //! молча живём на кэше. Своя пробивка всегда перекрывает цену сообщества —
 //! это решает движок, здесь только доставка.
 
@@ -32,11 +33,30 @@ pub struct CommunityPrice {
     /// Медиана референсных цен участников, в ФЕ.
     pub fe: f64,
     /// 10-й перцентиль — нижняя оценка.
+    #[serde(deserialize_with = "nan_if_null")]
     pub p10: f64,
+    #[serde(deserialize_with = "nan_if_null")]
     pub submissions: f64,
     /// Сколько разных устройств прислали цену: 1 — верить осторожно.
+    #[serde(deserialize_with = "nan_if_null")]
     pub devices: f64,
+    /// Когда сервер пересчитал строку. Пересчёт идёт пачкой каждые ~20 минут
+    /// и трогает почти все строки, даже если цена прежняя, — это не свежесть цены.
     pub updated_at: String,
+    /// updated_at той выборки, в которой fe/p10 впервые стали нынешними, —
+    /// по нему движок и сравнивает свежесть со своей пробивкой.
+    #[serde(default)]
+    pub changed_at: String,
+}
+
+/// NaN serde_json пишет как null; читаем null обратно в NaN, иначе битым окажется весь кэш.
+fn nan_if_null<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    Ok(Option::<f64>::deserialize(d)?.unwrap_or(f64::NAN))
+}
+
+/// Та же цена: NaN равен NaN.
+fn same(a: f64, b: f64) -> bool {
+    a == b || (a.is_nan() && b.is_nan())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -251,7 +271,11 @@ impl CommunityPriceFeed {
         if raw.season_id != season_id {
             return;
         }
-        for p in raw.prices {
+        for mut p in raw.prices {
+            // В кэше до changedAt лучшей оценки, чем время пересчёта, нет.
+            if p.changed_at.is_empty() {
+                p.changed_at = p.updated_at.clone();
+            }
             s.prices.insert(p.config_base_id, p);
         }
         s.cursor = raw.cursor;
@@ -278,12 +302,27 @@ impl CommunityPriceFeed {
         }
     }
 
-    /// Одна страница PostgREST; диапазон — заголовком Range.
-    fn fetch_page(&self, season_id: i64, offset: usize, since: Option<&str>) -> Result<Vec<serde_json::Value>, String> {
+    /// Одна страница PostgREST: строки после ключа (updated_at, config_base_id).
+    /// Ключ, а не смещение: пересчёт на сервере между страницами уносит строки
+    /// в конец выборки, и смещение перескочило бы через сдвинувшиеся.
+    fn fetch_page(&self, season_id: i64, since: Option<&str>, after: Option<(&str, i64)>) -> Result<Vec<serde_json::Value>, String> {
         // Вторичная сортировка по id: у пачки строк updated_at совпадает.
-        let mut filters = vec![format!("season_id=eq.{season_id}"), "order=updated_at.asc,config_base_id.asc".to_string()];
-        if let Some(s) = since {
-            filters.push(format!("updated_at=gt.{}", encode_uri_component(s)));
+        let mut filters = vec![
+            format!("season_id=eq.{season_id}"),
+            "order=updated_at.asc,config_base_id.asc".to_string(),
+            format!("limit={PAGE_SIZE}"),
+        ];
+        match after {
+            // Время в кавычках: точка и двоеточие — служебные внутри or=(…).
+            Some((u, id)) => filters.push(format!(
+                "or={}",
+                encode_uri_component(&format!("(updated_at.gt.\"{u}\",and(updated_at.eq.\"{u}\",config_base_id.gt.{id}))"))
+            )),
+            None => {
+                if let Some(s) = since {
+                    filters.push(format!("updated_at=gt.{}", encode_uri_component(s)));
+                }
+            }
         }
         let url = format!(
             "{}/rest/v1/aggregated_prices?select=config_base_id,price_fe_median,price_fe_p10,submission_count,unique_devices,updated_at&{}",
@@ -293,7 +332,6 @@ impl CommunityPriceFeed {
         let res = ureq::get(&url)
             .set("apikey", ANON_KEY)
             .set("Authorization", &format!("Bearer {ANON_KEY}"))
-            .set("Range", &format!("{}-{}", offset, offset + PAGE_SIZE - 1))
             .timeout(Duration::from_secs(20))
             .call()
             .map_err(|e| format!("community prices: {e}"))?;
@@ -301,16 +339,17 @@ impl CommunityPriceFeed {
         serde_json::from_str(&text).map_err(|e| e.to_string())
     }
 
-    /// Дельта-обновление; число новых/изменённых цен. Ошибки глотаются.
+    /// Дельта-обновление; сколько цен пришло (пересчитанные сервером без перемены — тоже).
+    /// Ошибки глотаются.
     pub fn refresh(&self) -> usize {
         let Some(season_id) = self.state.lock().unwrap().season_id else { return 0 };
         let generation = self.generation.load(Ordering::SeqCst);
         let current = || generation == self.generation.load(Ordering::SeqCst);
         let since = self.cursor();
-        let mut offset = 0;
+        let mut after: Option<(String, i64)> = None;
         let mut changed = 0;
         loop {
-            let rows = match self.fetch_page(season_id, offset, since.as_deref()) {
+            let rows = match self.fetch_page(season_id, since.as_deref(), after.as_ref().map(|(u, id)| (u.as_str(), *id))) {
                 Ok(r) => r,
                 Err(_) => {
                     // Ошибка запроса прошлого сезона к новому отношения не имеет.
@@ -333,13 +372,19 @@ impl CommunityPriceFeed {
                         continue;
                     }
                     let updated = row["updated_at"].as_str().unwrap_or_default().to_string();
+                    let p10 = row["price_fe_p10"].as_f64().unwrap_or(f64::NAN);
+                    let changed_at = match s.prices.get(&(id as i64)) {
+                        Some(old) if same(old.fe, fe) && same(old.p10, p10) => old.changed_at.clone(),
+                        _ => updated.clone(),
+                    };
                     let p = CommunityPrice {
                         config_base_id: id as i64,
                         fe,
-                        p10: row["price_fe_p10"].as_f64().unwrap_or(f64::NAN),
+                        p10,
                         submissions: row["submission_count"].as_f64().unwrap_or(f64::NAN),
                         devices: row["unique_devices"].as_f64().unwrap_or(f64::NAN),
                         updated_at: updated.clone(),
+                        changed_at,
                     };
                     s.prices.insert(p.config_base_id, p);
                     if s.cursor.as_deref().is_none_or(|c| updated.as_str() > c) {
@@ -351,16 +396,20 @@ impl CommunityPriceFeed {
             if rows.len() < PAGE_SIZE {
                 break;
             }
-            offset += PAGE_SIZE;
+            // Ключ — по последней строке страницы, даже пропущенной; без ключа дальше не пройти.
+            let last = &rows[rows.len() - 1];
+            match (last["updated_at"].as_str(), last["config_base_id"].as_f64()) {
+                (Some(u), Some(id)) => after = Some((u.to_string(), id as i64)),
+                _ => break,
+            }
         }
         {
             let mut s = self.state.lock().unwrap();
-            // Успешная сверка — свежесть, даже если новых цен не пришло.
+            // Успешная сверка — свежесть, даже если новых цен не пришло; в кэш — тоже,
+            // иначе прошлый сезон без перемен ходил бы в сеть на каждом запуске.
             s.fetched_at = Some(self.now_ms());
             s.refresh_failed = false;
-            if changed > 0 {
-                self.save_cache(&s);
-            }
+            self.save_cache(&s);
         }
         self.notify();
         changed
@@ -378,4 +427,102 @@ fn encode_uri_component(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    /// Сервер на один ответ за соединение: отдаёт тела по очереди, пишет пути запросов.
+    fn mock(bodies: Vec<String>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let h = std::thread::spawn(move || {
+            let mut paths = vec![];
+            for body in bodies {
+                let (mut sock, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(sock.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                paths.push(line.split(' ').nth(1).unwrap_or_default().to_string());
+                loop {
+                    let mut l = String::new();
+                    if reader.read_line(&mut l).unwrap() == 0 || l == "\r\n" {
+                        break;
+                    }
+                }
+                let head = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                sock.write_all(head.as_bytes()).unwrap();
+                sock.write_all(body.as_bytes()).unwrap();
+            }
+            paths
+        });
+        (url, h)
+    }
+
+    fn row(id: i64, fe: f64, updated: &str) -> serde_json::Value {
+        serde_json::json!({ "config_base_id": id, "price_fe_median": fe, "price_fe_p10": fe / 2.0,
+            "submission_count": 5, "unique_devices": 3, "updated_at": updated })
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("gorn-community-test-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn pages_by_key_and_keeps_changed_at_for_unchanged_prices() {
+        const T1: &str = "2026-10-29T07:45:00.649369+00:00";
+        const T2: &str = "2026-10-29T08:05:00.221814+00:00";
+        let page1: Vec<_> = (1..=PAGE_SIZE as i64).map(|id| row(id, 10.0, T1)).collect();
+        let page2 = vec![row(5000, 7.0, T1)];
+        // Пересчёт: у 1 цена прежняя, у 2 — новая.
+        let delta = vec![row(1, 10.0, T2), row(2, 11.0, T2)];
+        let bodies = [page1, page2, delta, vec![]].iter().map(|p| serde_json::to_string(p).unwrap()).collect();
+        let (url, server) = mock(bodies);
+        let dir = temp_dir("keyset");
+        let feed = CommunityPriceFeed::new(&dir, "c.json").with_base_url(&url).with_clock(Arc::new(|| 1_000));
+        feed.switch_season(1601);
+        assert_eq!(feed.refresh(), PAGE_SIZE + 1);
+        assert_eq!(feed.cursor().as_deref(), Some(T1));
+        assert_eq!(feed.refresh(), 2);
+        assert_eq!(feed.price_of(1).unwrap().changed_at, T1);
+        assert_eq!(feed.price_of(2).unwrap().changed_at, T2);
+        assert_eq!(feed.price_of(2).unwrap().updated_at, T2);
+        // Пустая сверка тоже пишет fetchedAt в кэш.
+        let feed = feed.with_clock(Arc::new(|| 2_000));
+        assert_eq!(feed.refresh(), 0);
+        let paths = server.join().unwrap();
+        assert!(!paths[0].contains("or=") && !paths[0].contains("updated_at=gt"), "{}", paths[0]);
+        assert!(paths[1].contains("or=") && paths[1].contains(&format!("config_base_id.gt.{PAGE_SIZE}")), "{}", paths[1]);
+        assert!(paths[2].contains("updated_at=gt.2026-10-29T07%3A45%3A00.649369%2B00%3A00"), "{}", paths[2]);
+        assert!(paths[3].contains("updated_at=gt.2026-10-29T08%3A05"), "{}", paths[3]);
+
+        let reread = CommunityPriceFeed::new(&dir, "c.json");
+        reread.switch_season(1601);
+        reread.load_cache(1601);
+        assert_eq!(reread.size(), PAGE_SIZE + 1);
+        assert_eq!(reread.fetched_at_ms(), Some(2_000));
+        assert_eq!(reread.price_of(1).unwrap().changed_at, T1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cache_with_nulls_and_without_changed_at_loads() {
+        let dir = temp_dir("nulls");
+        let text = r#"{"seasonId":1601,"fetchedAt":"2026-10-29T07:48:43.029Z","cursor":"2026-10-29T07:45:00+00:00",
+            "prices":[{"configBaseId":7,"fe":3.0,"p10":null,"submissions":null,"devices":1,"updatedAt":"2026-10-29T07:45:00+00:00"}]}"#;
+        std::fs::write(dir.join("c.json"), text).unwrap();
+        let feed = CommunityPriceFeed::new(&dir, "c.json");
+        feed.switch_season(1601);
+        feed.load_cache(1601);
+        let p = feed.price_of(7).unwrap();
+        assert!(p.p10.is_nan() && p.submissions.is_nan());
+        assert_eq!(p.changed_at, p.updated_at);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -1074,7 +1074,8 @@ impl Engine {
             None => (self.prices.get(id).map(|r| (r.fe, r.observed_at)), Some(self.community.clone())),
         };
         let community = if self.community_enabled { feed.and_then(|f| f.price_of(id)) } else { None };
-        let updated = community.as_ref().map(|c| c.updated_at.clone());
+        // Свежесть — когда цена стала нынешней, а не когда сервер её пересчитал.
+        let updated = community.as_ref().map(|c| c.changed_at.clone());
         let updated_ms = move || updated.as_deref().and_then(parse_iso_ms).map(|t| t as f64).unwrap_or(f64::NAN);
         let community_ref = community.as_ref().map(|c| community_reference(c.fe, c.p10, self.items.get(&id).is_some_and(|i| !i.gear)));
         let now = if past.is_some() { i64::MAX } else { self.now() };
