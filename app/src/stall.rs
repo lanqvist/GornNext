@@ -12,8 +12,11 @@
 //!
 //! Геометрия снята с экрана 3440×1440 (21:9) в опорных пикселях высоты 1080:
 //! интерфейс масштабируется по высоте, лоты прижаты влево, сетка сумки
-//! тянется до правого края — число столбцов зависит от ширины экрана
-//! (на 21:9 их 23). На 16:9 не проверено.
+//! тянется до правого края. Столбцов — сколько клеток опорного размера
+//! влезает по ширине, с округлением, и сетка целиком (шаг, клетки, ряды)
+//! растягивается или сжимается, чтобы последний столбец дошёл до поля справа:
+//! на 21:9 — 23 столбца почти без растяжения, на 16:9 — 15 столбцов,
+//! клетки мельче на 2,5 % (снимок 16:9). Другие пропорции не проверены.
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
@@ -38,7 +41,8 @@ const MY_STALL: [f64; 4] = [382.0, 5.0, 511.0, 44.0];
 const BAG_TABS: [(f64, i64); 4] = [(760.0, 100), (816.8, 101), (873.5, 102), (931.6, 103)];
 const BAG_TAB_Y: f64 = 92.9;
 const BAG_TAB_R: f64 = 11.5;
-/// Сетка сумки: левый край и верх первой клетки, шаг, размер клетки, поле справа.
+/// Сетка сумки на 21:9: левый край и верх первой клетки, шаг, размер клетки,
+/// поле справа. Шаг и клетки — до растяжения по ширине (`grid`).
 const GRID_X: f64 = 745.8;
 const GRID_Y: f64 = 126.4;
 const PITCH_X: f64 = 78.74;
@@ -66,6 +70,8 @@ pub enum Event {
 pub struct StallView {
     pub page: i64,
     pub cols: i64,
+    /// Во сколько раз сетка крупнее снятой на 21:9.
+    pub scale: f64,
     /// Опорный пиксель → пиксель кадра.
     pub k: f64,
 }
@@ -74,10 +80,21 @@ impl StallView {
     /// Клетка слота в пикселях кадра: x0, y0, x1, y1.
     pub fn cell(&self, slot: i64) -> [f64; 4] {
         let (row, col) = (slot / self.cols, slot % self.cols);
-        let x = GRID_X + col as f64 * PITCH_X;
-        let y = GRID_Y + row as f64 * PITCH_Y;
-        [x * self.k, y * self.k, (x + CELL_W) * self.k, (y + CELL_H) * self.k]
+        let x = GRID_X + col as f64 * PITCH_X * self.scale;
+        let y = GRID_Y + row as f64 * PITCH_Y * self.scale;
+        let (w, h) = (CELL_W * self.scale, CELL_H * self.scale);
+        [x * self.k, y * self.k, (x + w) * self.k, (y + h) * self.k]
     }
+}
+
+/// Столбцы сетки и её масштаб при ширине экрана `width` (опорные пиксели):
+/// клетки опорного размера по ширине с округлением, затем сетка растягивается
+/// так, чтобы последний столбец кончался у поля справа.
+fn grid(width: f64) -> (i64, f64) {
+    // Ширина под сетку с одним лишним промежутком: ровно столбцы × шаг.
+    let span = width - GRID_X - GRID_RIGHT + (PITCH_X - CELL_W);
+    let cols = (span / PITCH_X).round().max(1.0);
+    (cols as i64, span / (cols * PITCH_X))
 }
 
 fn yellow(img: &Image, x: usize, y: usize) -> bool {
@@ -130,9 +147,8 @@ pub fn recognize(img: &Image) -> Option<StallView> {
     if best < 0.08 || second > best / 3.0 {
         return None;
     }
-    // Сколько клеток влезает до поля справа (с допуском на неточность замера).
-    let cols = ((width - GRID_X - GRID_RIGHT + (PITCH_X - CELL_W)) / PITCH_X + 0.1).floor() as i64;
-    (cols > 0).then_some(StallView { page, cols, k })
+    let (cols, scale) = grid(width);
+    Some(StallView { page, cols, scale, k })
 }
 
 /// Что делать по строкам лога.
@@ -296,7 +312,7 @@ fn labels(grid: &BagGrid, view: &StallView) -> Value {
         "cells": cells,
         "total": page.value_fe,
         "unpriced": page.unpriced,
-        // Итог страницы — над сеткой, правее иконок вкладок.
+        // Итог страницы — над сеткой, правее иконок вкладок (они не масштабируются).
         "totalAt": [first[0] + (BAG_TABS[3].0 - GRID_X + 40.0) * view.k, BAG_TAB_Y * view.k],
     })
 }
@@ -453,15 +469,35 @@ mod tests {
     }
 
     #[test]
+    fn grid_fills_width() {
+        // 21:9: 23 столбца, как сняты.
+        let (cols, scale) = grid(3440.0 / (1440.0 / 1080.0));
+        assert_eq!(cols, 23);
+        assert!((scale - 1.0).abs() < 0.01);
+        // 16:9 по снимку 2000×1125: 15 столбцов, клетка 0 — x 777,5…849,5,
+        // клетка 14 кончается на 1969,5; ряд 3 начинается на 469,5.
+        let k = 1125.0 / 1080.0;
+        let (cols, scale) = grid(2000.0 / k);
+        assert_eq!(cols, 15);
+        let v = StallView { page: 102, cols, scale, k };
+        let near = |a: f64, b: f64| (a - b).abs() < 2.0;
+        assert!(near(v.cell(0)[0], 777.5) && near(v.cell(0)[2], 849.5), "{:?}", v.cell(0));
+        assert!(near(v.cell(1)[0], 857.5), "{:?}", v.cell(1));
+        assert!(near(v.cell(14)[2], 1969.5), "{:?}", v.cell(14));
+        assert!(near(v.cell(45)[1], 469.5) && near(v.cell(15)[0], 777.5), "{:?}", v.cell(45));
+    }
+
+    #[test]
     fn cells_follow_slot_order() {
-        let v = StallView { page: 103, cols: 23, k: 1440.0 / 1080.0 };
+        let v = StallView { page: 103, cols: 23, scale: 1.0, k: 1440.0 / 1080.0 };
         let a = v.cell(0);
         let b = v.cell(23);
         assert!((b[0] - a[0]).abs() < 1e-9 && b[1] > a[1]);
         assert!(v.cell(22)[2] <= 3440.0);
     }
 
-    /// Снимок экрана PNG (RGB или RGBA): STALL_PNG=путь cargo test -- --ignored
+    /// Снимок экрана PNG (RGB или RGBA): STALL_PNG=путь STALL_PAGE=102 [STALL_COLS=15]
+    /// cargo test -- --ignored
     #[test]
     #[ignore]
     fn recognizes_screenshot() {
@@ -479,7 +515,8 @@ mod tests {
         let want: i64 = std::env::var("STALL_PAGE").unwrap().parse().unwrap();
         let v = recognize(&Image::whole(w, h, data.clone()));
         println!("{path}: {v:?}");
-        assert_eq!(v.map(|v| (v.page, v.cols)), Some((want, 23)));
+        let cols: i64 = std::env::var("STALL_COLS").map_or(23, |c| c.parse().unwrap());
+        assert_eq!(v.map(|v| (v.page, v.cols)), Some((want, cols)));
         // То же по вырезанной полосе, как её отдаёт поток (CROP).
         let k = h as f64 / 1080.0;
         let (cw, ch) = ((CROP[2] * k) as usize, (CROP[3] * k) as usize);
