@@ -6,7 +6,7 @@
 //!
 //! Названия орудий и подарков — предварительные (дословный перевод русских),
 //! кроме сверенных с английским клиентом (кадры 31.10): Long-Chained Shackles,
-//! Warden's Scales, Rusty Saw. Остальные заменят названия с кадров сбора (`collect.rs`).
+//! Short-Chained Shackles, Sorting Hook, Severed Iron Maiden, Warden's Scales, Rusty Saw. Остальные заменят названия с кадров сбора (`collect.rs`).
 
 use crate::model::{GIFT_NAMES, TOOL_NAMES};
 
@@ -17,8 +17,8 @@ pub const TOOL_NAMES_EN: [&str; 31] = [
     "Convict's Dog Tag",
     "Executioner's Blacklist",
     "Red-Hot Brand",
-    "Selection Hook",
-    "Short-Chain Shackles",
+    "Sorting Hook",
+    "Short-Chained Shackles",
     "Long-Chained Shackles",
     "Burning Stake",
     "Spiked Iron Whip",
@@ -36,7 +36,7 @@ pub const TOOL_NAMES_EN: [&str; 31] = [
     "Iron Pestle",
     "Warden's Scales",
     "Warden's Execution Axe",
-    "Split Sarcophagus",
+    "Severed Iron Maiden",
     "Scapegoat Guillotine",
     "Tongs of Vice",
     "Filthy Iron Claw",
