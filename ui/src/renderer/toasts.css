@@ -77,6 +77,84 @@ body {
   animation: none;
 }
 
+/* Сцена стенда: окно слоя на своём месте поверх грубого макета игры —
+   огонь и вспышка умения прямо за плашками, как в худшем случае в бою.
+   Пунктир — границы окна слоя (560×260, нижняя кромка на 36% высоты). */
+.tl-scene {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 340px 200px at 44% 30%, rgb(255 230 120 / 85%), rgb(255 140 40 / 45%) 40%, transparent 72%),
+    radial-gradient(ellipse 420px 300px at 62% 22%, rgb(60 200 190 / 35%), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 50% 60%, rgb(120 70 30 / 55%), transparent 70%),
+    repeating-linear-gradient(28deg, rgb(255 255 255 / 4%) 0 2px, transparent 2px 90px),
+    repeating-linear-gradient(-28deg, rgb(0 0 0 / 22%) 0 2px, transparent 2px 90px),
+    radial-gradient(ellipse at 50% 55%, #3a2c1e 0%, #1c1712 50%, #0a090b 100%);
+}
+
+.tl-scene > i {
+  position: absolute;
+}
+
+.tl-scene-boss {
+  left: 50%;
+  top: 28px;
+  width: 460px;
+  height: 18px;
+  margin-left: -230px;
+  border: 2px solid #5b4a33;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #b3261e 62%, #3a1714 62%);
+}
+
+.tl-scene-map {
+  right: 28px;
+  top: 28px;
+  width: 200px;
+  height: 200px;
+  border: 3px solid #5b4a33;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(70 90 110 / 55%), rgb(20 25 30 / 75%));
+}
+
+.tl-scene-hero {
+  left: 50%;
+  top: 52%;
+  width: 40px;
+  height: 64px;
+  margin-left: -20px;
+  border-radius: 20px;
+  background: #d9d2c4;
+  box-shadow: 0 0 40px 14px rgb(255 200 120 / 35%);
+}
+
+.tl-scene-bar {
+  left: 50%;
+  bottom: 24px;
+  width: 520px;
+  height: 64px;
+  margin-left: -260px;
+  border: 3px solid #5b4a33;
+  border-radius: 8px;
+  background: repeating-linear-gradient(90deg, #4a3d2c 0 72px, #221b13 72px 84px);
+}
+
+.tl-scene .tl {
+  position: absolute;
+  left: 50%;
+  top: calc(36% - 260px);
+  width: 560px;
+  height: 260px;
+  margin-left: -280px;
+  outline: 1px dashed rgb(255 255 255 / 30%);
+}
+
+.tl-scene .tl-preview .ov-toasts {
+  flex-direction: column-reverse;
+  gap: 7px;
+}
+
 @keyframes tl-in {
   from {
     opacity: 0;
@@ -151,58 +229,6 @@ body {
   }
 }
 
-.ov-toast-runEnd {
-  font-size: 17px;
-  color: #a9e6c0;
-  background: rgb(12 20 15 / 72%);
-  border: 1px solid rgb(95 208 138 / 30%);
-}
-
-/* Итог карты — карточка: момент закрытия карты игрок готов читать.
-   Окно слоя всего 560px — карточка обязана влезать, а не резаться
-   краем окна: находки переносятся на вторую строку. */
-.ov-toast-runEnd {
-  max-width: 548px;
-}
-
-.ov-runend {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-  min-width: 0;
-}
-
-.ov-runend-head {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-}
-
-.ov-runend-delta {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.ov-runend-delta.up {
-  color: #5fd08a;
-}
-
-.ov-runend-delta.down {
-  color: #e0705f;
-}
-
-.ov-runend-drops {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 3px 14px;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: #cfd4df;
-  max-width: 100%;
-}
-
 /* Ступени ценности — те же пороги и цвета, что у полос дропа в оверлее. */
 .t-gold {
   --tier: #ffc94d;
@@ -216,58 +242,262 @@ body {
   --tier: #8e94a6;
 }
 
-.ov-runend-drop {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 1px 8px 1px 3px;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--tier, #8e94a6) 55%, transparent);
-  background: color-mix(in srgb, var(--tier, #8e94a6) 16%, transparent);
-}
+/* ── итог карты: «застывшая Сводка» ──────────────────────────────
+   Тот же язык, что у оверлея и пульта (overlay.css): плотная тёмная
+   подложка, ореол у текста, одна крупная цифра, темп таблеткой,
+   находки полосами ступеней. Всё по левому краю, цифры — столбиком
+   справа. Ширина постоянная: карточка не прыгает от длины названий,
+   и в окне слоя (560px) остаётся запас под монетный дождь. */
 
-.ov-runend-drop.t-gold {
-  color: #fff1cc;
-}
-
-/* Выход с карты — пауза: подсказка, где смотреть подробности. */
-.ov-runend-hint {
-  font-size: 12px;
-  font-weight: 500;
-  color: #8f99aa;
-}
-
-.ov-runend-hint kbd {
-  padding: 0 5px;
-  border-radius: 4px;
-  border: 1px solid rgb(255 255 255 / 18%);
-  background: rgb(255 255 255 / 7%);
-  color: #d4dae4;
-  font: 600 11px/1.5 Consolas, 'Segoe UI', monospace;
-}
-
-/* Тюрьма — цветом тюремных стрелок: итог есть, темпа нет. */
+.ov-toast-runEnd,
 .ov-toast-prison {
-  font-size: 17px;
-  color: #b8f5d2;
-  background: rgb(10 22 16 / 74%);
-  border: 1px solid rgb(70 255 154 / 35%);
-  max-width: 548px;
+  display: block;
+  width: 420px;
+  padding: 8px 11px 9px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(20 18 22 / 92%), rgb(12 11 14 / 90%));
+  border: 1px solid rgb(255 255 255 / 10%);
+  color: #f6f1ea;
+  font-size: 13px;
+  font-weight: 400;
+  text-shadow:
+    0 0 1px rgb(0 0 0 / 95%),
+    0 1px 2px rgb(0 0 0 / 90%),
+    0 0 6px rgb(0 0 0 / 50%);
 }
 
-.ov-runend-drop img {
-  width: 18px;
-  height: 18px;
+/* Тюрьма — цветом тюремных стрелок, рекорд — золотом. Обычный итог
+   берёт цвет каления из темпа (heat.ts) прямо в style. */
+.ov-toast-prison {
+  --heat: #46ff9a;
+  --glow: 0.45;
+}
+
+.ov-toast-record {
+  --heat: #ffc94d;
+  --glow: 0.8;
+  border-color: rgb(255 190 60 / 45%);
+}
+
+/* Раскалённая кромка — как у оверлея на карте. */
+.ov-sum-ember {
+  position: absolute;
+  top: -1px;
+  left: 10px;
+  right: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--heat) 15%, var(--heat) 85%, transparent);
+  box-shadow: 0 0 calc(3px + var(--glow) * 10px) var(--heat);
+  opacity: calc(0.5 + var(--glow) * 0.5);
+}
+
+.ov-sum {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ov-sum-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Время — фишкой таймера, как в шапке оверлея. */
+.ov-sum-time {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgb(255 157 60 / 18%);
+  color: #ffc27a;
+  font-size: 13.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-sum-map {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #cfc6ba;
+}
+
+/* «Карта закрыта» — подпись, а не новость: мелко и капителью справа. */
+.ov-sum-label {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9d94a6;
+}
+
+.ov-toast-record .ov-sum-label {
+  color: #ffd694;
+}
+
+.ov-toast-prison .ov-sum-label {
+  color: #8fe9b5;
+}
+
+.ov-sum-hero {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 28px;
+  font-weight: 750;
+  line-height: 1.05;
+  color: #a6f3c1;
+}
+
+.ov-sum-hero.neg {
+  color: #ff8f7c;
+}
+
+.ov-sum-delta {
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ov-sum-delta.up {
+  color: #7be3a1;
+  background: rgb(60 180 110 / 20%);
+}
+
+.ov-sum-delta.down {
+  color: #ff8f7c;
+  background: rgb(220 90 70 / 20%);
+}
+
+.ov-sum-note {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #b9b0a5;
+}
+
+.ov-sum-drops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ov-sum-drops li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 7px 0 2px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 5%);
+  font-size: 13.5px;
+  overflow: hidden;
+}
+
+/* Полоса — доля от самой дорогой находки, кромка — ступень. */
+.ov-sum-drops li > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--tier) 42%, transparent),
+    color-mix(in srgb, var(--tier) 18%, transparent)
+  );
+  border-left: 2px solid var(--tier);
+}
+
+.ov-sum-drops li > span {
+  position: relative;
+}
+
+.ov-sum-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.ov-sum-icon img {
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 70%));
 }
 
-.ov-runend-name {
-  /* Просторнее, чем кажется нужным: обрезанное «Воинственный Солд…»
-     бесполезно, а лишние находки переносятся на вторую строку. */
-  max-width: 210px;
+.ov-sum-ph {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  background: #2b2730;
+  color: #a7a0b0;
+  font-weight: 700;
+}
+
+/* Название: многоточие — в основе, хвост в скобках всегда целый. */
+.ov-sum-name {
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+  color: #ebe3d8;
+}
+
+.ov-sum-name > span:first-child {
+  min-width: 2.5em;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.ov-sum-tail {
+  flex: none;
+  margin-left: 0.3em;
+}
+
+.t-gold .ov-sum-name {
+  color: #fff1cc;
+  font-weight: 600;
+}
+
+.ov-sum-qty {
+  color: #b9b0a5;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-sum-fe {
+  min-width: 44px;
+  justify-content: flex-end;
+  font-weight: 700;
+}
+
+/* Выход с карты — пауза: где смотреть подробности. Мелко, справа. */
+.ov-sum-hint {
+  align-self: flex-end;
+  margin-top: -1px;
+  font-size: 11.5px;
+  color: #9d94a6;
+}
+
+.ov-sum-hint kbd {
+  margin-left: 3px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-bottom-width: 2px;
+  background: rgb(255 255 255 / 6%);
+  color: #d8cfc3;
+  font: 600 11px/1.5 Consolas, 'Segoe UI', monospace;
 }
 
 .ov-toast-icon {
@@ -474,15 +704,6 @@ body {
 /* ── монетный дождь рекорда ──────────────────────────────────────
    Каскад иконок ФЕ над карточкой итога. Не чаще раза в час. */
 
-.ov-toast-record {
-  border-color: rgb(255 190 60 / 55%);
-}
-
-.ov-record-label {
-  color: #ffd694;
-  font-weight: 700;
-}
-
 .ov-coins {
   position: absolute;
   inset: -36px 0 auto;
@@ -546,19 +767,6 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
-}
-
-.ov-toast-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: #9fb8aa;
-}
-
-.ov-toast-time {
-  font-size: 13px;
-  font-weight: 500;
-  color: #9fb8aa;
-  font-variant-numeric: tabular-nums;
 }
 
 .fe {

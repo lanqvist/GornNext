@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { tr } from '../core/i18n.js';
 import type { ToastSnapshot } from '../main/toastFeed.js';
 import { ToastList, useIncomeToasts, type Toast } from './overlay/toasts.js';
 
@@ -8,60 +9,112 @@ const CDN = 'https://cdn.tlidb.com/UI/Textures/Common/Icon';
 /**
  * Стенд плашек (overlay-lab, toasts.html?preview=1): все виды сразу
  * и без затухания — живые плашки гаснут за секунды, их не разглядеть.
+ * Функция, а не константа: названия зависят от языка, а он известен
+ * только после initLanguage.
  */
-const PREVIEW: Toast[] = [
-  { id: 1, kind: 'pickup', fe: 0.8 },
-  {
-    id: 6,
-    kind: 'notable',
-    fe: 14.6,
-    name: 'Precious Ember ×2',
-    icon: `${CDN}/Ash/128/UI_Ash_20StonelowYOUZHI_Icon_128.webp`,
-    more: 2,
-  },
-  {
-    id: 2,
-    kind: 'jackpot',
-    fe: 68,
-    name: 'Soldier Compass ×2',
-    icon: `${CDN}/Compass/128/UI_Compass_MonsterNormal_1_1_Icon_128.webp`,
-  },
-  {
-    id: 3,
-    kind: 'runEnd',
-    fe: 92,
-    durationMs: 112_000,
-    deltaPct: 41,
-    topDrops: [
-      { name: 'Soldier Compass', icon: `${CDN}/Compass/128/UI_Compass_MonsterNormal_1_1_Icon_128.webp`, fe: 68, tier: 'gold' },
-      { name: 'Precious Ember', icon: `${CDN}/Ash/128/UI_Ash_20StonelowYOUZHI_Icon_128.webp`, fe: 13, tier: 'orange' },
-      { name: 'Netherrealm resonance', icon: `${CDN}/Item/128/UI_Item_Echo_01_Icon_128.webp`, fe: 3.1, tier: 'plain' },
-    ],
-  },
-  {
-    id: 4,
-    kind: 'runEnd',
-    fe: 31,
-    durationMs: 60_000,
-    record: true,
-    deltaPct: 57,
-    topDrops: [
-      { name: 'Precious Ember', icon: `${CDN}/Ash/128/UI_Ash_20StonelowYOUZHI_Icon_128.webp`, fe: 13, tier: 'orange' },
-    ],
-  },
-  {
-    id: 5,
-    kind: 'prison',
-    fe: 171,
-    topDrops: [
-      { name: 'Flame Elementium', icon: `${CDN}/Item/128/UI_Item_chuhuoyuanzhiV3_Icon_128.webp`, fe: 104, tier: 'gold' },
-      { name: 'Precious Ember', icon: `${CDN}/Ash/128/UI_Ash_20StonelowYOUZHI_Icon_128.webp`, fe: 12, tier: 'orange' },
-    ],
-  },
-];
+function previewToasts(): Toast[] {
+  const compass = `${CDN}/Compass/128/UI_Compass_MonsterNormal_1_1_Icon_128.webp`;
+  const ember = `${CDN}/Ash/128/UI_Ash_20StonelowYOUZHI_Icon_128.webp`;
+  const echo = `${CDN}/Item/128/UI_Item_Echo_01_Icon_128.webp`;
+  return [
+    { id: 1, kind: 'pickup', fe: 0.8 },
+    {
+      id: 6,
+      kind: 'notable',
+      fe: 14.6,
+      name: 'Precious Ember ×2',
+      icon: ember,
+      more: 2,
+    },
+    {
+      id: 2,
+      kind: 'jackpot',
+      fe: 68,
+      name: 'Soldier Compass ×2',
+      icon: compass,
+    },
+    {
+      id: 3,
+      kind: 'runEnd',
+      fe: 92,
+      durationMs: 112_000,
+      mapName: tr('Мерзкий лес', 'Foul Forest'),
+      deltaPct: 41,
+      topDrops: [
+        { name: 'Soldier Compass', icon: compass, qty: 1, fe: 68, tier: 'gold' },
+        { name: 'Precious Ember', icon: ember, qty: 2, fe: 13, tier: 'orange' },
+        { name: 'Netherrealm resonance', icon: echo, qty: 1, fe: 3.1, tier: 'plain' },
+      ],
+    },
+    {
+      // Слабая карта с длинным названием: хвост «(метка времени 8)» — главное в нём.
+      id: 7,
+      kind: 'runEnd',
+      fe: 1.3,
+      durationMs: 96_000,
+      mapName: tr('Громовые пустоши', 'Thunder Wastes'),
+      deltaPct: -74,
+      topDrops: [
+        {
+          name: tr('Маячок Громовых пустошей (метка времени 8)', 'Thunder Wastes Beacon (Timemark 8)'),
+          icon: compass,
+          qty: 1,
+          fe: 0.46,
+          tier: 'plain',
+        },
+        {
+          // Нарочно длиннее строки: многоточие — в основе, хвост и ×3 целы.
+          name: tr(
+            'Карта-указатель к пепельному хранилищу ветров (метка времени 8)',
+            'Waypoint Map to the Ashen Vault of Winds (Timemark 8)',
+          ),
+          icon: compass,
+          qty: 3,
+          fe: 0.42,
+          tier: 'plain',
+        },
+        { name: tr('Отзвук Преисподней', 'Netherrealm resonance'), icon: echo, qty: 1, fe: 0.31, tier: 'plain' },
+      ],
+    },
+    {
+      id: 4,
+      kind: 'runEnd',
+      fe: 31,
+      durationMs: 60_000,
+      mapName: tr('Святилище агонии', 'Sanctum of Agony'),
+      record: true,
+      deltaPct: 57,
+      topDrops: [{ name: 'Precious Ember', icon: ember, qty: 4, fe: 13, tier: 'orange' }],
+    },
+    {
+      id: 5,
+      kind: 'prison',
+      fe: 171,
+      mapName: tr('Тюрьма Талоса', 'Talos Prison'),
+      topDrops: [
+        {
+          name: 'Flame Elementium',
+          icon: `${CDN}/Item/128/UI_Item_chuhuoyuanzhiV3_Icon_128.webp`,
+          qty: 1,
+          fe: 104,
+          tier: 'gold',
+        },
+        { name: 'Precious Ember', icon: ember, qty: 3, fe: 12, tier: 'orange' },
+      ],
+    },
+  ];
+}
 
-const preview =
-  import.meta.env.DEV && new URLSearchParams(location.search).get('preview') === '1';
+const params = new URLSearchParams(location.search);
+const preview = import.meta.env.DEV && params.get('preview') === '1';
+/**
+ * Сцена стенда (`&scene=1`): окно слоя 560×260 на своём месте — по центру,
+ * нижняя кромка на 36% высоты экрана, как в layers.rs, — поверх макета
+ * яркой игры. Соотношение сторон задаёт размер окна браузера: 16:9, 21:9.
+ * `&only=3,7` — показать только эти плашки стенда.
+ */
+const scene = preview && params.has('scene');
+const only = params.get('only')?.split(',').map(Number) ?? null;
 
 /**
  * Слой всплывающего дохода — отдельное прозрачное окно у центра экрана,
@@ -162,9 +215,22 @@ export function ToastLayerApp() {
     };
   }, []);
 
-  return (
+  const shown = preview
+    ? previewToasts().filter((t) => !only || only.includes(t.id))
+    : toasts;
+  const layer = (
     <div ref={root} className={preview ? 'tl tl-preview' : 'tl'}>
-      <ToastList toasts={preview ? PREVIEW : toasts} />
+      <ToastList toasts={shown} heat={prefs.heat} />
+    </div>
+  );
+  if (!scene) return layer;
+  return (
+    <div className="tl-scene">
+      <i className="tl-scene-boss" />
+      <i className="tl-scene-map" />
+      <i className="tl-scene-hero" />
+      <i className="tl-scene-bar" />
+      {layer}
     </div>
   );
 }
