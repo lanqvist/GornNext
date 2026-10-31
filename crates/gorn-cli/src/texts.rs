@@ -85,7 +85,7 @@ pub fn report(path: &Path, what: Option<&str>, label: Option<&str>) -> Result<()
                     println!("  дверь {cx:.0}: {}", gorn_prison::recognize::cards::door_debug(&frame, &geo, cx, &t.digits));
                 }
             }
-            line += &format!(" [надзиратель {:?}, двери {:?}, решение {:?}, цепочка {:?}, дни {:?}, цель {:?}, призм {}]", b.warden, b.doors, b.decision, b.chain, b.days_left, b.objective, b.chromatic);
+            line += &format!(" [надзиратель {:?}, двери {:?}, решение {:?}, цепочка {:?}, дни {:?}, цель {:?}, призм {}, орудия {:?}]", b.warden, b.doors, b.decision, b.chain, b.days_left, b.objective, b.chromatic, b.tools);
         }
         for spot in &SPOTS {
             let (v, contrast) = vector(&frame, &geo, spot);

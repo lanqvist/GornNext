@@ -9,14 +9,14 @@
 //! Short-Chained Shackles, Sorting Hook, Severed Iron Maiden, Warden's Scales, Rusty Saw,
 //! Searing Branding Iron, Maddened Beast's Barbed Collar, Avenger's Casket, Kin's Coin of Fate,
 //! Forged Key, Iron Pestle, Raging Beast's Agonizing Muzzle, Gaoler's Execution Axe, Burning Stake,
-//! Hangman's Noose, Ferocious Beast's Ravenous Chains. Остальные заменят названия с кадров сбора (`collect.rs`).
+//! Hangman's Noose, Ferocious Beast's Ravenous Chains, Lost Ring of Keys, Barbed Whip, Crowded Beastcage. Остальные заменят названия с кадров сбора (`collect.rs`).
 
 use crate::model::{GIFT_NAMES, TOOL_NAMES};
 
 /// Английские названия орудий (по номеру, как TOOL_NAMES).
 pub const TOOL_NAMES_EN: [&str; 31] = [
     "Forged Key",
-    "Lost Key Ring",
+    "Lost Ring of Keys",
     "Convict's Dog Tag",
     "Executioner's Blacklist",
     "Searing Branding Iron",
@@ -24,12 +24,12 @@ pub const TOOL_NAMES_EN: [&str; 31] = [
     "Short-Chained Shackles",
     "Long-Chained Shackles",
     "Burning Stake",
-    "Spiked Iron Whip",
+    "Barbed Whip",
     "Rusty Saw",
     "Maddened Beast's Barbed Collar",
     "Raging Beast's Agonizing Muzzle",
     "Avenger's Casket",
-    "Overcrowded Beast Cage",
+    "Crowded Beastcage",
     "Rat-Head Skewer",
     "Prison King's Iron Crown",
     "Elephant-Foot Maul",
