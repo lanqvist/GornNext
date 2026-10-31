@@ -7,7 +7,9 @@
 //! Названия орудий и подарков — предварительные (дословный перевод русских),
 //! кроме сверенных с английским клиентом (кадры 31.10): Long-Chained Shackles,
 //! Short-Chained Shackles, Sorting Hook, Severed Iron Maiden, Warden's Scales, Rusty Saw,
-//! Searing Branding Iron, Maddened Beast's Barbed Collar, Avenger's Casket, Kin's Coin of Fate. Остальные заменят названия с кадров сбора (`collect.rs`).
+//! Searing Branding Iron, Maddened Beast's Barbed Collar, Avenger's Casket, Kin's Coin of Fate,
+//! Forged Key, Iron Pestle, Raging Beast's Agonizing Muzzle, Gaoler's Execution Axe, Burning Stake,
+//! Hangman's Noose, Ferocious Beast's Ravenous Chains. Остальные заменят названия с кадров сбора (`collect.rs`).
 
 use crate::model::{GIFT_NAMES, TOOL_NAMES};
 
@@ -25,18 +27,18 @@ pub const TOOL_NAMES_EN: [&str; 31] = [
     "Spiked Iron Whip",
     "Rusty Saw",
     "Maddened Beast's Barbed Collar",
-    "Rabid Beast's Torture Muzzle",
+    "Raging Beast's Agonizing Muzzle",
     "Avenger's Casket",
     "Overcrowded Beast Cage",
     "Rat-Head Skewer",
     "Prison King's Iron Crown",
     "Elephant-Foot Maul",
     "Wolf-Fang Guillotine",
-    "Ravenous Beast's Choke Chain",
+    "Ferocious Beast's Ravenous Chains",
     "Hangman's Noose",
     "Iron Pestle",
     "Warden's Scales",
-    "Warden's Execution Axe",
+    "Gaoler's Execution Axe",
     "Severed Iron Maiden",
     "Scapegoat Guillotine",
     "Tongs of Vice",
