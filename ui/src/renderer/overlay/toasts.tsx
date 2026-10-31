@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
 import { tr } from '../../core/i18n.js';
 import type { DropView, RunView } from '../../main/engine.js';
 import type { ToastSnapshot } from '../../main/toastFeed.js';
 import { Fe, FeIcon } from '../components/Fe.js';
 import { clock } from '../format.js';
+import { heatOf } from './heat.js';
 import { playDrop, playRecord } from './sound.js';
 
 /**
@@ -42,8 +43,10 @@ export interface Toast {
   icon?: string | null;
   /** Длительность забега — только у итога карты. */
   durationMs?: number;
+  /** Название карты — у итога карты и тюрьмы. */
+  mapName?: string;
   /** Топ находок закрытой карты — только у итога. */
-  topDrops?: Array<{ name: string; icon: string | null; fe: number; tier: Tier }>;
+  topDrops?: TopDrop[];
   /** Отклонение темпа закрытой карты от нормы (в час за последние 20 забегов), в процентах. */
   deltaPct?: number | null;
   /** Стрик: не первый джекпот за короткое время — сессия «жаркая». */
@@ -66,13 +69,16 @@ const MERGE_WINDOW_MS = 900;
 const HOT_STREAK_MS = 90_000;
 /** Монетный дождь на рекорд — не чаще раза в час, иначе приестся. */
 const RECORD_COOLDOWN_MS = 3_600_000;
-/** Сколько всплывашка живёт на экране. Итог карты читают — ему дольше. */
+/**
+ * Сколько всплывашка живёт на экране. Итог карты читают — ему дольше,
+ * и первые секунды из них съедает загрузка в город.
+ */
 const TTL_MS: Record<ToastKind, number> = {
   pickup: 2400,
   notable: 3200,
   jackpot: 4200,
-  runEnd: 5200,
-  prison: 4200,
+  runEnd: 8000,
+  prison: 8000,
 };
 /**
  * Затухание перед исчезновением. Запускается классом по таймеру, а не
@@ -82,6 +88,15 @@ const TTL_MS: Record<ToastKind, number> = {
 const LEAVE_MS = 420;
 /** Больше трёх плашек — уже стена текста поверх игры. */
 const MAX_VISIBLE = 3;
+
+/** Находка в итоге карты: цена — за всё количество. */
+export interface TopDrop {
+  name: string;
+  icon: string | null;
+  qty: number;
+  fe: number;
+  tier: Tier;
+}
 
 export interface ToastOptions {
   /** Показывать плашки. Звук от них независим: можно слушать без визуала. */
@@ -109,7 +124,7 @@ export function topDropsOf(
   drops: DropView[],
   goldFe: number,
   orangeFe: number,
-): Array<{ name: string; icon: string | null; fe: number; tier: Tier }> {
+): TopDrop[] {
   return drops
     .filter((d) => d.priceSource !== 'excluded' && d.totalFe !== null && d.totalFe > 0)
     .sort((a, b) => b.totalFe! - a.totalFe!)
@@ -117,6 +132,7 @@ export function topDropsOf(
     .map((d) => ({
       name: d.name,
       icon: d.icon,
+      qty: d.qty,
       fe: d.totalFe!,
       tier: d.totalFe! >= goldFe ? 'gold' : d.totalFe! >= orangeFe ? 'orange' : 'plain',
     }));
@@ -226,6 +242,7 @@ export function useIncomeToasts(snapshot: ToastSnapshot | null, opts: ToastOptio
           id: nextId++,
           kind: 'prison',
           fe: before.view.netFe,
+          mapName: before.view.name,
           topDrops: top(before.view.drops),
         });
       }
@@ -255,6 +272,7 @@ export function useIncomeToasts(snapshot: ToastSnapshot | null, opts: ToastOptio
           kind: 'runEnd',
           fe: finished.netFe,
           durationMs: finished.durationMs ?? 0,
+          mapName: finished.name,
           record,
           topDrops: top(finished.drops),
           deltaPct: norm > 0 ? Math.round(((finished.perHour - norm) / norm) * 100) : null,
@@ -353,126 +371,169 @@ export function useIncomeToasts(snapshot: ToastSnapshot | null, opts: ToastOptio
   return toasts;
 }
 
-export function ToastList({ toasts }: { toasts: Toast[] }) {
+export function ToastList({ toasts, heat = true }: { toasts: Toast[]; heat?: boolean }) {
   if (toasts.length === 0) return null;
   return (
     <div className="ov-toasts">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={`ov-toast ov-toast-${t.kind} ${t.leaving ? 'ov-toast-leaving' : ''} ${
-            t.hot ? 'ov-toast-hot' : ''
-          } ${
-            t.record ? 'ov-toast-record' : ''
-          }`}
-        >
-          {/* Искры стрика: чистый CSS, по спану на искру. */}
-          {t.hot && (
-            <span className="ov-sparks" aria-hidden="true">
-              {Array.from({ length: 6 }, (_, i) => (
-                <i key={i} />
-              ))}
-            </span>
-          )}
-          {/* Монетный дождь рекорда: те же иконки ФЕ, что и в числах. */}
-          {t.record && (
-            <span className="ov-coins" aria-hidden="true">
-              {Array.from({ length: 7 }, (_, i) => (
-                <i key={i}>
-                  <FeIcon />
-                </i>
-              ))}
-            </span>
-          )}
-          {t.kind === 'jackpot' && (
-            <>
-              {t.icon && (
-                <img className="ov-toast-icon ov-hot-icon" src={t.icon} alt="" draggable={false} />
-              )}
-              <span className="ov-toast-name">{t.name}</span>
-              {/* Цена — клеймом мастера: падает ударом, остывает, с неё — сноп искр. */}
-              <span className="ov-stamp">
-                <Fe value={t.fe} className="ov-toast-fe" />
-                <span className="ov-stamp-sparks" aria-hidden="true">
-                  {Array.from({ length: 8 }, (_, i) => (
-                    <i key={i} />
-                  ))}
-                </span>
+      {toasts.map((t) => {
+        // Кромка итога — жар темпа, как у оверлея: цвет каления по темпу к норме.
+        const glow =
+          heat && t.kind === 'runEnd' && t.deltaPct != null ? heatOf(t.deltaPct) : null;
+        return (
+          <div
+            key={t.id}
+            className={`ov-toast ov-toast-${t.kind} ${t.leaving ? 'ov-toast-leaving' : ''} ${
+              t.hot ? 'ov-toast-hot' : ''
+            } ${
+              t.record ? 'ov-toast-record' : ''
+            }`}
+            style={glow ? ({ '--heat': glow.color, '--glow': glow.glow } as CSSProperties) : undefined}
+          >
+            {(glow || t.kind === 'prison' || t.record) && (
+              <i className="ov-sum-ember" aria-hidden="true" />
+            )}
+            {/* Искры стрика: чистый CSS, по спану на искру. */}
+            {t.hot && (
+              <span className="ov-sparks" aria-hidden="true">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <i key={i} />
+                ))}
               </span>
-            </>
-          )}
-          {t.kind === 'notable' && (
-            <>
-              {t.icon && <img className="ov-toast-icon" src={t.icon} alt="" draggable={false} />}
-              <span className="ov-toast-name">
-                {t.name}
-                {(t.more ?? 0) > 0 && (
-                  <span className="ov-toast-more">
-                    {' '}
-                    {tr(`и ещё ${t.more}`, `+${t.more} more`)}
+            )}
+            {/* Монетный дождь рекорда: те же иконки ФЕ, что и в числах. */}
+            {t.record && (
+              <span className="ov-coins" aria-hidden="true">
+                {Array.from({ length: 7 }, (_, i) => (
+                  <i key={i}>
+                    <FeIcon />
+                  </i>
+                ))}
+              </span>
+            )}
+            {t.kind === 'jackpot' && (
+              <>
+                {t.icon && (
+                  <img className="ov-toast-icon ov-hot-icon" src={t.icon} alt="" draggable={false} />
+                )}
+                <span className="ov-toast-name">{t.name}</span>
+                {/* Цена — клеймом мастера: падает ударом, остывает, с неё — сноп искр. */}
+                <span className="ov-stamp">
+                  <Fe value={t.fe} className="ov-toast-fe" />
+                  <span className="ov-stamp-sparks" aria-hidden="true">
+                    {Array.from({ length: 8 }, (_, i) => (
+                      <i key={i} />
+                    ))}
                   </span>
-                )}
-              </span>
-            </>
-          )}
-          {(t.kind === 'pickup' || t.kind === 'notable') && (
-            <Fe value={t.fe} signed className="ov-toast-fe" />
-          )}
-          {t.kind === 'prison' && (
-            <div className="ov-runend">
-              <div className="ov-runend-head">
-                <span className="ov-toast-label">{tr('тюрьма', 'prison')}</span>
-                <Fe value={t.fe} signed className="ov-toast-fe" />
-                <span className="ov-toast-time">
-                  {tr('в итог сессии, не в темп', 'counts toward the session, not the pace')}
                 </span>
-              </div>
-              {t.topDrops && t.topDrops.length > 0 && <TopDrops drops={t.topDrops} />}
-            </div>
-          )}
-          {t.kind === 'runEnd' && (
-            <div className="ov-runend">
-              <div className="ov-runend-head">
-                <span className={`ov-toast-label ${t.record ? 'ov-record-label' : ''}`}>
-                  {t.record
-                    ? tr('рекорд сессии!', 'session record!')
-                    : tr('карта закрыта', 'map closed')}
+              </>
+            )}
+            {t.kind === 'notable' && (
+              <>
+                {t.icon && <img className="ov-toast-icon" src={t.icon} alt="" draggable={false} />}
+                <span className="ov-toast-name">
+                  {t.name}
+                  {(t.more ?? 0) > 0 && (
+                    <span className="ov-toast-more">
+                      {' '}
+                      {tr(`и ещё ${t.more}`, `+${t.more} more`)}
+                    </span>
+                  )}
                 </span>
-                <Fe value={t.fe} signed className="ov-toast-fe" />
-                {t.durationMs !== undefined && (
-                  <span className="ov-toast-time">{clock(t.durationMs)}</span>
-                )}
-                {t.deltaPct != null && t.deltaPct !== 0 && (
-                  <span className={`ov-runend-delta ${t.deltaPct > 0 ? 'up' : 'down'}`}>
-                    {t.deltaPct > 0 ? '+' : '−'}
-                    {Math.abs(t.deltaPct)}% {tr('к норме', 'vs norm')}
-                  </span>
-                )}
-              </div>
-              {t.topDrops && t.topDrops.length > 0 && <TopDrops drops={t.topDrops} />}
-              {/* Выход с карты — пауза: самое время заглянуть в пульт. */}
-              <span className="ov-runend-hint">
-                {tr('подробнее —', 'details —')} <kbd>Ctrl+Alt+T</kbd>
-              </span>
-            </div>
-          )}
-        </div>
-      ))}
+              </>
+            )}
+            {(t.kind === 'pickup' || t.kind === 'notable') && (
+              <Fe value={t.fe} signed className="ov-toast-fe" />
+            )}
+            {(t.kind === 'runEnd' || t.kind === 'prison') && <RunSummary t={t} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-/** Находки итога: иконка, название и цена, кромка — ступень ценности, как в оверлее. */
-function TopDrops({ drops }: { drops: NonNullable<Toast['topDrops']> }) {
+/**
+ * Итог карты — «застывшая Сводка» закрытой карты: тот же язык, что у
+ * оверлея и пульта. Сверху время и карта, крупно — доход и темп к норме,
+ * ниже — до трёх находок полосами ступеней. Всё по левому краю, цифры
+ * столбиком справа: так их сравнивают глазами, а не читают.
+ */
+function RunSummary({ t }: { t: Toast }) {
+  const prison = t.kind === 'prison';
   return (
-    <div className="ov-runend-drops">
-      {drops.map((d, i) => (
-        <span key={i} className={`ov-runend-drop t-${d.tier}`}>
-          {d.icon && <img src={d.icon} alt="" draggable={false} />}
-          <span className="ov-runend-name">{d.name}</span>
-          <Fe value={d.fe} />
+    <div className="ov-sum">
+      <div className="ov-sum-head">
+        {t.durationMs !== undefined && <span className="ov-sum-time">{clock(t.durationMs)}</span>}
+        {t.mapName && <span className="ov-sum-map">{t.mapName}</span>}
+        <span className="ov-sum-label">
+          {t.record
+            ? tr('рекорд сессии', 'session record')
+            : prison
+              ? tr('тюрьма', 'prison')
+              : tr('карта закрыта', 'map closed')}
         </span>
-      ))}
+      </div>
+      <div className={`ov-sum-hero ${t.fe < 0 ? 'neg' : ''}`}>
+        <Fe value={t.fe} signed />
+        {t.deltaPct != null && t.deltaPct !== 0 && (
+          <span className={`ov-sum-delta ${t.deltaPct > 0 ? 'up' : 'down'}`}>
+            {t.deltaPct > 0 ? '↑' : '↓'} {Math.abs(t.deltaPct)}% {tr('к норме', 'vs norm')}
+          </span>
+        )}
+        {prison && (
+          <span className="ov-sum-note">
+            {tr('в итог сессии, не в темп', 'session total, not pace')}
+          </span>
+        )}
+      </div>
+      {t.topDrops && t.topDrops.length > 0 && <TopDrops drops={t.topDrops} />}
+      {/* Выход с карты — пауза: самое время заглянуть в пульт. */}
+      {!prison && (
+        <span className="ov-sum-hint">
+          {tr('подробнее', 'details')} <kbd>Ctrl+Alt+T</kbd>
+        </span>
+      )}
     </div>
+  );
+}
+
+/**
+ * Хвост названия, который нельзя терять: «(метка времени 8)», «(Timemark 8)».
+ * Многоточие ставится в основе названия, хвост остаётся целым — иначе
+ * «Маячок Громовых пустошей (мет…» обрезан ровно посреди главного.
+ */
+export function splitName(name: string): [string, string] {
+  const m = /^(.+?)(\s*\([^()]+\))$/.exec(name);
+  return m ? [m[1]!, m[2]!.trim()] : [name, ''];
+}
+
+/** Находки итога полосами, как в оверлее: кромка — ступень, длина — доля от самой дорогой. */
+function TopDrops({ drops }: { drops: TopDrop[] }) {
+  const max = drops[0]?.fe ?? 0;
+  return (
+    <ul className="ov-sum-drops">
+      {drops.map((d, i) => {
+        const [base, tail] = splitName(d.name);
+        return (
+          <li key={i} className={`t-${d.tier}`}>
+            <i style={{ width: `${max > 0 ? Math.max(6, (d.fe / max) * 100) : 0}%` }} />
+            <span className="ov-sum-icon">
+              {d.icon ? (
+                <img src={d.icon} alt="" draggable={false} />
+              ) : (
+                <span className="ov-sum-ph">{d.name.slice(0, 1)}</span>
+              )}
+            </span>
+            <span className="ov-sum-name" title={d.name}>
+              <span>{base}</span>
+              {tail && <span className="ov-sum-tail">{tail}</span>}
+            </span>
+            {/* Пустая клетка тоже нужна: цена держит свой столбец. */}
+            <span className="ov-sum-qty">{d.qty > 1 ? `×${d.qty}` : ''}</span>
+            <Fe value={d.fe} className="ov-sum-fe" />
+          </li>
+        );
+      })}
+    </ul>
   );
 }
