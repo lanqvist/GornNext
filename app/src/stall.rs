@@ -312,6 +312,7 @@ fn labels(grid: &BagGrid, view: &StallView) -> Value {
         "cells": cells,
         "total": page.value_fe,
         "unpriced": page.unpriced,
+        "en": crate::lang::en(),
         // Итог страницы — над сеткой, правее иконок вкладок (они не масштабируются).
         "totalAt": [first[0] + (BAG_TABS[3].0 - GRID_X + 40.0) * view.k, BAG_TAB_Y * view.k],
     })

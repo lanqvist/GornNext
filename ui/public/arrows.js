@@ -178,7 +178,7 @@ function render() {
     const div = plateDiv(hint.plate, 'prison-thinking');
     div.appendChild(el('span', { class: 'prison-spinner', 'aria-hidden': 'true' }));
     const t = el('span');
-    t.textContent = 'Горн смотрит…';
+    t.textContent = hint.label || 'Горн смотрит…';
     div.appendChild(t);
     root.appendChild(div);
     return;

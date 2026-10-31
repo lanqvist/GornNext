@@ -7,6 +7,7 @@
 pub mod actions;
 pub mod adapter;
 pub mod advisor;
+pub mod english;
 pub mod hint;
 pub mod logevents;
 pub mod model;

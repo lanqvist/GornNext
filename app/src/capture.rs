@@ -304,6 +304,19 @@ impl ScreenStream {
         s.latest.clone()
     }
 
+    /// Последний кадр и когда экран последний раз заметно менялся — без ожидания.
+    /// `quiet`: кадр снят после этой смены и экран с тех пор не менялся `stable`.
+    pub fn peek(&self, stable: Duration) -> Option<(Arc<Image>, Option<Instant>, bool)> {
+        let s = self.shared.lock().unwrap();
+        if s.closed {
+            return None;
+        }
+        let img = s.latest.clone()?;
+        let at = s.latest_at?;
+        let quiet = s.changed_at.is_none_or(|c| at >= c && c.elapsed() >= stable);
+        Some((img, s.changed_at, quiet))
+    }
+
     /// Экран вот-вот сменится: каждый кадр — в RGBA несколько секунд.
     pub fn boost(&self) {
         self.shared.lock().unwrap().boost_until = Some(Instant::now() + BOOST);

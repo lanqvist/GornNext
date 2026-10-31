@@ -8,12 +8,15 @@
 mod assist;
 mod facts;
 mod capture;
+mod client;
 mod icons;
+mod lang;
 mod layers;
 mod ocr;
 mod overlay;
 mod settings;
 mod shots;
+mod collect;
 mod stall;
 mod tracker;
 mod updater;
@@ -53,6 +56,8 @@ struct AppState {
     updater: updater::Updater,
     /// Выход по-настоящему: отличает «закрыть в трей» от завершения.
     quitting: Mutex<bool>,
+    /// Переподписать пункты трея на текущем языке.
+    tray_labels: Box<dyn Fn() + Send + Sync>,
 }
 
 /// `gorn --test-capture файл.png`: кадр монитора под курсором через WGC —
@@ -346,6 +351,8 @@ async fn gorn(
                     .unwrap_or("ru")));
             };
             st.settings.lock().unwrap().set("uiLanguage", json!(lang));
+            lang::set(&lang);
+            (st.tray_labels)();
             let l = ui_lang(Some(&lang));
             tr.post(move |e| e.set_ui_language(l));
             let _ = app.emit("ui:language", &lang);
@@ -693,6 +700,7 @@ fn main() {
                 }
             });
             let settings_now = settings.lock().unwrap();
+            lang::set(settings_now.str("uiLanguage").unwrap_or("ru"));
 
             let mut items =
                 CatalogueItem::parse_list(include_str!("../../crates/gorn-core/data/items.json"))?;
@@ -738,7 +746,9 @@ fn main() {
                 facts: data.join("prison-facts.db"),
                 display: data.join("prison-display.json"),
                 shots: pictures.join("Горн Next — тюрьма"),
+                collect: pictures.join("Горн Next — тюрьма — все экраны"),
             };
+            let collect_dir = paths.collect.clone();
             let shots_dir = paths.shots.clone();
             let facts_path = paths.facts.clone();
             let (tx, rx) = std::sync::mpsc::channel::<Event>();
@@ -747,6 +757,7 @@ fn main() {
                 tx.clone(),
                 paths,
                 settings_now.bool("prisonSaveShots"),
+                settings_now.bool("prisonCollect") && smoke_setup.is_none(),
             );
             if !settings_now.bool("prisonHints") || smoke_setup.is_some() {
                 let _ = tx.send(Event::SetEnabled(false));
@@ -784,8 +795,17 @@ fn main() {
                 let _ = vtx_ready.send(vorax::Event::Ready);
             });
             let vtx_log = vtx.clone();
+            // Язык клиента игры — по уже записанному логу, дальше по новым строкам.
+            if let Some(dir) = s["logDir"]
+                .as_str()
+                .and_then(|d| gorn_core::locate::resolve_log_directory(std::path::Path::new(d)))
+                .or_else(gorn_core::locate::find_log_directory)
+            {
+                std::thread::spawn(move || client::scan(&dir.join("UE_game.log")));
+            }
             std::thread::spawn(move || {
                 for lines in lrx {
+                    client::feed(&lines);
                     let _ = stx.send(stall::Event::Lines(lines.clone()));
                     let _ = vtx_log.send(vorax::Event::Lines(lines.clone()));
                     if tx_log.send(Event::Lines(lines)).is_err() {
@@ -802,11 +822,11 @@ fn main() {
             });
 
             // Трей: окно трекера и подсказки в тюрьме.
-            let show = MenuItem::with_id(app, "show", "Показать Горн", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "", true, None::<&str>)?;
             let hints = CheckMenuItem::with_id(
                 app,
                 "hints",
-                "Подсказки в тюрьме",
+                "",
                 true,
                 settings_now.bool("prisonHints"),
                 None::<&str>,
@@ -814,7 +834,7 @@ fn main() {
             let vorax_hints = CheckMenuItem::with_id(
                 app,
                 "vorax-hints",
-                "Подсказки в Vorax",
+                "",
                 true,
                 settings_now.bool("voraxHints"),
                 None::<&str>,
@@ -822,22 +842,68 @@ fn main() {
             let save = CheckMenuItem::with_id(
                 app,
                 "save",
-                "Сохранять кадры тюрьмы (для разбора)",
+                "",
                 true,
                 settings_now.bool("prisonSaveShots"),
                 None::<&str>,
             )?;
-            let overlay_item =
-                MenuItem::with_id(app, "overlay", "Оверлей (Ctrl+Alt+G)", true, None::<&str>)?;
-            let open = MenuItem::with_id(app, "open", "Открыть папку кадров", true, None::<&str>)?;
-            let shot = MenuItem::with_id(
+            let collect = CheckMenuItem::with_id(
                 app,
-                "shot",
-                "Подсказка по экрану сейчас (Ctrl+Alt+P)",
+                "collect",
+                "",
+                true,
+                settings_now.bool("prisonCollect"),
+                None::<&str>,
+            )?;
+            let open_collect = MenuItem::with_id(
+                app,
+                "open-collect",
+                "",
                 true,
                 None::<&str>,
             )?;
-            let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
+            let overlay_item =
+                MenuItem::with_id(app, "overlay", "", true, None::<&str>)?;
+            let open = MenuItem::with_id(app, "open", "", true, None::<&str>)?;
+            let shot = MenuItem::with_id(
+                app,
+                "shot",
+                "",
+                true,
+                None::<&str>,
+            )?;
+            let quit = MenuItem::with_id(app, "quit", "", true, None::<&str>)?;
+            let tray_labels: Box<dyn Fn() + Send + Sync> = {
+                use lang::tr;
+                let (show, overlay_item, hints, vorax_hints, save, collect, shot, open, open_collect, quit) = (
+                    show.clone(),
+                    overlay_item.clone(),
+                    hints.clone(),
+                    vorax_hints.clone(),
+                    save.clone(),
+                    collect.clone(),
+                    shot.clone(),
+                    open.clone(),
+                    open_collect.clone(),
+                    quit.clone(),
+                );
+                Box::new(move || {
+                    let _ = show.set_text(tr("Показать Горн", "Show Gorn"));
+                    let _ = overlay_item.set_text(tr("Оверлей (Ctrl+Alt+G)", "Overlay (Ctrl+Alt+G)"));
+                    let _ = hints.set_text(tr("Подсказки в тюрьме", "Prison hints"));
+                    let _ = vorax_hints.set_text(tr("Подсказки в Vorax", "Vorax hints"));
+                    let _ = save.set_text(tr("Сохранять кадры тюрьмы (для разбора)", "Save prison captures (for review)"));
+                    let _ = collect.set_text(tr(
+                        "Собирать все экраны тюрьмы (для перевода)",
+                        "Collect every prison screen (for translation)",
+                    ));
+                    let _ = shot.set_text(tr("Подсказка по экрану сейчас (Ctrl+Alt+P)", "Hint for this screen (Ctrl+Alt+P)"));
+                    let _ = open.set_text(tr("Открыть папку кадров", "Open captures folder"));
+                    let _ = open_collect.set_text(tr("Открыть папку всех экранов", "Open all-screens folder"));
+                    let _ = quit.set_text(tr("Выход", "Quit"));
+                })
+            };
+            tray_labels();
             let sep = PredefinedMenuItem::separator(app)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
             let menu = Menu::with_items(
@@ -849,16 +915,18 @@ fn main() {
                     &hints,
                     &vorax_hints,
                     &save,
+                    &collect,
                     &shot,
                     &open,
+                    &open_collect,
                     &sep2,
                     &quit,
                 ],
             )?;
             let tip = if log_found {
-                "Горн Next"
+                lang::tr("Горн Next", "Gorn Next")
             } else {
-                "Горн Next — лог игры не найден"
+                lang::tr("Горн Next — лог игры не найден", "Gorn Next — game log not found")
             };
             if smoke_setup.is_none() {
                 TrayIconBuilder::with_id("tray")
@@ -897,6 +965,19 @@ fn main() {
                                 let _ = save.set_checked(on);
                                 let _ = st.tx.lock().unwrap().send(Event::SetSaveShots(on));
                                 let _ = st.vtx.lock().unwrap().send(vorax::Event::SetSave(on));
+                            }
+                            "collect" => {
+                                let mut s = st.settings.lock().unwrap();
+                                let on = !s.bool("prisonCollect");
+                                s.set("prisonCollect", json!(on));
+                                let _ = collect.set_checked(on);
+                                let _ = st.tx.lock().unwrap().send(Event::SetCollect(on));
+                            }
+                            "open-collect" => {
+                                let _ = std::fs::create_dir_all(&collect_dir);
+                                let _ = std::process::Command::new("explorer")
+                                    .arg(&collect_dir)
+                                    .spawn();
                             }
                             "vorax-hints" => {
                                 let mut s = st.settings.lock().unwrap();
@@ -963,6 +1044,7 @@ fn main() {
                 shots_dir,
                 facts_path,
                 quitting: Mutex::new(false),
+                tray_labels,
             });
             if smoke_setup.is_none() {
                 if overlay_on {

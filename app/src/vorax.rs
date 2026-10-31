@@ -181,21 +181,14 @@ impl Vorax {
         unsafe {
             let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
         }
-        self.ocr = match Ocr::new() {
-            Ok(o) => {
-                eprintln!("[vorax] названия карт — OCR Windows ({})", o.language);
-                Some(o)
-            }
-            Err(e) => {
-                eprintln!("[vorax] OCR Windows нет ({e}): карты только по картинке");
-                None
-            }
-        };
-        // Английский OCR — английский клиент: формы английского текста помогают картинке.
-        let data = if self.ocr.as_ref().is_some_and(|o| !o.russian()) { scan_data() } else { scan_data_ru() };
-        self.data = Some(data);
-        self.pipe = Some(Pipeline::new(data, self.shelley));
+        let mut client = crate::client::english();
+        self.setup_ocr();
         loop {
+            // Клиент игры сменил язык — OCR и названия карт под него.
+            if crate::client::english() != client {
+                client = crate::client::english();
+                self.setup_ocr();
+            }
             match rx.recv_timeout(Duration::from_millis(50)) {
                 Ok(Event::Lines(lines)) => self.on_lines(&lines),
                 Ok(Event::Manual) => {
@@ -245,6 +238,24 @@ impl Vorax {
     /// Есть ради чего смотреть на экран.
     fn working(&self) -> bool {
         self.save || self.hints
+    }
+
+    /// OCR на языке клиента и данные чтения под него.
+    fn setup_ocr(&mut self) {
+        self.ocr = match Ocr::new() {
+            Ok(o) => {
+                eprintln!("[vorax] названия карт — OCR Windows ({})", o.language);
+                Some(o)
+            }
+            Err(e) => {
+                eprintln!("[vorax] OCR Windows нет ({e}): карты только по картинке");
+                None
+            }
+        };
+        // Английский OCR — английский клиент: формы английского текста помогают картинке.
+        let data = if self.ocr.as_ref().is_some_and(|o| !o.russian()) { scan_data() } else { scan_data_ru() };
+        self.data = Some(data);
+        self.pipe = Some(Pipeline::new(data, self.shelley));
     }
 
     fn on_lines(&mut self, lines: &[String]) {

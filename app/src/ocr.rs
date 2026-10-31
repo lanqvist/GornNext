@@ -1,6 +1,7 @@
 //! Названия карт Vorax — встроенным распознаванием текста Windows (Windows.Media.Ocr), как у vorax-overlay
-//! (DinoRaos/vorax-solver-rs, MIT, src/app/ocr.rs). Своё: сначала русский (клиент Горна русский), иначе
-//! английский, иначе язык профиля. Вызывать из потока с RoInitialize.
+//! (DinoRaos/vorax-solver-rs, MIT, src/app/ocr.rs). Своё: язык клиента игры по логу (`client.rs`) —
+//! английский клиент читается английским, иначе сначала русский; нет нужного — язык профиля. Вызывать из
+//! потока с RoInitialize.
 
 use gorn_vorax_scan::pixels::Img;
 use windows::core::HSTRING;
@@ -18,7 +19,12 @@ pub struct Ocr {
 impl Ocr {
     pub fn new() -> windows::core::Result<Ocr> {
         let mut engine = None;
-        for tag in ["ru", "ru-RU", "en-US"] {
+        let tags: &[&str] = if crate::client::english() == Some(true) {
+            &["en-US", "en-GB", "en"]
+        } else {
+            &["ru", "ru-RU", "en-US"]
+        };
+        for &tag in tags {
             let lang = Language::CreateLanguage(&HSTRING::from(tag))?;
             if OcrEngine::IsLanguageSupported(&lang)? {
                 engine = Some(OcrEngine::TryCreateFromLanguage(&lang)?);

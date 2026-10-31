@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::capture::{Image, Miss, ScreenStream};
+use crate::collect::Collect;
 use crate::overlay::{display_at, display_under_cursor, ArrowLayer, Display};
 use crate::shots::Shots;
 use crate::triggers::{
@@ -56,6 +57,8 @@ pub enum Event {
     OverlayReady,
     SetEnabled(bool),
     SetSaveShots(bool),
+    /// Сбор всех экранов тюрьмы (`collect.rs`).
+    SetCollect(bool),
 }
 
 struct Job {
@@ -76,6 +79,7 @@ pub struct Paths {
     pub facts: PathBuf,
     pub display: PathBuf,
     pub shots: PathBuf,
+    pub collect: PathBuf,
 }
 
 pub struct Assist {
@@ -101,6 +105,7 @@ pub struct Assist {
     state: Option<Value>,
     state_due: Option<Instant>,
     shots: Option<Shots>,
+    collect: Option<Collect>,
     paths: Paths,
     treasure_seq: u64,
     /// Доска закрыта (итог забега, финальная комната): пересъёмок не нужно.
@@ -109,7 +114,13 @@ pub struct Assist {
 }
 
 impl Assist {
-    pub fn new(app: AppHandle, tx: Sender<Event>, paths: Paths, save_shots: bool) -> Self {
+    pub fn new(
+        app: AppHandle,
+        tx: Sender<Event>,
+        paths: Paths,
+        save_shots: bool,
+        collect: bool,
+    ) -> Self {
         let mut a = Assist {
             tx,
             layer: ArrowLayer::new(app),
@@ -132,6 +143,7 @@ impl Assist {
             state: None,
             state_due: None,
             shots: save_shots.then(|| Shots::new(paths.shots.clone())),
+            collect: collect.then(|| Collect::new(paths.collect.clone())),
             paths,
             treasure_seq: 0,
             board_closed: false,
@@ -201,11 +213,21 @@ impl Assist {
             if self.state_due.is_some_and(|t| now >= t) {
                 self.flush_state();
             }
+            if self.presence.inside && self.stream.monitor.is_some() {
+                if let Some(c) = &mut self.collect {
+                    c.tick(&self.stream, self.triggers.last_day());
+                }
+            }
             if now >= prune_at {
                 prune_at = now + Duration::from_secs(3600);
-                if let Some(s) = &self.shots {
-                    let root = s.root.clone();
-                    std::thread::spawn(move || crate::shots::prune(&root));
+                let roots: Vec<PathBuf> = self
+                    .shots
+                    .iter()
+                    .map(|s| s.root.clone())
+                    .chain(self.collect.iter().map(|c| c.root.clone()))
+                    .collect();
+                if !roots.is_empty() {
+                    std::thread::spawn(move || roots.iter().for_each(|r| crate::shots::prune(r)));
                 }
             }
             self.layer.tick();
@@ -216,13 +238,24 @@ impl Assist {
     fn on_event(&mut self, e: Event) {
         match e {
             Event::Lines(lines) => self.on_lines(lines),
-            Event::Manual => self.capture_now(),
+            Event::Manual => {
+                if let Some(c) = self.collect.as_mut().filter(|_| self.presence.inside) {
+                    c.force();
+                }
+                self.capture_now()
+            }
             Event::Thermo => self.layer.thermo(),
             Event::Reply(r) => self.on_reply(r),
             Event::OverlayReady => self.layer.on_ready(),
             Event::SetEnabled(on) => self.set_enabled(on),
             Event::SetSaveShots(on) => {
                 self.shots = on.then(|| Shots::new(self.paths.shots.clone()))
+            }
+            Event::SetCollect(on) => {
+                self.collect = on.then(|| Collect::new(self.paths.collect.clone()));
+                if !on && !self.enabled {
+                    self.stream.stop();
+                }
             }
         }
     }
@@ -244,9 +277,19 @@ impl Assist {
 
     fn on_lines(&mut self, lines: Vec<String>) {
         if !self.enabled {
+            if self.collect.is_some() {
+                self.collect_only(&lines);
+            }
             return;
         }
         let change = self.presence.feed(&lines);
+        if let Some(c) = &mut self.collect {
+            c.lines(&lines);
+            if change == Some(PresenceChange::Leave) {
+                crate::log(&format!("[тюрьма] сбор: снято экранов {}", c.saved));
+                c.reset();
+            }
+        }
         if self.presence.inside {
             if let Some(d) = self.game_display() {
                 // В тюрьме — поток экрана открыт заранее, к первому нужному кадру.
@@ -285,6 +328,30 @@ impl Assist {
             self.queue.retain(|q| q.1);
             self.stream.stop();
             self.layer.clear();
+        }
+    }
+
+    /// Подсказки выключены, сбор экранов — нет: только присутствие и поток экрана.
+    fn collect_only(&mut self, lines: &[String]) {
+        let change = self.presence.feed(lines);
+        self.triggers.feed(lines, Instant::now(), &mut vec![]);
+        self.triggers.cancel();
+        if let Some(c) = &mut self.collect {
+            c.lines(lines);
+        }
+        if self.presence.inside {
+            if let Some(d) = self.game_display() {
+                if let Err(e) = self.stream.ensure(d.hmonitor) {
+                    crate::log(&format!("[тюрьма] {e}"));
+                }
+            }
+        }
+        if change == Some(PresenceChange::Leave) {
+            if let Some(c) = &mut self.collect {
+                crate::log(&format!("[тюрьма] сбор: снято экранов {}", c.saved));
+                c.reset();
+            }
+            self.stream.stop();
         }
     }
 

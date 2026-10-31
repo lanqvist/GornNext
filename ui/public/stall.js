@@ -6,12 +6,14 @@
 // тёмному, дальше синий, фиолетовый, оранжевый, золото. Шрифт — от размера клетки.
 // Количество игры в правом нижнем углу не закрывается. Над сеткой — итог.
 const root = document.getElementById('root');
-const nf = new Intl.NumberFormat('ru-RU');
+// Язык — из каждого среза (`en`): окно не перезагружается при смене языка.
+let locale = 'ru-RU';
 
 function short(fe) {
+  const nf = new Intl.NumberFormat(locale);
   if (fe >= 10000) return `${nf.format(Math.round(fe / 100) / 10)}k`.replace(/\s/g, ' ');
   const digits = fe >= 10 || fe === 0 ? 0 : fe >= 1 ? 1 : 2;
-  return new Intl.NumberFormat('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  return new Intl.NumberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })
     .format(fe)
     .replace(/\s/g, ' ');
 }
@@ -32,6 +34,7 @@ function tier(fe) {
 function render(p) {
   root.textContent = '';
   if (!p) return;
+  locale = p.en ? 'en-US' : 'ru-RU';
   for (const c of p.cells) {
     const [x0, y0, x1, y1] = c.box;
     const div = document.createElement('div');
@@ -44,7 +47,7 @@ function render(p) {
     const chip = document.createElement('span');
     if (!c.known && c.fe === null) {
       chip.className = 'stall-chip t-none nosale';
-      chip.textContent = 'Не для продажи';
+      chip.textContent = p.en ? 'Not for sale' : 'Не для продажи';
     } else {
       chip.className = `stall-chip t-${tier(c.fe)}`;
       chip.textContent = c.fe === null ? '?' : short(c.fe);
@@ -56,7 +59,9 @@ function render(p) {
   total.className = 'stall-total';
   total.style.left = `${p.totalAt[0]}px`;
   total.style.top = `${p.totalAt[1]}px`;
-  total.textContent = `вкладка: ${short(p.total)} ФЕ${p.unpriced > 0 ? ` · без цены ${p.unpriced}` : ''}`;
+  total.textContent = p.en
+    ? `tab: ${short(p.total)} FE${p.unpriced > 0 ? ` · no price ${p.unpriced}` : ''}`
+    : `вкладка: ${short(p.total)} ФЕ${p.unpriced > 0 ? ` · без цены ${p.unpriced}` : ''}`;
   if (p.cells.length > 0) {
     const [x0, , x1] = p.cells[0].box;
     total.style.fontSize = `${Math.max(16, Math.round((x1 - x0) * 0.24))}px`;

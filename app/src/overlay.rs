@@ -278,8 +278,8 @@ impl ArrowLayer {
             })
             .collect();
         let payload = json!({
-            "title": hint.title,
-            "sub": hint.sub,
+            "title": crate::lang::hint(&hint.title),
+            "sub": crate::lang::hint(&hint.sub),
             "twoSteps": hint.two_steps(),
             "marks": marks,
             "plate": plate,
@@ -304,6 +304,7 @@ impl ArrowLayer {
             "live": false,
             "phase": "instant",
             "thinking": true,
+            "label": crate::lang::tr("Горн смотрит…", "Gorn is looking…"),
         });
         self.present(d, payload);
         self.think_until = Some(Instant::now() + THINKING_MAX);

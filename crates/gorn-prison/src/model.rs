@@ -114,14 +114,20 @@ pub fn tool_by_title(text: &str) -> Option<u32> {
     if t.len() < 6 {
         return None;
     }
+    // Русские и английские названия (английские — предварительные, `english.rs`); у
+    // каждого орудия — лучшее из двух.
     let mut scored: Vec<(f64, u32)> = TOOL_NAMES
         .iter()
+        .zip(crate::english::TOOL_NAMES_EN)
         .enumerate()
-        .map(|(i, name)| {
-            let n = plain_title(name);
-            let k = t.len().min(n.len());
-            let d = edit_distance(&t[..k], &n[..k]) + t.len().saturating_sub(n.len());
-            (1.0 - d as f64 / t.len() as f64, i as u32)
+        .map(|(i, (ru, en))| {
+            let score = |name: &str| {
+                let n = plain_title(name);
+                let k = t.len().min(n.len());
+                let d = edit_distance(&t[..k], &n[..k]) + t.len().saturating_sub(n.len());
+                1.0 - d as f64 / t.len() as f64
+            };
+            (score(ru).max(score(en)), i as u32)
         })
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));

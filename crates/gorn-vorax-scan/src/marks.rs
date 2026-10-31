@@ -1,7 +1,7 @@
 //! Что показать поверх игры по совету: обводка карты (или кнопки обновления), обводки баков-целей и плашка с
 //! ходом. Перенос `plan_for` из vorax-overlay/src/draw.rs (DinoRaos/vorax-solver-rs, MIT); рисует его окно
-//! Горна (ui/public/vorax.js), здесь — только где и что. Надписи по-русски, карты — русскими названиями
-//! (data/names-ru.json), если они известны.
+//! Горна (ui/public/vorax.js), здесь — только где и что. Надписи на языке интерфейса Горна (`set_english`):
+//! по-русски карты — русскими названиями (data/names-ru.json), если они известны, по-английски — своими.
 
 use crate::data::ScanData;
 use crate::layout::{CardPos, Layout};
@@ -9,6 +9,22 @@ use crate::pixels::Rect;
 use crate::reading::{Problem, Reading};
 use gorn_vorax::advisor::{Advice, Best, ScreenPhase, ScreenState};
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static EN: AtomicBool = AtomicBool::new(false);
+
+/// Надписи плашки по-английски (язык интерфейса Горна).
+pub fn set_english(on: bool) {
+    EN.store(on, Ordering::Relaxed);
+}
+
+fn tr(ru: &'static str, en: &'static str) -> &'static str {
+    if EN.load(Ordering::Relaxed) {
+        en
+    } else {
+        ru
+    }
+}
 
 /// Лицо карты в опорных пикселях (layout.rs CARD_FACE).
 const CARD_W: f64 = 230.0;
@@ -62,11 +78,14 @@ impl Plan {
 }
 
 fn pct(x: f64) -> String {
-    format!("{:.0}% до {}k", x * 100.0, gorn_vorax::value::TARGET / 1000)
+    format!("{:.0}% {} {}k", x * 100.0, tr("до", "to"), gorn_vorax::value::TARGET / 1000)
 }
 
-/// Название карты для плашки: русское, если известно.
+/// Название карты для плашки: русское, если известно (по-английски — своё).
 pub fn title(data: &ScanData, phase: ScreenPhase, name: &str) -> String {
+    if EN.load(Ordering::Relaxed) {
+        return name.to_string();
+    }
     let key = match phase {
         ScreenPhase::Potion => "potion",
         ScreenPhase::Instrument => "instrument",
@@ -79,7 +98,10 @@ pub fn title(data: &ScanData, phase: ScreenPhase, name: &str) -> String {
 pub fn only_plan(l: &Layout, name: Option<&str>) -> Plan {
     let c = l.cards[1];
     Plan {
-        pill: Some(Pill { main: name.unwrap_or("Единственный инструмент").to_string(), sub: "выбора нет — подтвердить".into() }),
+        pill: Some(Pill {
+            main: name.unwrap_or(tr("Единственный инструмент", "The only instrument")).to_string(),
+            sub: tr("выбора нет — подтвердить", "no choice — confirm").into(),
+        }),
         card: Some(CardMark { cx: c.cx, cy: c.cy, angle: c.angle, w: CARD_W * l.k, h: CARD_H * l.k }),
         button: None,
         tanks: vec![],
@@ -104,7 +126,7 @@ pub fn plan_for(advice: &Advice, screen: &ScreenState, reading: &Reading, l: &La
     let mut plan = Plan::default();
     if screen.phase == ScreenPhase::Protocol {
         // планы операции меняют финальный бой, а не конечную активность — советовать нечего
-        plan.pill = Some(Pill { main: "План операции — любой".into(), sub: "на счёт не влияет".into() });
+        plan.pill = Some(Pill { main: tr("План операции — любой", "Any protocol").into(), sub: tr("на счёт не влияет", "doesn't affect the score").into() });
         return plan;
     }
     let size = reading.hand_ranks.as_ref().map(|r| r.len()).filter(|&n| n > 0).or(reading.hand_size).unwrap_or(3);
@@ -116,27 +138,28 @@ pub fn plan_for(advice: &Advice, screen: &ScreenState, reading: &Reading, l: &La
             let r = l.refresh;
             plan.button = Some(Rect::new(r.x - 0.35 * r.w, r.y - 0.45 * r.h, r.w * 1.7, r.h * 1.9));
             let sub = advice.refresh_end.map(|e| pct(e.reached)).unwrap_or_default();
-            plan.pill = Some(Pill { main: "Обновить карты".into(), sub });
+            plan.pill = Some(Pill { main: tr("Обновить карты", "Refresh cards").into(), sub });
         }
         Best::Card(r) => {
-            let name = screen.hand.get(r.index).map(|n| title(data, screen.phase, n)).unwrap_or_else(|| format!("Карта {}", r.index + 1));
+            let name = screen.hand.get(r.index).map(|n| title(data, screen.phase, n)).unwrap_or_else(|| format!("{} {}", tr("Карта", "Card"), r.index + 1));
             if let Some(c) = at.get(r.index).and_then(|&slot| pos.get(slot)) {
                 plan.card = Some(CardMark { cx: c.cx, cy: c.cy, angle: c.angle, w: CARD_W * l.k, h: CARD_H * l.k });
             }
             plan.tanks.extend(r.targets.iter().filter(|&&t| t < 6).map(|&t| l.tank_glass[t as usize]));
             let main = match r.targets.as_slice() {
                 [] => name,
-                [a] => format!("{name}  →  бак {}", a + 1),
-                ts => format!("{name}  →  баки {}", ts.iter().map(|t| (t + 1).to_string()).collect::<Vec<_>>().join(" + ")),
+                [a] => format!("{name}  →  {} {}", tr("бак", "tank"), a + 1),
+                ts => format!("{name}  →  {} {}", tr("баки", "tanks"), ts.iter().map(|t| (t + 1).to_string()).collect::<Vec<_>>().join(" + ")),
             };
             let mut sub = match (&advice.note, r.end) {
-                (Some(_), _) => "брать всегда".into(),
+                (Some(_), _) => tr("брать всегда", "always take it").into(),
                 (None, Some(e)) => pct(e.reached),
                 (None, None) => String::new(),
             };
             // 25.10: «Подтвердить» сразу после карты игра не принимает — сперва бак
             if !r.targets.is_empty() {
-                sub += if sub.is_empty() { "сначала карта, потом бак" } else { " · сначала карта, потом бак" };
+                let then = tr("сначала карта, потом бак", "card first, then the tank");
+                sub += &if sub.is_empty() { then.to_string() } else { format!(" · {then}") };
             }
             plan.pill = Some(Pill { main, sub });
         }
