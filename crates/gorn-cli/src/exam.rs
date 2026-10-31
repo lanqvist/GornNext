@@ -145,6 +145,7 @@ fn mem_json(m: &RunMemory) -> Value {
         "tools": m.tools.iter().map(|&t| TOOL_IDS[t as usize]).collect::<Vec<_>>(),
         "step": m.step.name(),
         "gifts": m.gifts,
+        "objective": m.objective.map(|o| gorn_prison::model::OBJECTIVE_IDS[o as usize]),
         "objectiveDone": m.objective_done,
         "objectiveProgress": m.objective_progress,
     })
@@ -250,6 +251,8 @@ struct Prev {
     /// Совет и живой совет на прошлой доске.
     hint: String,
     live: String,
+    /// В этом забеге уже отмечено: цель не узнана.
+    objective_missed: bool,
 }
 
 #[derive(Default)]
@@ -289,7 +292,7 @@ pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, o
             }));
         }
         let stop = StopRule { max_rounds: rounds, ..STOP_DEFAULTS };
-        let mut prev = Prev { board: None, tools: 0, storage: 0, picks_pending: 0, day: -1, hint: String::new(), live: String::new() };
+        let mut prev = Prev { board: None, tools: 0, storage: 0, picks_pending: 0, day: -1, hint: String::new(), live: String::new(), objective_missed: false };
         crate::replay::run(dir, from, to, 1000.0, stop, f64::INFINITY, &mut adv, |adv, o| {
             let Some(saved) = o.saved else { return };
             if o.png.is_none() {
@@ -316,6 +319,7 @@ pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, o
                 prev.storage = 0;
                 prev.picks_pending = confirms;
                 prev.board = None;
+                prev.objective_missed = false;
             }
             prev.day = mem.day;
 
@@ -432,6 +436,29 @@ pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, o
                 }
                 prev.board = Some(b.clone());
             }
+            // Карта выбора не узнана ни картинкой, ни названием (OCR) [31.10: «Felon's Dog
+            // Tag» — английское название в таблице было догадкой; экзамен молчал].
+            // Кадр «board» с окном выбора — окно ещё проявляется, совета по нему нет.
+            if let (ScreenView::Pick(p), false) = (&view, saved["kind"] == "board") {
+                for (i, c) in p.cards.iter().enumerate() {
+                    if c.is_none() {
+                        fails.push(format!("карта выбора {} не узнана", i + 1));
+                        t.flag("карта выбора не узнана", format!("{id}: карта {}", i + 1));
+                    }
+                }
+            }
+            // Живое приложение не узнало карты, а повтор — да: значит, чинили после
+            // забега или приложение было старым [31.10: #107 шёл на 0.1.36].
+            let live_now = crate::replay::saved_last_hint(&saved["hints"]);
+            if live_now.to_lowercase().contains("не узнал") && !hint.to_lowercase().contains("не узнал") {
+                t.flag("вживую не узнал, в повторе узнал", format!("{id}: «{live_now}»"));
+            }
+            // Цель забега не узнана к первой доске обхода (раз на забег).
+            if screen == "patrol" && mem.day >= 1 && mem.objective.is_none() && !prev.objective_missed {
+                prev.objective_missed = true;
+                fails.push("цель забега не узнана".into());
+                t.flag("цель забега не узнана", id.clone());
+            }
             if prev.storage > mem.storage && mem.day > 0 {
                 t.flag("хранилище в памяти убыло", format!("{id}: {} → {}", prev.storage, mem.storage));
             }
@@ -510,3 +537,44 @@ pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, o
     }
     Ok(())
 }
+
+/// Покрытие эталонов надписей английского клиента против русского: какие
+/// надписи ещё не сняты и чем они узнаются до тех пор. Иконки (орудия панели,
+/// картинки карт, подарки, карты решений) в клиентах одинаковы — не в списке.
+pub fn coverage() {
+    let ru: Value = serde_json::from_str(include_str!("../../gorn-prison/data/templates/screens.json")).unwrap();
+    let en: Value = serde_json::from_str(include_str!("../../gorn-prison/data/templates/screens-en.json")).unwrap();
+    let labels = |v: &Value| -> Vec<String> {
+        let mut out: Vec<String> = v
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|x| x["label"].as_str().unwrap_or("·").to_string())
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    };
+    let groups = [
+        ("headers", "заголовки окон доски", "none — эталон «чужой надписи»: без него чужую надпись отсекает только порог HEADER_MIN"),
+        ("objectives", "цели", "OCR заголовка цели (model::objective_by_title)"),
+        ("pickTitles", "названия карт выбора", "картинка карты + OCR названия (model::tool_by_title, названия клиента)"),
+        ("pickHeaders", "заголовки выбора орудий", "нет — старт и награда не различаются"),
+        ("reroll", "кнопка Re-roll", "нет"),
+        ("chromaticHeader", "заголовок хранилища", "нет — хранилище читается скрытым"),
+    ];
+    println!("Английский клиент: эталоны надписей (screens-en.json) против русских (screens.json)");
+    let mut gaps = 0;
+    for (key, what, fallback) in groups {
+        let (r, e) = (labels(&ru[key]), labels(&en[key]));
+        let missing: Vec<&String> = r.iter().filter(|l| !e.contains(l)).collect();
+        println!("  {what} ({key}): {} из {}", r.len() - missing.len(), r.len());
+        if !missing.is_empty() {
+            gaps += missing.len();
+            println!("    не сняты: {}", missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+            println!("    до тех пор: {fallback}");
+        }
+    }
+    println!("всего не снято: {gaps}; снимать с кадров сбора: gorn-cli texts / protos --pick N --label ид");
+}
+

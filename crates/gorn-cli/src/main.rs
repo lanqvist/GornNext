@@ -93,6 +93,8 @@ gorn-cli exam ПАПКА[,ПАПКА…] [--from ЧЧММСС] [--to ЧЧММС�
 gorn-cli exam --data
     распознавание против всей ручной разметки папки данных (labels/*.json): доски ru и ru4k, карты
     выбора, панели, цифры, экраны, кадры Горна 1920×1080 и Горна Next (exam.json) — счёт по полям
+gorn-cli exam --coverage
+    эталоны надписей английского клиента против русских: какие не сняты и чем узнаются до тех пор
 gorn-cli audit [--new] [--days 2] [--budget 600] [--quiet-min 10] [--run ЧЧММСС] [--shots ПАПКА] [--out ПАПКА] [--no-keep]
     аудит забегов по кадрам Горна, как prison-audit.ts: отчёты в gorn-prison-data/audits
 gorn-cli verify [--seeds N=1000000] [--random N=--seeds] [--full N=10000] [--full-random N=--full]
@@ -118,7 +120,7 @@ fn parse(args: &[String]) -> Result<HashMap<String, String>, String> {
             i += 1;
             continue;
         };
-        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain" | "cells" | "data" | "calib" | "no-ocr");
+        let flag = matches!(key, "ts" | "quick" | "rate" | "regret" | "quiet" | "report" | "json" | "new" | "no-keep" | "no-chain" | "cells" | "data" | "calib" | "no-ocr" | "coverage");
         if flag {
             m.insert(key.to_string(), "1".to_string());
             i += 1;
@@ -358,6 +360,10 @@ fn main() -> ExitCode {
                     }
                     println!("ошибок распознавания по разметке: {bad}");
                     return Ok(bad == 0);
+                }
+                if o.contains_key("coverage") {
+                    exam::coverage();
+                    return Ok(true);
                 }
                 let dirs: Vec<std::path::PathBuf> = match o.get("_") {
                     Some(d) => d.split(',').map(std::path::PathBuf::from).collect(),

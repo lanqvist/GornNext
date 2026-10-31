@@ -4,12 +4,10 @@
 //! конечного набора (`hint.rs`, `advisor.rs`, `policy/instant.rs`), поэтому
 //! перевод — таблица фраз и шаблоны «фраза + клетка/название».
 //!
-//! Названия орудий и подарков — предварительные (дословный перевод русских),
-//! кроме сверенных с английским клиентом (кадры 31.10): Long-Chained Shackles,
-//! Short-Chained Shackles, Sorting Hook, Severed Iron Maiden, Warden's Scales, Rusty Saw,
-//! Searing Branding Iron, Maddened Beast's Barbed Collar, Avenger's Casket, Kin's Coin of Fate,
-//! Forged Key, Iron Pestle, Raging Beast's Agonizing Muzzle, Gaoler's Execution Axe, Burning Stake,
-//! Hangman's Noose, Ferocious Beast's Ravenous Chains, Lost Ring of Keys, Barbed Whip, Crowded Beastcage. Остальные заменят названия с кадров сбора (`collect.rs`).
+//! Названия орудий и подарков — из локализации клиента (`data/client-names.json`,
+//! дамп файлов игры 18.10); тест `names_match_client` держит таблицы равными ему.
+//! Не переводить названия самим: 31.10 из 35 «дословных» 14 не совпали с клиентом,
+//! и OCR карт выбора не узнавал «Felon's Dog Tag» (в таблице был «Convict's Dog Tag»).
 
 use crate::model::{GIFT_NAMES, TOOL_NAMES};
 
@@ -17,7 +15,7 @@ use crate::model::{GIFT_NAMES, TOOL_NAMES};
 pub const TOOL_NAMES_EN: [&str; 31] = [
     "Forged Key",
     "Lost Ring of Keys",
-    "Convict's Dog Tag",
+    "Felon's Dog Tag",
     "Executioner's Blacklist",
     "Searing Branding Iron",
     "Sorting Hook",
@@ -30,28 +28,28 @@ pub const TOOL_NAMES_EN: [&str; 31] = [
     "Raging Beast's Agonizing Muzzle",
     "Avenger's Casket",
     "Crowded Beastcage",
-    "Rat-Head Skewer",
-    "Prison King's Iron Crown",
-    "Elephant-Foot Maul",
-    "Wolf-Fang Guillotine",
+    "Skewered Rat Heads: Colossal Rat",
+    "Iron Crown of the Prison King: Berserk Lion",
+    "Elephant-Foot Maul: Mammoth",
+    "Fanged Guillotine: Alpha Wolf",
     "Ferocious Beast's Ravenous Chains",
     "Hangman's Noose",
     "Iron Pestle",
     "Warden's Scales",
     "Gaoler's Execution Axe",
     "Severed Iron Maiden",
-    "Scapegoat Guillotine",
-    "Tongs of Vice",
-    "Filthy Iron Claw",
-    "Swarming Iron Box",
+    "Scapegoat's Guillotine",
+    "Iron Tongs of Lust: Mammoth",
+    "Filthy Claws: Alpha Wolf",
+    "Squirming Iron Box: Colossal Rat",
     "Kin's Coin of Fate",
-    "Bloody Trap",
+    "Blood-Stained Trap: Berserk Lion",
 ];
 
 pub const GIFT_NAMES_EN: [&str; 4] = [
-    "Three-Headed Ring",
-    "Bronze War Horn",
-    "Crimson Wine",
+    "Three-Headed Thumb Ring",
+    "Brass Horn of Strife",
+    "Crimson Vintage",
     "Brand of Original Sin",
 ];
 
@@ -168,6 +166,83 @@ mod tests {
     use super::*;
     use crate::actions::{A_GIFT, A_PATROL, A_REROLL, A_TOOL};
     use crate::hint::{hint, HintContext};
+    use crate::model::{objective_by_title, tool_by_title, EVENT_IDS, OBJECTIVE_IDS, OBJECTIVE_TITLES, TOOL_IDS};
+    use serde_json::Value;
+
+    fn client() -> Value {
+        serde_json::from_str(include_str!("../data/client-names.json")).unwrap()
+    }
+
+    fn rows<'a>(v: &'a Value, key: &str) -> Vec<(&'a str, &'a str, &'a str)> {
+        v[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| (r["id"].as_str().unwrap_or(""), r["ru"].as_str().unwrap(), r["en"].as_str().unwrap()))
+            .collect()
+    }
+
+    /// Названия в коде — ровно как в локализации клиента (`data/client-names.json`).
+    #[test]
+    fn names_match_client() {
+        let c = client();
+        let tools = rows(&c, "tools");
+        assert_eq!(tools.len(), TOOL_IDS.len());
+        for (i, (id, ru, en)) in tools.into_iter().enumerate() {
+            assert_eq!((id, ru, en), (TOOL_IDS[i], TOOL_NAMES[i], TOOL_NAMES_EN[i]), "орудие {i}");
+        }
+        let gifts = rows(&c, "gifts");
+        assert_eq!(gifts.len(), GIFT_NAMES.len());
+        for (i, (_, ru, en)) in gifts.into_iter().enumerate() {
+            assert_eq!((ru, en), (GIFT_NAMES[i], GIFT_NAMES_EN[i]), "подарок {i}");
+        }
+        for (i, (id, ru, en)) in rows(&c, "objectives").into_iter().enumerate() {
+            let [r, e] = OBJECTIVE_TITLES[i];
+            assert_eq!((id, ru, en), (OBJECTIVE_IDS[i], format!("Цель: {r}").as_str(), format!("Objective: {e}").as_str()));
+        }
+        let events: Vec<&str> = rows(&c, "events").into_iter().map(|r| r.0).collect();
+        assert_eq!(events, EVENT_IDS);
+    }
+
+    /// Каждое название клиента читается обратно (OCR карт выбора и цели): целиком,
+    /// обрезанное многоточием, в две строки и с ошибкой в одной букве.
+    #[test]
+    fn every_client_name_reads_back() {
+        let variants = |name: &str| -> Vec<String> {
+            let ch: Vec<char> = name.chars().collect();
+            let cut = (ch.len() * 2 / 3).max(8).min(ch.len());
+            let mut typo = ch.clone();
+            let k = ch.len() / 2;
+            typo[k] = if typo[k] == 'x' { 'y' } else { 'x' };
+            let wrap = match name.find(' ') {
+                Some(i) => format!("{}\n{}", &name[..i], &name[i + 1..]),
+                None => name.to_string(),
+            };
+            vec![name.into(), ch[..cut].iter().collect::<String>() + "...", wrap, typo.into_iter().collect()]
+        };
+        let c = client();
+        for (i, (id, ru, en)) in rows(&c, "tools").into_iter().enumerate() {
+            for name in [ru, en] {
+                for v in variants(name) {
+                    assert_eq!(tool_by_title(&v), Some(i as u32), "{id}: «{v}»");
+                }
+            }
+        }
+        for (i, (id, ru, en)) in rows(&c, "objectives").into_iter().enumerate() {
+            // Заголовок цели клиент переносит, а не обрезает.
+            for name in [ru, en] {
+                for v in variants(name).into_iter().filter(|v| !v.ends_with("...")) {
+                    assert_eq!(objective_by_title(&v), Some(i as i32), "{id}: «{v}»");
+                }
+            }
+        }
+        // Ошибки OCR в приставке (кадры 31.10).
+        assert_eq!(objective_by_title("0bjective: Survival of the Fittest"), Some(1));
+        assert_eq!(objective_by_title("0bjective Survival of the
+Fittest"), Some(1));
+        assert_eq!(objective_by_title("Torture Instrument"), None);
+        assert_eq!(objective_by_title(""), None);
+    }
 
     fn code(kind: i32, arg: i32) -> i32 {
         (kind << 6) | arg
@@ -181,7 +256,7 @@ mod tests {
         assert_eq!(hint_line("затем №6 · одну карту не узнал"), "then #6 · one card not recognized");
         assert_eq!(hint_line("Отменить, затем «Завершить день»"), "Cancel, then “End day”");
         assert_eq!(hint_line("Взять: Ржавая пила"), "Take: Rusty Saw");
-        assert_eq!(hint_line("Взять: Багряное вино"), "Take: Crimson Wine");
+        assert_eq!(hint_line("Взять: Багряное вино"), "Take: Crimson Vintage");
         assert_eq!(hint_line("цепочка к призма…"), "chain to a Prismatic");
         assert_eq!(hint_line("что-то новое"), "что-то новое");
     }

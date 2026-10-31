@@ -20,7 +20,7 @@ use crate::actions::{describe, A_TOOL};
 use crate::adapter::{Cause, Position, PrisonAdapter, Step};
 use crate::hint::{heat, hint, HeatSpot, Hint, HintContext};
 use crate::policy::{default_weights, Instant};
-use crate::model::{tool_by_title, TOOL_IDS};
+use crate::model::{tool_by_title, OBJECTIVE_IDS, TOOL_IDS};
 use crate::recognize::pick::title_boxes;
 use crate::recognize::sample::Box4;
 use crate::recognize::{default_geometry, read, reroll_box, treasure_boxes, Frame, Geometry, ReadOptions};
@@ -216,6 +216,8 @@ pub struct OwnAdvisor {
     /// Отпечаток описания цели при последнем чтении прогресса и прогресс в
     /// памяти после него (новый забег с тем же текстом — перечитать).
     objective_print: Option<(Vec<f32>, i32)>,
+    /// Отпечаток заголовка цели, прочитанного текстом и не узнанного.
+    objective_title_print: Option<Vec<f32>>,
 }
 
 impl Default for OwnAdvisor {
@@ -249,6 +251,7 @@ impl OwnAdvisor {
             last_view: None,
             card_text: None,
             objective_print: None,
+            objective_title_print: None,
         }
     }
 
@@ -368,7 +371,7 @@ impl OwnAdvisor {
             self.reply(Reply::Clear { id: msg.id });
             return;
         } else if matches!(seen, Some(ScreenView::Board(_))) && kind != ShotKind::Instruments {
-            let Some(ScreenView::Board(b)) = seen else { unreachable!() };
+            let Some(ScreenView::Board(mut b)) = seen else { unreachable!() };
             // Доска без дверей, ряда решений и цепочки — экран между состояниями: не совет.
             if !msg.treasure_view && b.doors.is_empty() && b.decision.is_none() && b.chain.is_none() {
                 if msg.treasure_closed {
@@ -379,6 +382,10 @@ impl OwnAdvisor {
                 }
                 self.reply(Reply::Clear { id: msg.id });
                 return;
+            }
+            if let Some(f) = frame.filter(|_| b.objective.is_none() && self.adapter.mem.objective.is_none()) {
+                b.objective = self.objective_by_text(f);
+                self.last_view = Some(ScreenView::Board(b.clone()));
             }
             self.adapter.board_viewed = msg.treasure_view;
             self.adapter.board(&b);
@@ -396,6 +403,7 @@ impl OwnAdvisor {
             let Some(ScreenView::Pick(mut p)) = seen else { unreachable!() };
             if let Some(f) = frame {
                 self.cards_by_text(&mut p, f);
+                self.last_view = Some(ScreenView::Pick(p.clone()));
             }
             // Неузнанная карта не глушит совет по двум остальным и по «Обновить».
             let known = p.cards.iter().filter(|c| c.is_some()).count();
@@ -483,6 +491,35 @@ impl OwnAdvisor {
                     *card = Some(TOOL_IDS[t as usize].to_string());
                     break;
                 }
+            }
+        }
+    }
+
+    /// Цель забега по заголовку текстом (OCR), когда эталон заголовка её не узнал
+    /// [31.10: у английского клиента нет эталона «King of the Caged» — забег шёл
+    /// бы без цели]. Тот же заголовок второй раз не читается.
+    fn objective_by_text(&mut self, frame: &Frame) -> Option<String> {
+        let read_text = self.card_text.as_mut()?;
+        let geo = match self.geo {
+            Some(g) if g.width == frame.width && g.height == frame.height => g,
+            _ => default_geometry(frame),
+        };
+        let print = crate::recognize::panels::objective_title_print(frame, &geo);
+        if let Some(last) = &self.objective_title_print {
+            let same: f64 = last.iter().zip(&print).map(|(a, b)| (a * b) as f64).sum();
+            if same >= OBJECTIVE_SAME {
+                return None;
+            }
+        }
+        let text = read_text(frame, crate::recognize::panels::objective_title_box(&geo));
+        match crate::model::objective_by_title(&text) {
+            Some(o) => {
+                self.objective_title_print = None;
+                Some(OBJECTIVE_IDS[o as usize].to_string())
+            }
+            None => {
+                self.objective_title_print = Some(print);
+                None
             }
         }
     }

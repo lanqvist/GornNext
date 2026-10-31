@@ -62,6 +62,12 @@ pub fn report(path: &Path, what: Option<&str>, label: Option<&str>) -> Result<()
     let files = if path.is_dir() { pngs(path) } else { vec![path.to_path_buf()] };
     let t = templates();
     let s = &t.screens;
+    // Заголовок цели ещё и текстом (OCR Windows, как в приложении) — запасной путь
+    // советника, когда эталона заголовка нет.
+    unsafe {
+        let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
+    }
+    let ocr = crate::ocr::Ocr::new().ok();
     for f in files {
         let name = f.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
         let img = decode_png(&f)?;
@@ -86,6 +92,12 @@ pub fn report(path: &Path, what: Option<&str>, label: Option<&str>) -> Result<()
                 }
             }
             line += &format!(" [надзиратель {:?}, двери {:?}, решение {:?}, цепочка {:?}, дни {:?}, цель {:?}, призм {}, орудия {:?}]", b.warden, b.doors, b.decision, b.chain, b.days_left, b.objective, b.chromatic, b.tools);
+            if let Some(ocr) = &ocr {
+                let bx = gorn_prison::recognize::panels::objective_title_box(&geo);
+                let text = ocr.read(&crate::ocr::light_text(frame.data, frame.width, frame.height, bx)).unwrap_or_default();
+                let id = gorn_prison::model::objective_by_title(&text).map(|o| gorn_prison::model::OBJECTIVE_IDS[o as usize]);
+                line += &format!(" цель текстом «{}» → {id:?}", text.replace('\n', " "));
+            }
         }
         for spot in &SPOTS {
             let (v, contrast) = vector(&frame, &geo, spot);

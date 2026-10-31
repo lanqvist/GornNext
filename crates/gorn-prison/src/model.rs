@@ -105,34 +105,55 @@ fn edit_distance(a: &[char], b: &[char]) -> usize {
     prev[b.len()]
 }
 
-/// Орудие по названию с карты выбора (текст OCR). Длинные названия клиент
-/// обрезает многоточием («Пыточный намордник бешеного...»), поэтому название
-/// сравнивается по началу той же длины; ошибки распознавания — до четверти
-/// букв. Лучшее должно заметно опережать второе, иначе None.
-pub fn tool_by_title(text: &str) -> Option<u32> {
-    let t = plain_title(text);
+/// Насколько текст OCR похож на название: 1 − правки / длина текста. Длинные
+/// названия клиент обрезает многоточием («Пыточный намордник бешеного...»),
+/// поэтому название сравнивается по началу той же длины.
+fn title_score(t: &[char], name: &str) -> f64 {
+    let n = plain_title(name);
+    let k = t.len().min(n.len());
+    let d = edit_distance(&t[..k], &n[..k]) + t.len().saturating_sub(n.len());
+    1.0 - d as f64 / t.len() as f64
+}
+
+/// Номер названия, на которое похож текст: ошибки распознавания — до четверти
+/// букв, лучшее должно заметно опережать второе, иначе None. У номера —
+/// русское и английское название, берётся лучшее из двух.
+fn best_by_title(t: &[char], names: impl Iterator<Item = [&'static str; 2]>) -> Option<u32> {
     if t.len() < 6 {
         return None;
     }
-    // Русские и английские названия (английские — предварительные, `english.rs`); у
-    // каждого орудия — лучшее из двух.
-    let mut scored: Vec<(f64, u32)> = TOOL_NAMES
-        .iter()
-        .zip(crate::english::TOOL_NAMES_EN)
-        .enumerate()
-        .map(|(i, (ru, en))| {
-            let score = |name: &str| {
-                let n = plain_title(name);
-                let k = t.len().min(n.len());
-                let d = edit_distance(&t[..k], &n[..k]) + t.len().saturating_sub(n.len());
-                1.0 - d as f64 / t.len() as f64
-            };
-            (score(ru).max(score(en)), i as u32)
-        })
-        .collect();
+    let mut scored: Vec<(f64, u32)> =
+        names.enumerate().map(|(i, [ru, en])| (title_score(t, ru).max(title_score(t, en)), i as u32)).collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
     let (best, id) = scored[0];
     (best >= 0.75 && best - scored[1].0 >= 0.15).then_some(id)
+}
+
+/// Орудие по названию с карты выбора (текст OCR); названия — как в клиенте
+/// (`TOOL_NAMES`, `english::TOOL_NAMES_EN`).
+pub fn tool_by_title(text: &str) -> Option<u32> {
+    best_by_title(&plain_title(text), TOOL_NAMES.iter().zip(crate::english::TOOL_NAMES_EN).map(|(&ru, en)| [ru, en]))
+}
+
+/// Цель забега по заголовку на панели (текст OCR, «Objective: King of the Caged»):
+/// запасной путь, когда эталона заголовка нет [31.10: из пяти английских целей
+/// эталоны сняты для четырёх].
+pub fn objective_by_title(text: &str) -> Option<i32> {
+    // «Цель: » / «Objective: » — до двоеточия (OCR путает буквы: «0bjective»);
+    // без двоеточия — первое слово, если похоже на приставку.
+    let name = match text.split_once(':') {
+        Some((_, rest)) => plain_title(rest),
+        None => {
+            let t = plain_title(text);
+            let first: Vec<char> = t.iter().copied().take_while(|&c| c != ' ').collect();
+            let prefix = ["objective", "цель"].iter().any(|p| {
+                let p: Vec<char> = p.chars().collect();
+                edit_distance(&first, &p) <= p.len() / 4
+            });
+            if prefix { t.get(first.len() + 1..).unwrap_or_default().to_vec() } else { t }
+        }
+    };
+    best_by_title(&name, OBJECTIVE_TITLES.iter().copied()).map(|i| i as i32)
 }
 
 /// Заголовок окна события — «Цепная реакция» (OCR, с ошибками распознавания):
@@ -288,6 +309,15 @@ pub const EVENT_POOL: [i32; 13] = [
 // ── цели и стартовые события (§10) ──────────────────────────────────────────
 
 pub const OBJECTIVE_IDS: [&str; 5] = ["apex", "jungle", "doors", "walk", "currents"];
+
+/// Названия целей в клиенте без «Цель: » / «Objective: » (русское, английское), по номеру.
+pub const OBJECTIVE_TITLES: [[&str; 2]; 5] = [
+    ["Загнанный зверь-царь", "King of the Caged"],
+    ["Закон джунглей", "Survival of the Fittest"],
+    ["За дверью камеры", "Behind Cell Doors"],
+    ["Путь обхода тюрьмы", "Prison Walk"],
+    ["Скрытые волнения", "Undercurrents"],
+];
 
 pub mod objective {
     pub const APEX: i32 = 0;

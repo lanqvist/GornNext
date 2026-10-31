@@ -1,0 +1,375 @@
+{
+ "source": "Названия из локализации клиента Torchlight: Infinite (Steam build 25986394, патчи по 6173858), дамп gorn-tli/docs/prison/client-data/localization-records.json от 18.10.2026: ключи s16_gameplay_relic|name, s16_gameplay_colored_reward|name, s16_gameplay_task|name, s16_gameplay_event|name. Порядок — как TOOL_IDS, GIFT_NAMES, OBJECTIVE_IDS, EVENT_IDS.",
+ "tools": [
+  {
+   "id": "forged",
+   "client": 116,
+   "ru": "Поддельный ключ",
+   "en": "Forged Key"
+  },
+  {
+   "id": "keys",
+   "client": 112,
+   "ru": "Потерянная связка ключей",
+   "en": "Lost Ring of Keys"
+  },
+  {
+   "id": "dogtag",
+   "client": 115,
+   "ru": "Жетон каторжника",
+   "en": "Felon's Dog Tag"
+  },
+  {
+   "id": "blacklist",
+   "client": 111,
+   "ru": "Чёрный список экзекутора",
+   "en": "Executioner's Blacklist"
+  },
+  {
+   "id": "fire",
+   "client": 114,
+   "ru": "Раскалённое клеймо",
+   "en": "Searing Branding Iron"
+  },
+  {
+   "id": "hook",
+   "client": 117,
+   "ru": "Крюк отбора",
+   "en": "Sorting Hook"
+  },
+  {
+   "id": "shortchain",
+   "client": 131,
+   "ru": "Кандалы с короткой цепью",
+   "en": "Short-Chained Shackles"
+  },
+  {
+   "id": "shackles",
+   "client": 132,
+   "ru": "Кандалы с длинной цепью",
+   "en": "Long-Chained Shackles"
+  },
+  {
+   "id": "stake",
+   "client": 126,
+   "ru": "Столб для сожжения",
+   "en": "Burning Stake"
+  },
+  {
+   "id": "whip",
+   "client": 106,
+   "ru": "Шипастая железная плеть",
+   "en": "Barbed Whip"
+  },
+  {
+   "id": "saw",
+   "client": 107,
+   "ru": "Ржавая пила",
+   "en": "Rusty Saw"
+  },
+  {
+   "id": "collar",
+   "client": 103,
+   "ru": "Шипастый ошейник безумного зверя",
+   "en": "Maddened Beast's Barbed Collar"
+  },
+  {
+   "id": "muzzle",
+   "client": 101,
+   "ru": "Пыточный намордник бешеного зверя",
+   "en": "Raging Beast's Agonizing Muzzle"
+  },
+  {
+   "id": "revenge",
+   "client": 104,
+   "ru": "Железная дева мстителя",
+   "en": "Avenger's Casket"
+  },
+  {
+   "id": "cage",
+   "client": 105,
+   "ru": "Переполненная клетка зверей",
+   "en": "Crowded Beastcage"
+  },
+  {
+   "id": "skewer",
+   "client": 148,
+   "ru": "Шампур крысиных голов: Огромная крыса",
+   "en": "Skewered Rat Heads: Colossal Rat"
+  },
+  {
+   "id": "crown",
+   "client": 144,
+   "ru": "Железная корона короля тюрьмы: Яростный лев",
+   "en": "Iron Crown of the Prison King: Berserk Lion"
+  },
+  {
+   "id": "maul",
+   "client": 142,
+   "ru": "Молот Слоновья нога: Слон",
+   "en": "Elephant-Foot Maul: Mammoth"
+  },
+  {
+   "id": "guillotine",
+   "client": 146,
+   "ru": "Гильотина с волчьими клыками: Вожак",
+   "en": "Fanged Guillotine: Alpha Wolf"
+  },
+  {
+   "id": "ravenous",
+   "client": 102,
+   "ru": "Голодная удушающая цепь лютого зверя",
+   "en": "Ferocious Beast's Ravenous Chains"
+  },
+  {
+   "id": "rope",
+   "client": 125,
+   "ru": "Висельная петля",
+   "en": "Hangman's Noose"
+  },
+  {
+   "id": "pestle",
+   "client": 127,
+   "ru": "Железный пест",
+   "en": "Iron Pestle"
+  },
+  {
+   "id": "scales",
+   "client": 124,
+   "ru": "Весы тюремщика",
+   "en": "Warden's Scales"
+  },
+  {
+   "id": "axe",
+   "client": 122,
+   "ru": "Палаческая секира надзирателя",
+   "en": "Gaoler's Execution Axe"
+  },
+  {
+   "id": "maiden",
+   "client": 123,
+   "ru": "Рассечённый саркофаг",
+   "en": "Severed Iron Maiden"
+  },
+  {
+   "id": "scapegoat",
+   "client": 121,
+   "ru": "Гильотина козла отпущения",
+   "en": "Scapegoat's Guillotine"
+  },
+  {
+   "id": "tongs",
+   "client": 141,
+   "ru": "Клещи порока: Слон",
+   "en": "Iron Tongs of Lust: Mammoth"
+  },
+  {
+   "id": "claws",
+   "client": 145,
+   "ru": "Грязный железный коготь: Вожак",
+   "en": "Filthy Claws: Alpha Wolf"
+  },
+  {
+   "id": "ironbox",
+   "client": 147,
+   "ru": "Кишащий железный ящик: Огромная крыса",
+   "en": "Squirming Iron Box: Colossal Rat"
+  },
+  {
+   "id": "coin",
+   "client": 113,
+   "ru": "Монета участи братьев",
+   "en": "Kin's Coin of Fate"
+  },
+  {
+   "id": "trap",
+   "client": 143,
+   "ru": "Окровавленный капкан: Яростный лев",
+   "en": "Blood-Stained Trap: Berserk Lion"
+  }
+ ],
+ "gifts": [
+  {
+   "id": "ring",
+   "client": 1,
+   "ru": "Трёхглавое кольцо",
+   "en": "Three-Headed Thumb Ring"
+  },
+  {
+   "id": "horn",
+   "client": 2,
+   "ru": "Медный боевой рог",
+   "en": "Brass Horn of Strife"
+  },
+  {
+   "id": "wine",
+   "client": 3,
+   "ru": "Багряное вино",
+   "en": "Crimson Vintage"
+  },
+  {
+   "id": "brand",
+   "client": 4,
+   "ru": "Клеймо первородного греха",
+   "en": "Brand of Original Sin"
+  }
+ ],
+ "objectives": [
+  {
+   "id": "apex",
+   "client": 1,
+   "ru": "Цель: Загнанный зверь-царь",
+   "en": "Objective: King of the Caged"
+  },
+  {
+   "id": "jungle",
+   "client": 2,
+   "ru": "Цель: Закон джунглей",
+   "en": "Objective: Survival of the Fittest"
+  },
+  {
+   "id": "doors",
+   "client": 3,
+   "ru": "Цель: За дверью камеры",
+   "en": "Objective: Behind Cell Doors"
+  },
+  {
+   "id": "walk",
+   "client": 5,
+   "ru": "Цель: Путь обхода тюрьмы",
+   "en": "Objective: Prison Walk"
+  },
+  {
+   "id": "currents",
+   "client": 4,
+   "ru": "Цель: Скрытые волнения",
+   "en": "Objective: Undercurrents"
+  }
+ ],
+ "events": [
+  {
+   "id": "chain",
+   "client": 242,
+   "ru": "Цепная реакция",
+   "en": "Chain Reaction"
+  },
+  {
+   "id": "execution",
+   "client": 222,
+   "ru": "Эффективность казни",
+   "en": "Execution Efficiency"
+  },
+  {
+   "id": "behind",
+   "client": 203,
+   "ru": "Закулисные махинации",
+   "en": "Behind Closed Doors"
+  },
+  {
+   "id": "appetite",
+   "client": 211,
+   "ru": "Зверский аппетит",
+   "en": "Ravenous Appetite"
+  },
+  {
+   "id": "convict",
+   "client": 201,
+   "ru": "Каторжник",
+   "en": "High-Risk Convict"
+  },
+  {
+   "id": "raven",
+   "client": 231,
+   "ru": "Шёпот ворона",
+   "en": "Crow Whispers"
+  },
+  {
+   "id": "freedom",
+   "client": 202,
+   "ru": "Вкус свободы",
+   "en": "Taste of Freedom"
+  },
+  {
+   "id": "usurp1",
+   "client": 252,
+   "ru": "Узурпация · I",
+   "en": "Usurpation I"
+  },
+  {
+   "id": "usurp2",
+   "client": 253,
+   "ru": "Узурпация · II",
+   "en": "Usurpation II"
+  },
+  {
+   "id": "usurp3",
+   "client": 254,
+   "ru": "Узурпация · III",
+   "en": "Usurpation III"
+  },
+  {
+   "id": "usurp4",
+   "client": 255,
+   "ru": "Узурпация · IV",
+   "en": "Usurpation IV"
+  },
+  {
+   "id": "ratway",
+   "client": 241,
+   "ru": "Крысиный ход в стоках",
+   "en": "Sewer Ratway"
+  },
+  {
+   "id": "treasure",
+   "client": 232,
+   "ru": "Поиск «сокровищ»",
+   "en": "\"Treasure\" Hunt"
+  },
+  {
+   "id": "rival",
+   "client": 221,
+   "ru": "Заклятый враг",
+   "en": "Archenemy"
+  },
+  {
+   "id": "luck",
+   "client": 213,
+   "ru": "Делим удачу",
+   "en": "Shared Fortune"
+  },
+  {
+   "id": "escort",
+   "client": 251,
+   "ru": "Этапирование сообщников",
+   "en": "Transfer of Convicts"
+  },
+  {
+   "id": "extra",
+   "client": 212,
+   "ru": "Добавка",
+   "en": "Extra Portion"
+  }
+ ],
+ "themes": [
+  {
+   "client": 301,
+   "ru": "Злоупотребление властью",
+   "en": "Tyranny"
+  },
+  {
+   "client": 302,
+   "ru": "Расточительность",
+   "en": "Opulence"
+  },
+  {
+   "client": 303,
+   "ru": "Железный закон",
+   "en": "Iron Law"
+  },
+  {
+   "client": 304,
+   "ru": "Схватка узников",
+   "en": "Cage Fight"
+  }
+ ]
+}

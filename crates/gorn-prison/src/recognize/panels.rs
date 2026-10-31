@@ -105,6 +105,20 @@ pub fn objective_text_print(frame: &Frame, geo: &Geometry) -> Vec<f32> {
     buf
 }
 
+/// Заголовок цели («Objective: King of the Caged») — прямоугольник кадра для
+/// чтения текстом, когда эталон заголовка его не узнал.
+pub fn objective_title_box(geo: &Geometry) -> Box4 {
+    box_to_frame(&geo.left(), OBJECTIVE)
+}
+
+/// Отпечаток заголовка цели: тот же заголовок второй раз не читается.
+pub fn objective_title_print(frame: &Frame, geo: &Geometry) -> Vec<f32> {
+    let mut buf = vec![0.0f32; 64 * 12];
+    sample_into(frame, &geo.left(), OBJECTIVE, 64, 12, 1, &mut buf);
+    normalize(&mut buf);
+    buf
+}
+
 /// Цель забега; None — не узнана.
 pub fn read_objective(frame: &Frame, geo: &Geometry, t: &ScreensTemplate) -> Option<String> {
     let geo = &geo.left();
