@@ -355,6 +355,16 @@ async fn gorn(
             (st.tray_labels)();
             let l = ui_lang(Some(&lang));
             tr.post(move |e| e.set_ui_language(l));
+            // Названия предметов — за языком интерфейса, если не выбраны «оба»: английский
+            // интерфейс с русскими названиями никто не выбирает нарочно [31.10].
+            {
+                let mut s = st.settings.lock().unwrap();
+                if !matches!(s.str("itemNames"), Some("both")) && s.str("itemNames") != Some(lang.as_str()) {
+                    s.set("itemNames", json!(lang));
+                    let n = name_language(Some(&lang));
+                    tr.post(move |e| e.set_language(n));
+                }
+            }
             let _ = app.emit("ui:language", &lang);
             json!(lang)
         }

@@ -70,7 +70,9 @@ impl Settings {
         let fresh = defaults(language_for_locale(locale));
         let raw: Value = std::fs::read_to_string(&path)
             .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
+            // BOM (так пишут блокнот и PowerShell 5) — не повод терять настройки: без
+            // этого файл не разбирался и молча заменялся умолчаниями [31.10].
+            .and_then(|t| serde_json::from_str(t.trim_start_matches('\u{feff}')).ok())
             .unwrap_or(Value::Null);
         let data = if raw["version"].as_i64() == Some(SCHEMA_VERSION) && raw["settings"].is_object()
         {
