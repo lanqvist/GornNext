@@ -80,6 +80,11 @@ pub fn report(path: &Path, what: Option<&str>, label: Option<&str>) -> Result<()
                 })
                 .collect();
             line += &format!(" карточки {cards:?}");
+            if std::env::var("DOORS").is_ok() {
+                for &cx in &gorn_prison::recognize::cards::card_centers(&frame, &geo) {
+                    println!("  дверь {cx:.0}: {}", gorn_prison::recognize::cards::door_debug(&frame, &geo, cx, &t.digits));
+                }
+            }
             line += &format!(" [надзиратель {:?}, двери {:?}, решение {:?}, цепочка {:?}, дни {:?}, цель {:?}, призм {}]", b.warden, b.doors, b.decision, b.chain, b.days_left, b.objective, b.chromatic);
         }
         for spot in &SPOTS {

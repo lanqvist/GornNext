@@ -6,7 +6,8 @@
 //!
 //! Названия орудий и подарков — предварительные (дословный перевод русских),
 //! кроме сверенных с английским клиентом (кадры 31.10): Long-Chained Shackles,
-//! Short-Chained Shackles, Sorting Hook, Severed Iron Maiden, Warden's Scales, Rusty Saw. Остальные заменят названия с кадров сбора (`collect.rs`).
+//! Short-Chained Shackles, Sorting Hook, Severed Iron Maiden, Warden's Scales, Rusty Saw,
+//! Searing Branding Iron, Maddened Beast's Barbed Collar, Avenger's Casket, Kin's Coin of Fate. Остальные заменят названия с кадров сбора (`collect.rs`).
 
 use crate::model::{GIFT_NAMES, TOOL_NAMES};
 
@@ -16,16 +17,16 @@ pub const TOOL_NAMES_EN: [&str; 31] = [
     "Lost Key Ring",
     "Convict's Dog Tag",
     "Executioner's Blacklist",
-    "Red-Hot Brand",
+    "Searing Branding Iron",
     "Sorting Hook",
     "Short-Chained Shackles",
     "Long-Chained Shackles",
     "Burning Stake",
     "Spiked Iron Whip",
     "Rusty Saw",
-    "Mad Beast's Spiked Collar",
+    "Maddened Beast's Barbed Collar",
     "Rabid Beast's Torture Muzzle",
-    "Avenger's Iron Maiden",
+    "Avenger's Casket",
     "Overcrowded Beast Cage",
     "Rat-Head Skewer",
     "Prison King's Iron Crown",
@@ -41,7 +42,7 @@ pub const TOOL_NAMES_EN: [&str; 31] = [
     "Tongs of Vice",
     "Filthy Iron Claw",
     "Swarming Iron Box",
-    "Brothers' Coin of Fate",
+    "Kin's Coin of Fate",
     "Bloody Trap",
 ];
 

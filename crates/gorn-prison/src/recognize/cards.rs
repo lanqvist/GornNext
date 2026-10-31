@@ -99,7 +99,7 @@ pub fn read_door_number(frame: &Frame, geo: &Geometry, cx: f64, digits: &DigitSe
         if ((g.y1 - base).abs() as f64) > 2.0 * geo.s || ((g.y1 - g.y0) as f64) < 1.25 * xh {
             break;
         }
-        let (d, _) = read_digit(frame, g, digits, 0.4);
+        let (d, _) = read_door_digit(frame, g, digits);
         if d < 0 {
             break;
         }
@@ -115,6 +115,64 @@ pub fn read_door_number(frame: &Frame, geo: &Geometry, cx: f64, digits: &DigitSe
     } else {
         None
     }
+}
+
+/// Самая широкая цифра — 0,69 высоты; шире — к знаку прилип блик.
+const DIGIT_ASPECT_MAX: f64 = 0.69;
+
+/// Цифра номера двери. Знак шире любой цифры обрезается с краёв на 1–3 px и
+/// берётся лучшее чтение: у английского «Go to Cell 12» к двойке прилипала
+/// заклёпка рамки, знак выходил 13 px вместо 11, и «12» читалось как «11»
+/// [кадр 31.10 11:48:00, английский клиент].
+fn read_door_digit(frame: &Frame, g: &Glyph, digits: &DigitSet) -> (i32, f64) {
+    let mut best = read_digit(frame, g, digits, 0.4);
+    let h = (g.y1 - g.y0).max(1) as f64;
+    if ((g.x1 - g.x0) as f64 / h) <= DIGIT_ASPECT_MAX {
+        return best;
+    }
+    for cut in 1..=3i64 {
+        for (l, r) in [(0, cut), (cut, 0)] {
+            let t = Glyph { x0: g.x0 + l, x1: g.x1 - r, ..*g };
+            if (t.x1 - t.x0) as f64 / h > DIGIT_ASPECT_MAX {
+                continue;
+            }
+            let got = read_digit(frame, &t, digits, 0.4);
+            if got.1 > best.1 {
+                best = got;
+            }
+        }
+    }
+    best
+}
+
+/// Разбор подписи двери для отладки (`gorn-cli texts`): знаки самой длинной
+/// цепочки — x, высота, низ и цифра со сходством.
+pub fn door_debug(frame: &Frame, geo: &Geometry, cx: f64, digits: &DigitSet) -> String {
+    let all: Vec<Glyph> =
+        glyphs(frame, geo, [cx - 160.0, CARD_TITLE[1], cx + 160.0, CARD_TITLE[3]], InkOptions { contrast: 70.0, max_sat: 0.3, faint: true })
+            .into_iter()
+            .filter(|g| (g.y1 - g.y0) as f64 >= 8.0 * geo.s && (g.x1 - g.x0) as f64 >= 2.0 * geo.s)
+            .collect();
+    let mut gs: Vec<Glyph> = vec![];
+    let mut run: Vec<Glyph> = vec![];
+    for g in all {
+        if let Some(last) = run.last() {
+            if (g.x0 - last.x1) as f64 > 14.0 * geo.s {
+                run = vec![];
+            }
+        }
+        run.push(g);
+        if run.len() > gs.len() {
+            gs = run.clone();
+        }
+    }
+    gs.iter()
+        .map(|g| {
+            let (d, sc) = read_door_digit(frame, g, digits);
+            format!("x{}+{} h{} y{} →{d}:{sc:.2}", g.x0, g.x1 - g.x0, g.y1 - g.y0, g.y1)
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 /// Сдвиги значка по вертикали (опорные px): карточка под курсором приподнята
