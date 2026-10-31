@@ -26,6 +26,7 @@ mod frames;
 mod genlog;
 mod reference;
 mod protos;
+mod texts;
 mod replay;
 mod rulescheck;
 mod report;
@@ -74,6 +75,9 @@ gorn-cli tune --report [--runs 20000] [--threads T=0]
 gorn-cli replay ПАПКА [--budget 1000] [--from ЧЧММСС] [--to ЧЧММСС] [--rounds R] [--diffs файл.md] [--json]
     свой путь подсказок на сохранённых кадрах против прежнего, как prison-replay.ts;
     --rounds — решатель без срока (детерминированно), --json — строка на кадр
+gorn-cli texts ПАПКА|PNG [--what headers|objectives|chromaticHeader|pickHeaders|reroll --label ид]
+    надписи на кадрах (для клиента на другом языке): экран, лучшая метка и сходство каждой
+    надписи; --what с --label — ещё и эталон этой надписи строкой
 gorn-cli protos ПАПКА|PNG [--from ЧЧММСС] [--to ЧЧММСС] [--slot N=0 | --cell N | --cells | --mark N | --pick N | --chromatic N] [--label ид]
     эталоны с кадров доски: места панели орудий (узнанное, сходство, контраст), портрет
     камеры N (класс, сходство, редкость) или все портреты; --label — ещё и эталон строкой
@@ -306,6 +310,11 @@ fn main() -> ExitCode {
                     o.get("diffs").map(String::as_str),
                     o.contains_key("json"),
                 )?;
+                Ok(true)
+            }
+            "texts" => {
+                let path = o.get("_").ok_or("texts: папка кадров или PNG")?;
+                texts::report(std::path::Path::new(path), o.get("what").map(String::as_str), o.get("label").map(String::as_str))?;
                 Ok(true)
             }
             "protos" => {

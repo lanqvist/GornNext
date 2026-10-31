@@ -178,7 +178,15 @@ pub fn templates() -> &'static Templates {
                 .collect(),
             aspect: d["aspect"].as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect(),
         };
-        let s: Value = serde_json::from_str(include_str!("../../data/templates/screens.json")).unwrap();
+        let mut s: Value = serde_json::from_str(include_str!("../../data/templates/screens.json")).unwrap();
+        // Надписи английского клиента — те же разделы и метки, дописаны к русским
+        // (иконки от языка не зависят): эталоны с кадров сбора, `gorn-cli texts`.
+        let en: Value = serde_json::from_str(include_str!("../../data/templates/screens-en.json")).unwrap();
+        for (k, v) in en.as_object().unwrap() {
+            if let (Some(list), Some(add)) = (s[k.as_str()].as_array_mut(), v.as_array()) {
+                list.extend(add.iter().cloned());
+            }
+        }
         let screens = ScreensTemplate {
             headers: protos(&s["headers"]),
             cards: protos(&s["cards"]),

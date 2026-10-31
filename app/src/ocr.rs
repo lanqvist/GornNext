@@ -17,9 +17,15 @@ pub struct Ocr {
 }
 
 impl Ocr {
+    /// Сначала русский, иначе английский, иначе язык профиля.
     pub fn new() -> windows::core::Result<Ocr> {
+        Self::for_client(None)
+    }
+
+    /// `english`: язык клиента игры (`client::english()`) — английский клиент читается английским.
+    pub fn for_client(english: Option<bool>) -> windows::core::Result<Ocr> {
         let mut engine = None;
-        let tags: &[&str] = if crate::client::english() == Some(true) {
+        let tags: &[&str] = if english == Some(true) {
             &["en-US", "en-GB", "en"]
         } else {
             &["ru", "ru-RU", "en-US"]

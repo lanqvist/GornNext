@@ -242,7 +242,7 @@ impl Vorax {
 
     /// OCR на языке клиента и данные чтения под него.
     fn setup_ocr(&mut self) {
-        self.ocr = match Ocr::new() {
+        self.ocr = match Ocr::for_client(crate::client::english()) {
             Ok(o) => {
                 eprintln!("[vorax] названия карт — OCR Windows ({})", o.language);
                 Some(o)

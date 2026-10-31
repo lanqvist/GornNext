@@ -601,7 +601,7 @@ impl Assist {
                 unsafe {
                     let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
                 }
-                if let Ok(ocr) = crate::ocr::Ocr::new() {
+                if let Ok(ocr) = crate::ocr::Ocr::for_client(crate::client::english()) {
                     adv.card_text = Some(Box::new(move |f: &Frame, b| {
                         let img = crate::ocr::light_text(f.data, f.width, f.height, b);
                         let text = ocr.read(&img).unwrap_or_default();

@@ -34,7 +34,7 @@ fn pack(v: &[f32]) -> String {
     format!("{scale:.6};{s}")
 }
 
-fn proto(label: &str, v: &[f32]) -> String {
+pub fn proto(label: &str, v: &[f32]) -> String {
     format!("{{\"label\":\"{label}\",\"v\":\"{}\"}}", pack(v))
 }
 
