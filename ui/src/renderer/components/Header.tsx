@@ -24,21 +24,24 @@ function LogStatus({ snapshot }: { snapshot: Snapshot }) {
   const ageTone =
     age === null ? '' : age < 15_000 ? 'fresh' : age < 60_000 ? 'ok' : 'stale';
 
+  // Статус — фишкой, как время на плашках: угольной на карте, тихой в ожидании.
   return (
-    <div
-      className={`status status-${dot} ${age !== null && age < 3_000 ? 'status-pulse' : ''}`}
-    >
-      <i />
-      {snapshot.status === 'running'
-        ? tr('На карте', 'On a map')
-        : snapshot.status === 'idle'
-          ? tr('Ожидание', 'Waiting')
-          : tr('Игра не найдена', 'Game not found')}
-      {showAge && (
-        <span className={`log-age log-age-${ageTone}`}>
-          {tr('лог', 'log')} {ago(age)}
-        </span>
-      )}
+    <div className="status-wrap">
+      <span
+        className={`status status-${dot} ${age !== null && age < 3_000 ? 'status-pulse' : ''}`}
+      >
+        <i />
+        {snapshot.status === 'running'
+          ? tr('На карте', 'On a map')
+          : snapshot.status === 'idle'
+            ? tr('Ожидание', 'Waiting')
+            : tr('Игра не найдена', 'Game not found')}
+        {showAge && (
+          <span className={`log-age log-age-${ageTone}`}>
+            · {tr('лог', 'log')} {ago(age)}
+          </span>
+        )}
+      </span>
       {snapshot.hint && <span className="hint">{snapshot.hint}</span>}
     </div>
   );
@@ -61,14 +64,6 @@ export function Header({
       <PlayerChip player={snapshot.player} />
       <SeasonFilter snapshot={snapshot} />
       <div className="header-right">
-        <OverlayButton />
-        <button
-          className="overlay-toggle"
-          title={tr('Настройки', 'Settings')}
-          onClick={onOpenSettings}
-        >
-          ⚙ {tr('Настройки', 'Settings')}
-        </button>
         {snapshot.seasonId !== null && (
           <span
             className="season"
@@ -80,6 +75,19 @@ export function Header({
             {snapshot.seasonName ?? tr(`Сезон ${snapshot.seasonId}`, `Season ${snapshot.seasonId}`)}
           </span>
         )}
+        <OverlayButton />
+        <button
+          className="icon-btn"
+          title={tr('Настройки', 'Settings')}
+          aria-label={tr('Настройки', 'Settings')}
+          onClick={onOpenSettings}
+        >
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3.5 6.5h13M3.5 13.5h13" />
+            <circle cx="8" cy="6.5" r="2.2" />
+            <circle cx="12.5" cy="13.5" r="2.2" />
+          </svg>
+        </button>
       </div>
     </header>
   );
@@ -157,7 +165,7 @@ function OverlayButton() {
 
   return (
     <button
-      className={`overlay-toggle ${open ? 'on' : ''}`}
+      className={`ghost-btn overlay-toggle ${open ? 'on' : ''}`}
       onClick={() => void window.gorn.overlay.toggle().then(setOpen)}
       title={tr(
         'Ctrl+Alt+G — показать или убрать оверлей поверх игры',

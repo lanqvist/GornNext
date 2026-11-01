@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 
 import { tr } from '../../core/i18n.js';
 import type { RunView, Snapshot } from '../../main/engine.js';
 import { clock, duration, num } from '../format.js';
+import { useTween } from '../motion.js';
+import { heatOf } from '../overlay/heat.js';
 import { DropList } from './DropList.js';
 import { Fe } from './Fe.js';
 import { useNow } from '../useNow.js';
@@ -17,7 +19,34 @@ const WARMUP_MS = 15_000;
 /** Часы забега: тикают сами, остальная карточка (дроп) от таймера не перерисовывается. */
 function RunTimer({ startedAt }: { startedAt: number }) {
   const now = useNow(1000);
-  return <span className="timer">{clock(now - startedAt)}</span>;
+  return <span className="run-time">{clock(now - startedAt)}</span>;
+}
+
+/** Темп карты к обычному, %, или null, пока карта не разогрелась. */
+function paceDelta(elapsed: number, netFe: number, norm: number): number | null {
+  if (norm <= 0 || elapsed < WARMUP_MS) return null;
+  return Math.round(((netFe / elapsed) * 3_600_000 - norm) / norm * 100);
+}
+
+/**
+ * Раскалённая кромка карточки — жар темпа карты, как у оверлея: тикает
+ * сама, карточка с дропом от секундного таймера не перерисовывается.
+ */
+function RunEdge({ startedAt, netFe, norm }: { startedAt: number; netFe: number; norm: number }) {
+  const now = useNow(1000);
+  const delta = paceDelta(now - startedAt, netFe, norm);
+  const heat = delta === null ? null : heatOf(delta);
+  return (
+    <i
+      className="run-edge"
+      style={heat ? ({ '--heat': heat.color, '--glow': heat.glow } as CSSProperties) : undefined}
+    />
+  );
+}
+
+/** Добыча забега доезжает до новой суммы при подборе. */
+function RunValue({ value }: { value: number }) {
+  return <Fe value={useTween(value)} />;
 }
 
 /** Темп к обычному: зависит от времени, поэтому тоже тикает сам. */
@@ -29,15 +58,15 @@ function RunPace({ startedAt, netFe, norm }: { startedAt: number; netFe: number;
   // и скачет на сотни процентов от одной находки. Показывать такое число —
   // значит врать: сравнение появляется только после разогрева.
   if (elapsed < WARMUP_MS) {
-    return <span className="delta muted">{tr('темп считается…', 'calculating pace…')}</span>;
+    return <span className="pill">{tr('темп считается…', 'calculating pace…')}</span>;
   }
   const pace = (netFe / elapsed) * 3_600_000;
-  const delta = pace - norm;
-  const pct = Math.round((delta / norm) * 100);
+  const pct = paceDelta(elapsed, netFe, norm) ?? 0;
   return (
-    <span className={`delta ${delta >= 0 ? 'up' : 'down'}`}>
-      {num(pace)} {tr('в час', 'per hour')} · {delta >= 0 ? '↑' : '↓'}{' '}
-      {tr(`${Math.abs(pct)}% к обычному`, `${Math.abs(pct)}% vs usual`)}
+    <span className={`pill ${pct >= 0 ? 'up' : 'down'}`}>
+      {pct >= 0 ? '↑' : '↓'} {tr(`${Math.abs(pct)}% к обычному`, `${Math.abs(pct)}% vs usual`)} ·{' '}
+      {num(pace)}
+      {tr(' в час', '/h')}
     </span>
   );
 }
@@ -56,22 +85,24 @@ export function CurrentRun({ snapshot }: { snapshot: Snapshot }) {
       if (snapshot.status === 'searching') return <GameNotFound />;
       return <Onboarding snapshot={snapshot} />;
     }
-    return <FinishedRun run={previous} minFe={snapshot.minDropFe} />;
+    return <FinishedRun run={previous} minFe={snapshot.minDropFe} norm={snapshot.norm} />;
   }
 
   return (
-    <section className="card current">
+    <section className="run-card">
+      <RunEdge startedAt={run.startedAt} netFe={run.netFe} norm={snapshot.norm} />
       <div className="current-head">
-        <h2>{run.name}</h2>
         <RunTimer startedAt={run.startedAt} />
+        <h2>{run.name}</h2>
+        <span className="run-label">{tr('на карте', 'on a map')}</span>
       </div>
 
       <div className="current-value">
-        <Fe value={run.netFe} />
+        <RunValue value={run.netFe} />
         <RunPace startedAt={run.startedAt} netFe={run.netFe} norm={snapshot.norm} />
       </div>
 
-      <DropList drops={run.drops} minFe={snapshot.minDropFe} />
+      <DropList drops={run.drops} minFe={snapshot.minDropFe} live />
     </section>
   );
 }
@@ -83,7 +114,7 @@ export function CurrentRun({ snapshot }: { snapshot: Snapshot }) {
 function GameNotFound() {
   const [note, setNote] = useState<string | null>(null);
   return (
-    <section className="card current empty onboarding">
+    <section className="run-card empty onboarding">
       <h2>{tr('Игра не найдена', 'Game not found')}</h2>
       <p className="muted">
         {tr(
@@ -120,7 +151,7 @@ function GameNotFound() {
 /** Первый запуск без истории: три шага вместо пустого «ждём карту». */
 function Onboarding({ snapshot }: { snapshot: Snapshot }) {
   return (
-    <section className="card current empty onboarding">
+    <section className="run-card empty onboarding">
       <h2>{tr('Всё готово к первому забегу', 'Ready for your first run')}</h2>
       <ol className="steps">
         <li>{tr('Запустите Torchlight: Infinite', 'Launch Torchlight: Infinite')}</li>
@@ -149,20 +180,32 @@ function Onboarding({ snapshot }: { snapshot: Snapshot }) {
 }
 
 /** Последний завершённый забег: держим его на экране, пока не начнётся новый. */
-function FinishedRun({ run, minFe }: { run: RunView; minFe: number }) {
+function FinishedRun({ run, minFe, norm }: { run: RunView; minFe: number; norm: number }) {
+  // Кромка остывшего забега — каление его итогового темпа, как у плашки итога.
+  const delta = norm > 0 ? Math.round(((run.perHour - norm) / norm) * 100) : null;
+  const heat = delta === null ? null : heatOf(delta);
   return (
-    <section className="card current">
+    <section className="run-card run-card-done">
+      <i
+        className="run-edge"
+        style={heat ? ({ '--heat': heat.color, '--glow': heat.glow } as CSSProperties) : undefined}
+      />
       <div className="current-head">
-        <h2>
-          {run.name} <span className="muted small">· {tr('прошлый забег', 'last run')}</span>
-        </h2>
-        <span className="timer">{duration(run.durationMs ?? 0)}</span>
+        <span className="run-time">{duration(run.durationMs ?? 0)}</span>
+        <h2>{run.name}</h2>
+        <span className="run-label">{tr('прошлый забег', 'last run')}</span>
       </div>
 
       <div className="current-value">
         <Fe value={run.netFe} />
-        <span className="delta muted">
-          {tr(`${num(run.perHour)} в час`, `${num(run.perHour)}/h`)}
+        <span className={`pill ${delta === null ? '' : delta >= 0 ? 'up' : 'down'}`}>
+          {delta !== null && (
+            <>
+              {delta >= 0 ? '↑' : '↓'} {tr(`${Math.abs(delta)}% к обычному`, `${Math.abs(delta)}% vs usual`)} ·{' '}
+            </>
+          )}
+          {num(run.perHour)}
+          {tr(' в час', '/h')}
         </span>
       </div>
 
