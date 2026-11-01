@@ -10,19 +10,21 @@ import { Fe } from './Fe.js';
 import { SessionRecords } from './SessionRecords.js';
 import { Tip } from './ui.js';
 
-/** Меньше этого времени в зонах темп сессии — шум одной находки, жар не показываем. */
+/** Меньше этого времени на картах темп сессии — шум одной находки, жар не показываем. */
 const SESSION_WARMUP_MS = 5 * 60_000;
 
 /**
- * Темп сессии к обычному, %: «в час за сессию» против «в час за последние
- * 20 забегов». По нему калится окно — кромка сверху и жар под главной
- * цифрой, — тем же цветом, что кромка оверлея на карте. null — сравнивать
- * пока не с чем.
+ * Темп карт за сессию к обычному, %. По нему калится окно — кромка сверху
+ * и жар под главной цифрой, — тем же цветом, что кромка оверлея на карте.
+ * Сравнение — карты с картами: обычное (в час за последние 20 забегов)
+ * тюрьму не знает, и с ней сессия выглядела вдвое жарче, чем шли карты.
+ * null — сравнивать пока не с чем.
  */
 export function sessionDelta(snapshot: Snapshot): number | null {
-  const zoneMs = snapshot.totals.inMapMs + snapshot.totals.prisonMs;
-  if (snapshot.norm <= 0 || zoneMs < SESSION_WARMUP_MS) return null;
-  return Math.round(((snapshot.liveRate - snapshot.norm) / snapshot.norm) * 100);
+  const { totals, prison, norm } = snapshot;
+  if (norm <= 0 || totals.inMapMs < SESSION_WARMUP_MS) return null;
+  const mapsRate = ((totals.valueFe - totals.costFe - prison.netFe) / totals.inMapMs) * 3_600_000;
+  return Math.round(((mapsRate - norm) / norm) * 100);
 }
 
 /**
@@ -153,12 +155,13 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
             {delta !== null && (
               <Tip
                 tip={tr(
-                  `Темп сессии к обычному — к ${num(snapshot.norm)} ФЕ в час за последние ${pluralize(recentCount, RUN)}. Этим же цветом каления калится окно и кромка оверлея на карте.`,
-                  `Session pace vs usual — ${num(snapshot.norm)} FE per hour over the last ${pluralize(recentCount, RUN)}. The window glows with the same heat colour as the overlay edge on a map.`,
+                  `Карты этой сессии без тюрьмы — их добыча за вычетом вложений ÷ время на картах — к обычному: ${num(snapshot.norm)} ФЕ в час за последние ${pluralize(recentCount, RUN)}. Этим же цветом каления калится окно и кромка оверлея на карте.`,
+                  `This session’s maps without prison — their loot net of costs ÷ time in maps — vs usual: ${num(snapshot.norm)} FE per hour over the last ${pluralize(recentCount, RUN)}. The window glows with the same heat colour as the overlay edge on a map.`,
                 )}
               >
                 <span className={`pill ${delta >= 0 ? 'up' : 'down'}`}>
-                  {delta >= 0 ? '↑' : '↓'} {Math.abs(delta)}% {tr('к обычному', 'vs usual')}
+                  {tr('карты', 'maps')} {delta >= 0 ? '↑' : '↓'} {Math.abs(delta)}%{' '}
+                  {tr('к обычному', 'vs usual')}
                 </span>
               </Tip>
             )}

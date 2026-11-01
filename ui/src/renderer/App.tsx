@@ -128,7 +128,7 @@ export function App() {
     );
   }
 
-  // Окно калится темпом сессии: кромка сверху, жар под главной цифрой,
+  // Окно калится темпом карт сессии: кромка сверху, жар под главной цифрой,
   // подчёркивание вкладки. Цвет перетекает (@property в styles.css).
   const delta = sessionDelta(snapshot);
   const heat = delta === null ? null : heatOf(delta);
