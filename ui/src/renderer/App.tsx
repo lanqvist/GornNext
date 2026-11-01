@@ -8,11 +8,10 @@ import { CurrentRun } from './components/CurrentRun.js';
 import { Diagnostics } from './components/Diagnostics.js';
 import { Header } from './components/Header.js';
 import { Hero, sessionDelta } from './components/Hero.js';
-import { History } from './components/History.js';
+import { Journal } from './components/Journal.js';
 import { Maps } from './components/Maps.js';
 import { MissingPrices } from './components/MissingPrices.js';
-import { Prices } from './components/Prices.js';
-import { RecentRuns } from './components/RecentRuns.js';
+import { PricesDialog } from './components/Prices.js';
 import { SettingsPanel } from './components/SettingsPanel.js';
 import { Sidebar } from './components/Sidebar.js';
 import { Strategies } from './components/Strategies.js';
@@ -21,26 +20,28 @@ import { heatOf } from './overlay/heat.js';
 import { TiersContext, useTiers } from './tiers.js';
 
 /**
- * Вкладки под сводкой. Раньше окно было лентой из 11 блоков — до карт
- * и истории приходилось листать. Сводка остаётся на виду, остальное —
- * в одном щелчке. Скрытая вкладка не рисуется вовсе.
+ * Вкладки под сводкой: сейчас, что было, куда идти. Скрытая вкладка не
+ * рисуется вовсе. Было пять: «Забеги» и «История» слились в «Журнал»,
+ * «Цены» ушли строкой под сводку и таблицей в Настройки → Данные.
  */
-type Tab = 'session' | 'runs' | 'maps' | 'prices' | 'history';
+type Tab = 'session' | 'journal' | 'maps';
 
 const TABS: Array<[Tab, () => string]> = [
   ['session', () => tr('Сессия', 'Session')],
-  ['runs', () => tr('Забеги', 'Runs')],
-  ['maps', () => tr('Карты и стратегии', 'Maps & strategies')],
-  ['prices', () => tr('Цены', 'Prices')],
-  ['history', () => tr('История', 'History')],
+  ['journal', () => tr('Журнал', 'Journal')],
+  ['maps', () => tr('Карты', 'Maps')],
 ];
 
 const TAB_KEY = 'gorn.tab';
 
+/** Вкладки прошлых версий — куда они переехали. */
+const MOVED: Record<string, Tab> = { runs: 'journal', history: 'journal', prices: 'session' };
+
 function savedTab(): Tab {
   try {
-    const t = localStorage.getItem(TAB_KEY);
-    return TABS.some(([k]) => k === t) ? (t as Tab) : 'session';
+    const t = localStorage.getItem(TAB_KEY) ?? '';
+    if (TABS.some(([k]) => k === t)) return t as Tab;
+    return MOVED[t] ?? 'session';
   } catch {
     return 'session';
   }
@@ -50,6 +51,10 @@ export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [scanProgress, setScanProgress] = useState<RetroScanProgress | null>(null);
   // Стенд: `?settings` открывает панель сразу — её вёрстку снимают без кликов.
+  // Стенд: `?prices` — сразу окно цен, как `?settings` — панель настроек.
+  const [pricesOpen, setPricesOpen] = useState<boolean>(
+    () => import.meta.env.DEV && !window.gorn && new URLSearchParams(location.search).has('prices'),
+  );
   const [settingsOpen, setSettingsOpen] = useState<boolean>(
     () => import.meta.env.DEV && !window.gorn && new URLSearchParams(location.search).has('settings'),
   );
@@ -71,7 +76,7 @@ export function App() {
     const ro = new ResizeObserver(measure);
     ro.observe(nav);
     return () => ro.disconnect();
-  }, [tab, snapshot !== null, snapshot?.missing.length]);
+  }, [tab, snapshot !== null]);
 
   const setTab = (t: Tab) => {
     setTabState(t);
@@ -143,12 +148,18 @@ export function App() {
         <UpdateBanner />
         <Header snapshot={snapshot} onOpenSettings={() => setSettingsOpen(true)} />
         {settingsOpen && (
-          <SettingsPanel minDropFe={snapshot.minDropFe} onClose={() => setSettingsOpen(false)}>
+          <SettingsPanel
+            minDropFe={snapshot.minDropFe}
+            onClose={() => setSettingsOpen(false)}
+            onOpenPrices={() => setPricesOpen(true)}
+          >
             {/* Диагностика — для тех, кто настраивает, а не для каждого взгляда. */}
             <Diagnostics snapshot={snapshot} />
           </SettingsPanel>
         )}
+        {pricesOpen && <PricesDialog snapshot={snapshot} onClose={() => setPricesOpen(false)} />}
         <Hero snapshot={snapshot} />
+        <MissingPrices snapshot={snapshot} />
 
         <nav className="tabs" role="tablist" aria-label={tr('Разделы', 'Sections')} ref={tabsRef}>
           {TABS.map(([key, label]) => (
@@ -160,14 +171,6 @@ export function App() {
               onClick={() => setTab(key)}
             >
               {label()}
-              {key === 'prices' && snapshot.missing.length > 0 && (
-                <span
-                  className="tab-badge"
-                  title={tr('Предметы без цены — оценка занижена', 'Items without a price — the estimate is low')}
-                >
-                  {snapshot.missing.length}
-                </span>
-              )}
             </button>
           ))}
           {ink && <i className="tabs-ink" style={{ left: ink.left, width: ink.width }} />}
@@ -179,20 +182,13 @@ export function App() {
             <Sidebar snapshot={snapshot} />
           </div>
         )}
-        {tab === 'runs' && <RecentRuns snapshot={snapshot} />}
+        {tab === 'journal' && <Journal snapshot={snapshot} />}
         {tab === 'maps' && (
           <>
             <Strategies snapshot={snapshot} />
             <Maps snapshot={snapshot} />
           </>
         )}
-        {tab === 'prices' && (
-          <>
-            <MissingPrices snapshot={snapshot} />
-            <Prices snapshot={snapshot} />
-          </>
-        )}
-        {tab === 'history' && <History snapshot={snapshot} />}
       </div>
     </TiersContext.Provider>
   );

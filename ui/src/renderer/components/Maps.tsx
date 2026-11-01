@@ -32,7 +32,16 @@ export function Maps({ snapshot }: { snapshot: Snapshot }) {
       <table className="runs maps">
         <thead>
           <tr>
-            <th>{tr('Карта', 'Map')}</th>
+            <th>
+              <Tip
+                tip={tr(
+                  `«Лучшая» — только среди карт, где набралось хотя бы ${pluralize(MIN_RUNS, RUN)}; карты с меньшей выборкой приглушены. Карта без названия в справочнике показана внутренним именем из лога.`,
+                  `“Best” is only picked among maps with at least ${pluralize(MIN_RUNS, RUN)}; maps with fewer are dimmed. A map missing from the name list shows its internal name from the log.`,
+                )}
+              >
+                {tr('Карта', 'Map')}
+              </Tip>
+            </th>
             <th className="r">{tr('Забегов', 'Runs')}</th>
             <th>
               <Tip
@@ -93,13 +102,6 @@ export function Maps({ snapshot }: { snapshot: Snapshot }) {
           })}
         </tbody>
       </table>
-      <p className="muted small">
-        {tr(
-          'Карта — по внутреннему имени из лога: русских названий игра в лог не пишет. Сравнение «лучшая» — среди карт, где набралось хотя бы',
-          'Maps are named by their internal asset names: that is all the game writes to the log. The “best” comparison only covers maps with at least',
-        )}{' '}
-        {pluralize(MIN_RUNS, RUN)}.
-      </p>
     </section>
   );
 }

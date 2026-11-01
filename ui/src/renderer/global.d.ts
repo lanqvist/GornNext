@@ -84,6 +84,8 @@ declare global {
     onUiLanguage: (cb: (language: UiLanguage) => void) => () => void;
     runs: {
       query: (query: string) => Promise<RunQueryResult | null>;
+      /** Забеги одной сессии — по границам из истории (Журнал). */
+      session: (startedAt: number, endedAt: number | null) => Promise<RunQueryResult | null>;
       exportCsv: () => Promise<
         | { status: 'cancelled' }
         | { status: 'saved'; path: string }

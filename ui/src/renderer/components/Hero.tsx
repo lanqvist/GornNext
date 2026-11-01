@@ -143,7 +143,12 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
               tip={tr(
                 'Как у других трекеров — по зонам: вся добыча сессии по ценам минус вложения (карты, бои Vorax и тюрьма), делённая на активное время в них. Город не в счёт, пауза на карте дольше 3 минут — тоже; тюрьма и Vorax — целиком, от входа в их окно до выхода из зоны. Сессия начинается с запуском игры или кнопкой «Новая сессия».',
                 'Like other trackers — by zone: all loot this session at prices minus map costs (maps, Vorax fights and prison), divided by active time in them. Town doesn’t count, nor do pauses longer than 3 minutes in a map; prison and Vorax count whole, from opening their window to leaving the zone. A session starts when the game launches or with the “New session” button.',
-              )}
+              ) +
+                ' ' +
+                tr(
+                  `Только сама валюта ФЕ, упавшая в сумку, без оценки предметов: ${num(feRate.perHour)} в час за сезон.`,
+                  `The FE currency alone that landed in your bag, no item valuation: ${num(feRate.perHour)} per hour this season.`,
+                )}
             >
               {tr('в час за сессию, за вычетом вложений', 'per hour this session, net of map costs')}
             </Tip>
@@ -195,14 +200,6 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
               value={<Fe value={sessionNet} signed />}
             />
             <Stat
-              label={tr('Чистый ФЕ в час', 'Raw FE per hour')}
-              tip={tr(
-                'Только сама валюта ФЕ, упавшая в сумку, — без оценки предметов по ценам. За сезон: вся ФЕ ÷ всё время в картах.',
-                'Only the FE currency itself that landed in your bag — no item valuation. Season-wide: all FE ÷ all time in maps.',
-              )}
-              value={<Fe value={feRate.perHour} />}
-            />
-            <Stat
               label={tr('На картах', 'In maps')}
               tip={tr(
                 `Активное время на картах за сессию: пауза дольше 3 минут не в счёт. Всего сессия идёт ${duration(totals.sessionMs)} — с городом и тюрьмой.`,
@@ -249,7 +246,7 @@ export function Hero({ snapshot }: { snapshot: Snapshot }) {
               'All runs of the season together: loot net of costs ÷ time in maps, no town.',
             )}
           >
-            <span>
+            <span className="quiet">
               {tr('сезон', 'season')} {num(rate.perHour)}
               {tr(`${NBSP}в час`, '/h')} · {pluralize(rate.sampleSize, RUN)}
             </span>

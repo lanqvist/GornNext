@@ -370,6 +370,9 @@ export const demoSnapshot: Snapshot = {
       runs: 7,
       isCost: false,
     },
+    // Вне справочника: движок называет такие по номеру.
+    { configBaseId: 260005, name: 'id 260005', icon: null, qty: 6, runs: 4, isCost: false },
+    { configBaseId: 260011, name: 'id 260011', icon: null, qty: 2, runs: 2, isCost: false },
   ],
   // Тюрьма за сессию: в итоге есть, в темпе — нет.
   prison: { netFe: 312, runs: 4 },
