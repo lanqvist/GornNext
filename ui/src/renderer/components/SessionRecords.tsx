@@ -34,7 +34,7 @@ export function SessionRecords({ snapshot }: { snapshot: Snapshot }) {
   }
 
   return (
-    <span className="records">
+    <span className="records quiet">
       <span>
         {tr('лучший', 'best')}{' '}
         <b>

@@ -1325,10 +1325,23 @@ impl Engine {
 
     /// Поиск по всей истории под текущим фильтром: итоги — по всем совпадениям.
     pub fn query_runs(&self, query: &str) -> RunQueryResult {
-        self.sync_feed_updates();
         let needle = query.trim().to_lowercase();
+        self.query_runs_where(|r| needle.is_empty() || self.search_text(r).contains(&needle))
+    }
+
+    /// Забеги одной сессии — по тем же границам, что и её итог в истории
+    /// (`session_totals`): забег принадлежит сессии, в которой закончился.
+    pub fn query_session_runs(&self, started_at: i64, ended_at: Option<i64>) -> RunQueryResult {
+        self.query_runs_where(|r| {
+            let end = run_end(r);
+            end >= started_at && ended_at.is_none_or(|e| end < e)
+        })
+    }
+
+    fn query_runs_where(&self, keep: impl Fn(&Run) -> bool) -> RunQueryResult {
+        self.sync_feed_updates();
         let (closed, _, _) = self.visible_runs();
-        let matched: Vec<&Run> = closed.farming.iter().filter(|r| needle.is_empty() || self.search_text(r).contains(&needle)).collect();
+        let matched: Vec<&Run> = closed.farming.iter().filter(|r| keep(r)).collect();
         let (mut net_fe, mut in_map_ms) = (0.0, 0i64);
         let (mut rates, mut nets, mut rated_net) = (vec![], vec![], 0.0);
         let pricing = self.run_pricing();

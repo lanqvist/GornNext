@@ -271,6 +271,15 @@ async fn gorn(
             tr.call(move |e| serde_json::to_value(e.query_runs(&q)).unwrap_or(Value::Null))
                 .unwrap_or(Value::Null)
         }
+        "runs:session" => {
+            // Забеги сессии для «Журнала»: [начало, конец | null].
+            let from = a0.as_i64().unwrap_or(0);
+            let to = a1.as_i64();
+            tr.call(move |e| {
+                serde_json::to_value(e.query_session_runs(from, to)).unwrap_or(Value::Null)
+            })
+            .unwrap_or(Value::Null)
+        }
         "runs:exportCsv" => {
             let now = chrono::Local::now();
             let docs = app.path().document_dir().unwrap_or_default();

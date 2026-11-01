@@ -112,10 +112,13 @@ function UiLanguageSwitch() {
  */
 export function SettingsPanel({
   onClose,
+  onOpenPrices,
   minDropFe,
   children,
 }: {
   onClose: () => void;
+  /** Таблица всех цен — раздел для тех, кто проверяет оценку. */
+  onOpenPrices: () => void;
   /** Порог «мелочи» живёт в срезе: меняется кнопкой и сразу видна в списках. */
   minDropFe: number;
   /** Низ панели — самодиагностика: она для тех, кто настраивает. */
@@ -545,6 +548,19 @@ export function SettingsPanel({
 
         <section className="set-section">
           <h3>{tr('Данные', 'Data')}</h3>
+          <div className="set-row">
+            <span
+              title={tr(
+                'По чему считается добыча: цена, своя пробивка или база сообщества, тренд, «не учитывать» и «вернуть».',
+                'What the loot is valued at: price, own check or community, trend, ignore and restore.',
+              )}
+            >
+              {tr('Цены предметов', 'Item prices')}
+            </span>
+            <button className="set-btn" onClick={onOpenPrices}>
+              {tr('Открыть таблицу', 'Open table')}
+            </button>
+          </div>
           <div className="set-dir">
             <span className="muted small">{tr('Папка логов:', 'Log folder:')}</span>
             <span className="set-path" title={sys?.resolvedLogDir ?? undefined}>

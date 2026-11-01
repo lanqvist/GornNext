@@ -131,7 +131,16 @@ export function Prices({ snapshot }: { snapshot: Snapshot }) {
   }, [query, priceKey, version]);
 
   if (rows === null) return null;
-  if (rows.length === 0 && query === '') return null;
+  if (rows.length === 0 && query === '') {
+    return (
+      <p className="muted">
+        {tr(
+          'Цен пока нет: они появятся с первыми пробивками в Торговом доме.',
+          'No prices yet: they appear with your first price checks on the Exchange.',
+        )}
+      </p>
+    );
+  }
 
   const toggle = async (row: PriceRow) => {
     await window.gorn?.prices.setExcluded(row.configBaseId, row.source !== 'excluded');
@@ -142,8 +151,7 @@ export function Prices({ snapshot }: { snapshot: Snapshot }) {
   return (
     <section className="card">
       <div className="runs-head">
-        <h2>{tr('Цены', 'Prices')}</h2>
-        <div className="runs-tools">
+        <div className="runs-tools prices-tools">
           <input
             type="search"
             className="runs-search"
@@ -240,5 +248,39 @@ export function Prices({ snapshot }: { snapshot: Snapshot }) {
         </button>
       )}
     </section>
+  );
+}
+
+/**
+ * Таблица цен отдельным окном поверх главного: раздел для тех, кто
+ * проверяет оценку, открывается из Настроек → Данные. Рядовому игроку
+ * на главном экране хватает строки «N предметов без цены».
+ */
+export function PricesDialog({ snapshot, onClose }: { snapshot: Snapshot; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <>
+      <div className="settings-backdrop dialog-backdrop" onClick={onClose} />
+      <div className="dialog" role="dialog" aria-label={tr('Цены предметов', 'Item prices')}>
+        <div className="settings-head">
+          <h2>{tr('Цены предметов', 'Item prices')}</h2>
+          <button className="update-close" title={tr('Закрыть', 'Close')} onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <p className="muted small dialog-lead">
+          {tr(
+            'По этим ценам считается вся добыча. Своя свежая пробивка точнее цены сообщества. То, что не продаётся, можно не учитывать.',
+            'All loot is valued at these prices. A fresh own price check beats the community price. Things that don’t sell can be ignored.',
+          )}
+        </p>
+        <Prices snapshot={snapshot} />
+      </div>
+    </>
   );
 }

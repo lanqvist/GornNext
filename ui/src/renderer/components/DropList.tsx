@@ -103,8 +103,8 @@ export function DropList({
           <span
             className="muted"
             title={tr(
-              `Исключено из учёта: ${excluded.map((d) => d.name).join(', ')}. Вернуть — в блоке «Цены».`,
-              `Ignored: ${excluded.map((d) => d.name).join(', ')}. Restore them in the Prices block.`,
+              `Исключено из учёта: ${excluded.map((d) => d.name).join(', ')}. Вернуть — Настройки → Данные → Цены предметов.`,
+              `Ignored: ${excluded.map((d) => d.name).join(', ')}. Restore them in Settings → Data → Item prices.`,
             )}
           >
             {tr(

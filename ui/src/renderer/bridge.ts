@@ -52,6 +52,7 @@ if (tauri) {
     session: { reset: () => call('session:reset') },
     runs: {
       query: (query) => call('runs:query', query),
+      session: (startedAt, endedAt) => call('runs:session', startedAt, endedAt),
       exportCsv: () => call('runs:exportCsv'),
     },
     prices: {

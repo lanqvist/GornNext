@@ -3,8 +3,8 @@ import { useState } from 'react';
 import { tr } from '../../core/i18n.js';
 import { RUN, pluralize } from '../../core/plural.js';
 import type { Snapshot } from '../../main/engine.js';
-import { dayFull, dayLabel, duration, num, shortDate } from '../format.js';
-import { Fe, FeIcon } from './Fe.js';
+import { dayFull, dayLabel, duration, num } from '../format.js';
+import { Fe } from './Fe.js';
 
 type Day = Snapshot['days'][number];
 
@@ -12,7 +12,7 @@ type Day = Snapshot['days'][number];
  * Темп периода. Тюрьма в итоге есть, а в темпе нет: её время лог не видит,
  * и её добыча, делённая на чужие минуты, задрала бы «в час».
  */
-const rateOf = (t: { netFe: number; prisonFe: number; inMapMs: number }) =>
+export const rateOf = (t: { netFe: number; prisonFe: number; inMapMs: number }) =>
   t.inMapMs > 0 ? ((t.netFe - t.prisonFe) / t.inMapMs) * 3_600_000 : 0;
 
 /**
@@ -20,7 +20,7 @@ const rateOf = (t: { netFe: number; prisonFe: number; inMapMs: number }) =>
  * заголовок называет её сам. Отрицательный день уходит под ноль:
  * вложения без отдачи тоже должны быть видны, а не обрезаны.
  */
-function DaysChart({ days }: { days: Day[] }) {
+export function DaysChart({ days }: { days: Day[] }) {
   const [hover, setHover] = useState<number | null>(null);
 
   const w = 420;
@@ -123,85 +123,5 @@ function DaysChart({ days }: { days: Day[] }) {
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * История: дни и сессии. Раньше сброс сессии оставлял на экране только
- * итог одной прошлой — дальше история была видна лишь в базе.
- */
-export function History({ snapshot }: { snapshot: Snapshot }) {
-  const { days, sessions } = snapshot;
-  const played = days.filter((d) => d.runs + d.prisonRuns > 0);
-  if (played.length === 0 && sessions.length === 0) return null;
-
-  const total = played.reduce((a, d) => a + d.netFe, 0);
-  const totalMs = played.reduce((a, d) => a + d.inMapMs, 0);
-  const totalPrison = played.reduce((a, d) => a + d.prisonFe, 0);
-
-  return (
-    <section className="card">
-      <h2>{tr('История', 'History')}</h2>
-      <div className="history-grid">
-        {/* Ряд пустых столбиков и «+0 ФЕ» после перерыва выглядели бы
-            поломкой, а не паузой. */}
-        {played.length === 0 ? (
-          <p className="muted history-sum">
-            {tr(
-              'За последние две недели забегов нет — график появится с первым.',
-              'No runs in the last two weeks: the chart will appear with your first one.',
-            )}
-          </p>
-        ) : (
-          <div>
-            <p className="history-sum">
-              {tr('За две недели:', 'Last two weeks:')} <Fe value={total} signed /> ·{' '}
-              {duration(totalMs)}{' '}
-              {tr('в картах', 'in maps')} · {num(rateOf({ netFe: total, prisonFe: totalPrison, inMapMs: totalMs }))}/{tr('час', 'h')}
-              <span className="muted">
-                {' · '}
-                {tr(`дней с игрой: ${played.length}`, `days played: ${played.length}`)}
-              </span>
-            </p>
-            <DaysChart days={days} />
-          </div>
-        )}
-        {sessions.length > 0 && (
-          <table className="runs sessions">
-            <thead>
-              <tr>
-                <th>{tr('Сессия', 'Session')}</th>
-                <th className="r">{tr('Забегов', 'Runs')}</th>
-                <th className="r">{tr('В картах', 'In maps')}</th>
-                <th className="r">
-                  {tr('Чистыми', 'Net')} <FeIcon />
-                </th>
-                <th className="r">{tr('В час', 'Per hour')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((s) => (
-                <tr key={s.startedAt} className={s.endedAt === null ? 'session-current' : ''}>
-                  <td>
-                    {s.startedAt === 0
-                      ? tr('до первого сброса', 'before the first reset')
-                      : tr(`с ${shortDate(s.startedAt)}`, `since ${shortDate(s.startedAt)}`)}
-                    {s.endedAt === null && (
-                      <span className="muted"> · {tr('текущая', 'current')}</span>
-                    )}
-                  </td>
-                  <td className="r muted">{s.runs}</td>
-                  <td className="r muted">{duration(s.inMapMs)}</td>
-                  <td className="r">
-                    <Fe value={s.netFe} />
-                  </td>
-                  <td className="r muted">{num(rateOf(s))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </section>
   );
 }
