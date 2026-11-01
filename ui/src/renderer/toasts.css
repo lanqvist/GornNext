@@ -1,3 +1,5 @@
+@import './tokens.css';
+
 /*
  * Слой всплывающего дохода у центра экрана.
  *
@@ -22,7 +24,7 @@ body {
   overflow: hidden;
   user-select: none;
   pointer-events: none;
-  font: 15px/1.3 'Segoe UI', system-ui, sans-serif;
+  font: 15px/1.3 var(--g-font);
   color: #f2f3f7;
 }
 
@@ -231,15 +233,15 @@ body {
 
 /* Ступени ценности — те же пороги и цвета, что у полос дропа в оверлее. */
 .t-gold {
-  --tier: #ffc94d;
+  --tier: var(--g-tier-gold);
 }
 
 .t-orange {
-  --tier: #ff8a3d;
+  --tier: var(--g-tier-orange);
 }
 
 .t-plain {
-  --tier: #8e94a6;
+  --tier: var(--g-tier-plain);
 }
 
 /* ── итог карты: «застывшая Сводка» ──────────────────────────────
@@ -257,7 +259,7 @@ body {
   border-radius: 10px;
   background: linear-gradient(180deg, rgb(20 18 22 / 92%), rgb(12 11 14 / 90%));
   border: 1px solid rgb(255 255 255 / 10%);
-  color: #f6f1ea;
+  color: var(--g-text);
   font-size: 13px;
   font-weight: 400;
   text-shadow:
@@ -269,7 +271,7 @@ body {
 /* Тюрьма — цветом тюремных стрелок, рекорд — золотом. Обычный итог
    берёт цвет каления из темпа (heat.ts) прямо в style. */
 .ov-toast-prison {
-  --heat: #46ff9a;
+  --heat: var(--g-prison);
   --glow: 0.45;
 }
 
@@ -310,8 +312,8 @@ body {
   flex: none;
   padding: 1px 8px;
   border-radius: 999px;
-  background: rgb(255 157 60 / 18%);
-  color: #ffc27a;
+  background: var(--g-ember-bg);
+  color: var(--g-ember-soft);
   font-size: 13.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -322,7 +324,7 @@ body {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #cfc6ba;
+  color: var(--g-text-2);
 }
 
 /* «Карта закрыта» — подпись, а не новость: мелко и капителью справа. */
@@ -333,7 +335,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9d94a6;
+  color: var(--g-muted);
 }
 
 .ov-toast-record .ov-sum-label {
@@ -368,13 +370,13 @@ body {
 }
 
 .ov-sum-delta.up {
-  color: #7be3a1;
-  background: rgb(60 180 110 / 20%);
+  color: var(--g-up);
+  background: var(--g-up-bg);
 }
 
 .ov-sum-delta.down {
-  color: #ff8f7c;
-  background: rgb(220 90 70 / 20%);
+  color: var(--g-down);
+  background: var(--g-down-bg);
 }
 
 .ov-sum-note {
@@ -486,7 +488,7 @@ body {
   align-self: flex-end;
   margin-top: -1px;
   font-size: 11.5px;
-  color: #9d94a6;
+  color: var(--g-muted);
 }
 
 .ov-sum-hint kbd {
@@ -782,5 +784,5 @@ body {
   height: 1em;
   align-self: center;
   object-fit: contain;
-  color: #ff9d3c;
+  color: var(--g-ember);
 }

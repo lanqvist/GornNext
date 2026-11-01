@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 
 import { tr } from '../core/i18n.js';
 import { RUN, pluralize } from '../core/plural.js';
@@ -7,17 +7,17 @@ import type { Snapshot } from '../main/engine.js';
 import { CurrentRun } from './components/CurrentRun.js';
 import { Diagnostics } from './components/Diagnostics.js';
 import { Header } from './components/Header.js';
-import { Hero } from './components/Hero.js';
+import { Hero, sessionDelta } from './components/Hero.js';
 import { History } from './components/History.js';
 import { Maps } from './components/Maps.js';
 import { MissingPrices } from './components/MissingPrices.js';
 import { Prices } from './components/Prices.js';
 import { RecentRuns } from './components/RecentRuns.js';
-import { SessionRecords } from './components/SessionRecords.js';
 import { SettingsPanel } from './components/SettingsPanel.js';
 import { Sidebar } from './components/Sidebar.js';
 import { Strategies } from './components/Strategies.js';
 import { UpdateBanner } from './components/UpdateBanner.js';
+import { heatOf } from './overlay/heat.js';
 import { TiersContext, useTiers } from './tiers.js';
 
 /**
@@ -49,9 +49,29 @@ function savedTab(): Tab {
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [scanProgress, setScanProgress] = useState<RetroScanProgress | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Стенд: `?settings` открывает панель сразу — её вёрстку снимают без кликов.
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(
+    () => import.meta.env.DEV && !window.gorn && new URLSearchParams(location.search).has('settings'),
+  );
   const [tab, setTabState] = useState<Tab>(savedTab);
   const tiers = useTiers(snapshot?.jackpotAutoFe ?? 0);
+  const tabsRef = useRef<HTMLElement>(null);
+  const [ink, setInk] = useState<{ left: number; width: number } | null>(null);
+
+  // Подчёркивание вкладки скользит к выбранной: меряем её положение
+  // при смене вкладки и когда полоса вкладок меняет размер.
+  useLayoutEffect(() => {
+    const nav = tabsRef.current;
+    if (!nav) return;
+    const measure = () => {
+      const on = nav.querySelector<HTMLElement>('.tab.on');
+      if (on) setInk({ left: on.offsetLeft, width: on.offsetWidth });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(nav);
+    return () => ro.disconnect();
+  }, [tab, snapshot !== null, snapshot?.missing.length]);
 
   const setTab = (t: Tab) => {
     setTabState(t);
@@ -108,9 +128,18 @@ export function App() {
     );
   }
 
+  // Окно калится темпом сессии: кромка сверху, жар под главной цифрой,
+  // подчёркивание вкладки. Цвет перетекает (@property в styles.css).
+  const delta = sessionDelta(snapshot);
+  const heat = delta === null ? null : heatOf(delta);
+
   return (
     <TiersContext.Provider value={tiers}>
-      <div className="app">
+      <div
+        className={`app ${heat ? 'app-hot' : ''}`}
+        style={heat ? ({ '--heat': heat.color, '--glow': heat.glow } as CSSProperties) : undefined}
+      >
+        <i className="app-edge" aria-hidden="true" />
         <UpdateBanner />
         <Header snapshot={snapshot} onOpenSettings={() => setSettingsOpen(true)} />
         {settingsOpen && (
@@ -120,9 +149,8 @@ export function App() {
           </SettingsPanel>
         )}
         <Hero snapshot={snapshot} />
-        <SessionRecords snapshot={snapshot} />
 
-        <nav className="tabs" role="tablist" aria-label={tr('Разделы', 'Sections')}>
+        <nav className="tabs" role="tablist" aria-label={tr('Разделы', 'Sections')} ref={tabsRef}>
           {TABS.map(([key, label]) => (
             <button
               key={key}
@@ -142,6 +170,7 @@ export function App() {
               )}
             </button>
           ))}
+          {ink && <i className="tabs-ink" style={{ left: ink.left, width: ink.width }} />}
         </nav>
 
         {tab === 'session' && (

@@ -6,6 +6,7 @@ import { Fe } from './Fe.js';
 
 /**
  * Рекорды по последним забегам: дешёвая радость без гринд-давления.
+ * Живут строкой под графиком темпа — справа от нормы и сезона.
  * Всё считается из среза на клиенте — движку эта полоска не стоит ничего.
  */
 export function SessionRecords({ snapshot }: { snapshot: Snapshot }) {
@@ -33,23 +34,24 @@ export function SessionRecords({ snapshot }: { snapshot: Snapshot }) {
   }
 
   return (
-    <div className="records">
-      <span className="records-item">
-        <span className="records-label">{tr('лучший забег', 'best run')}</span>
-        {num(best.perHour)} {tr('ФЕ/час', 'FE/h')} · {best.name}
+    <span className="records">
+      <span>
+        {tr('лучший', 'best')}{' '}
+        <b>
+          {num(best.perHour)} {tr('ФЕ/час', 'FE/h')}
+        </b>{' '}
+        {best.name}
       </span>
       {find && (
-        <span className="records-item">
-          <span className="records-label">{tr('дорогая находка', 'top drop')}</span>
-          {find.name} · <Fe value={find.fe} />
+        <span>
+          {tr('дорогая находка', 'top drop')} <b>{find.name}</b> <Fe value={find.fe} />
         </span>
       )}
       {streak >= 2 && (
-        <span className="records-item records-streak">
-          <span className="records-label">{tr('стрик выше нормы', 'streak above norm')}</span>
-          {pluralize(streak, RUN)} {tr('подряд', 'in a row')}
+        <span className="records-streak">
+          {tr(`${pluralize(streak, RUN)} подряд выше обычного`, `${pluralize(streak, RUN)} in a row above usual`)}
         </span>
       )}
-    </div>
+    </span>
   );
 }

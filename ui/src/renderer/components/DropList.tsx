@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+
 import { tr } from '../../core/i18n.js';
 import { ITEM, pluralize } from '../../core/plural.js';
 import type { RunView } from '../../main/engine.js';
@@ -22,11 +24,15 @@ export function DropList({
   drops,
   empty = tr('Ничего не выпало.', 'Nothing dropped.'),
   minFe = 0,
+  live = false,
 }: {
   drops: RunView['drops'];
   empty?: string;
   minFe?: number;
+  /** Идущий забег: новая находка въезжает и остывает из белого, как на плашке. */
+  live?: boolean;
 }) {
+  const fresh = useFresh(live ? drops.map((d) => d.configBaseId) : []);
   if (drops.length === 0) return <p className="muted">{empty}</p>;
 
   const excluded = drops.filter((d) => d.priceSource === 'excluded');
@@ -37,11 +43,19 @@ export function DropList({
   const smallFe = small.reduce((a, d) => a + (d.totalFe ?? 0), 0);
   // Ступени — те же, что в оверлее и всплывашках: дорогое видно сразу.
   const tiers = useTierContext();
+  // Полоса — доля от самой дорогой находки, как у плашки итога.
+  const top = Math.max(0, ...shown.map((d) => d.totalFe ?? 0));
 
   return (
     <ul className="drops">
       {shown.slice(0, 12).map((d) => (
-        <li key={d.configBaseId} className={`t-${tierOf(d.totalFe, tiers) ?? 'none'}`}>
+        <li
+          key={d.configBaseId}
+          className={`t-${tierOf(d.totalFe, tiers) ?? 'none'} ${fresh.has(d.configBaseId) ? 'drop-new' : ''}`}
+        >
+          {top > 0 && d.totalFe !== null && d.totalFe > 0 && (
+            <i className="drop-bar" style={{ width: `${Math.max(2, (d.totalFe / top) * 100)}%` }} />
+          )}
           <ItemIcon src={d.icon} />
           <CopyName name={d.name} />
           <span className="drop-qty">×{num(d.qty)}</span>
@@ -102,4 +116,25 @@ export function DropList({
       )}
     </ul>
   );
+}
+
+/** Сколько строка считается новой: дольше анимации въезда и остывания. */
+const FRESH_MS = 1_400;
+
+/**
+ * Какие находки появились только что. Первый показ списка — не новость:
+ * иначе при открытии окна въезжали бы все строки разом. Метка держится
+ * FRESH_MS, чтобы частые перерисовки при подборе не обрывали анимацию.
+ */
+function useFresh(ids: number[]): Set<number> {
+  const seen = useRef<Map<number, number> | null>(null);
+  const now = Date.now();
+  if (seen.current === null) {
+    seen.current = new Map(ids.map((id) => [id, 0]));
+  } else {
+    for (const id of ids) if (!seen.current.has(id)) seen.current.set(id, now);
+  }
+  const fresh = new Set<number>();
+  for (const [id, at] of seen.current) if (at > 0 && now - at < FRESH_MS) fresh.add(id);
+  return fresh;
 }

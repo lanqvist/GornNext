@@ -10,7 +10,7 @@ export function Sidebar({ snapshot }: { snapshot: Snapshot }) {
   const { realizedFe, realizationRatio, listedPaperFe } = snapshot.totals;
 
   return (
-    <aside className="card side">
+    <aside className="side">
       <h2>{tr('Торговый дом', 'Exchange')}</h2>
       {/* Обе строки про одно и то же — про выставленный товар. Ставить сюда
           оценку всей добычи нельзя: это несравнимая величина, а рядом
