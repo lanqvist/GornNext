@@ -453,6 +453,13 @@ pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, o
             if live_now.to_lowercase().contains("не узнал") && !hint.to_lowercase().contains("не узнал") {
                 t.flag("вживую не узнал, в повторе узнал", format!("{id}: «{live_now}»"));
             }
+            // Английская подсказка (интерфейс en) — без русских остатков: новая
+            // фраза советника без перевода видна игроку как есть.
+            let hint_en = gorn_prison::english::hint_line(&hint);
+            if hint_en.chars().any(|c| matches!(c, 'А'..='я' | 'Ё' | 'ё')) {
+                fails.push(format!("перевод: «{hint_en}»"));
+                t.flag("подсказка не переведена", format!("{id}: «{hint}» → «{hint_en}»"));
+            }
             // Цель забега не узнана к первой доске обхода (раз на забег).
             if screen == "patrol" && mem.day >= 1 && mem.objective.is_none() && !prev.objective_missed {
                 prev.objective_missed = true;
@@ -489,6 +496,7 @@ pub fn run(dirs: &[PathBuf], from: &str, to: &str, rounds: u64, labels: &Path, o
                 "pick": if let ScreenView::Pick(p) = &view { json!({ "cards": p.cards, "reroll": p.reroll, "reward": p.reward }) } else { Value::Null },
                 "mem": mem_json(mem),
                 "hint": hint,
+                "hintEn": gorn_prison::english::hint_line(&hint),
                 "liveHint": crate::replay::saved_last_hint(&saved["hints"]),
                 "options": adv.last_options.iter().map(|(c, m)| json!([gorn_prison::advisor::describe_code(*c), (m * 100.0).round() / 100.0])).collect::<Vec<_>>(),
                 "fails": fails,

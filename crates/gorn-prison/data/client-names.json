@@ -1,5 +1,5 @@
 {
- "source": "Названия из локализации клиента Torchlight: Infinite (Steam build 25986394, патчи по 6173858), дамп gorn-tli/docs/prison/client-data/localization-records.json от 18.10.2026: ключи s16_gameplay_relic|name, s16_gameplay_colored_reward|name, s16_gameplay_task|name, s16_gameplay_event|name. Порядок — как TOOL_IDS, GIFT_NAMES, OBJECTIVE_IDS, EVENT_IDS.",
+ "source": "Названия из локализации клиента Torchlight: Infinite (Steam build 25986394, патчи по 6173858), дамп gorn-tli/docs/prison/client-data/localization-records.json от 18.10.2026: ключи s16_gameplay_relic|name, s16_gameplay_colored_reward|name, s16_gameplay_task|name, s16_gameplay_event|name. Порядок — как TOOL_IDS, GIFT_NAMES, OBJECTIVE_IDS, EVENT_IDS. Раздел ui — надписи кнопок и карточек (ключ в поле key).",
  "tools": [
   {
    "id": "forged",
@@ -371,5 +371,77 @@
    "ru": "Схватка узников",
    "en": "Cage Fight"
   }
- ]
+ ],
+ "ui": {
+  "consume": {
+   "key": "s16_gameplay_config|desc|10301",
+   "ru": "Пожирание",
+   "en": "Consume"
+  },
+  "replace": {
+   "key": "s16_gameplay_config|desc|10302",
+   "ru": "Заменить",
+   "en": "Replace"
+  },
+  "hunt": {
+   "key": "s16_gameplay_config|desc|10303",
+   "ru": "Выслеживание",
+   "en": "Hunt"
+  },
+  "end": {
+   "key": "s16_gameplay_config|desc|10304",
+   "ru": "Завершить",
+   "en": "End"
+  },
+  "instigate": {
+   "key": "s16_gameplay_config|desc|10305",
+   "ru": "Подстрекнуть",
+   "en": "Instigate"
+  },
+  "bestow": {
+   "key": "s16_gameplay_config|desc|10306",
+   "ru": "Наградить",
+   "en": "Bestow"
+  },
+  "chainConsume": {
+   "key": "TextTable_GameFunc|value|Func_S16GamePlay_ContinuEat",
+   "ru": "Цепное пожирание",
+   "en": "Chain Consume"
+  },
+  "confirm": {
+   "key": "TextTable_GameFunc|value|Func_S16GamePlay_Confirm",
+   "ru": "Подтвердить",
+   "en": "Confirm"
+  },
+  "reroll": {
+   "key": "TextTable_GameFunc|value|Func_S16GamePlay_Reroll",
+   "ru": "Обновить случ.",
+   "en": "Re-roll"
+  },
+  "interrogationRoom": {
+   "key": "TextTable_GameFunc|value|Func_S16GamePlay_InterrogationRoom",
+   "ru": "Допросная",
+   "en": "Interrogation Room"
+  },
+  "viewPrisonStatus": {
+   "key": "TextTable_GameFunc|value|Func_S16GamePlay_ObserveChess",
+   "ru": "Посмотреть состояние тюрьмы",
+   "en": "View Prison Status"
+  },
+  "prisonIncident": {
+   "key": "hyperlink|name|16000103",
+   "ru": "Тюремное событие",
+   "en": "Prison Incident"
+  },
+  "prey": {
+   "key": "hyperlink|name|16000114",
+   "ru": "Добыча",
+   "en": "Prey"
+  },
+  "chromatic": {
+   "key": "s16_gameplay_config|desc|206",
+   "ru": "Призматический",
+   "en": "Chromatic"
+  }
+ }
 }

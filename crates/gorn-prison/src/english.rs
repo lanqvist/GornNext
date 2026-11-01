@@ -53,60 +53,65 @@ pub const GIFT_NAMES_EN: [&str; 4] = [
     "Brand of Original Sin",
 ];
 
-/// Целые фразы: подписи ходов, следующие шаги, причины.
+/// Целые фразы: подписи ходов, следующие шаги, причины. Кнопки и карточки —
+/// надписями клиента (`data/client-names.json`, раздел `ui`; тест
+/// `ui_words_match_client`): игрок ищет на экране то, что написано в подсказке.
 const PHRASES: &[(&str, &str)] = &[
     ("Отменить", "Cancel"),
-    ("Пожирание", "Devour"),
+    ("Пожирание", "Consume"),
     ("цепочка", "chain"),
     ("Остановить цепочку (Отменить)", "Stop the chain (Cancel)"),
     ("остановить цепочку", "stop the chain"),
     ("Заменить", "Replace"),
-    ("Завершить день", "End day"),
+    ("Завершить день", "End"),
     ("Выслеживание", "Hunt"),
     ("добыча", "prey"),
     ("Наградить", "Bestow"),
     ("Подстрекнуть", "Instigate"),
-    ("Принять событие", "Accept the event"),
-    ("Пропустить событие", "Skip the event"),
-    ("Обновить выбор", "Reroll"),
-    ("В допросную", "To Interrogation"),
-    ("Заменить узника", "Replace a prisoner"),
-    ("Наградить случайного узника", "Bestow a random prisoner"),
+    ("Принять событие", "Confirm"),
+    ("Пропустить событие", "Skip the incident"),
+    ("Обновить выбор", "Re-roll"),
+    ("В допросную", "To Interrogation Room"),
+    ("Заменить узника", "Replace an inmate"),
+    ("Наградить случайного узника", "Bestow a random inmate"),
     // причины ходов (`instant.rs`, часть после «: ») и советника
-    ("цепочка к призматическому", "chain to a Prismatic"),
-    ("узник съест соседа", "the prisoner eats a neighbor"),
-    ("событие", "event"),
-    ("новый узник", "new prisoner"),
+    ("цепочка к призматическому", "chain to a Chromatic"),
+    ("узник съест соседа", "the inmate eats a neighbor"),
+    ("событие", "incident"),
+    ("новый узник", "new inmate"),
     ("дальше невыгодно", "not worth going on"),
     ("все три карты слабые", "all three cards are weak"),
-    ("события за дверями", "events behind the doors"),
+    ("события за дверями", "incidents behind the doors"),
     ("одну карту не узнал", "one card not recognized"),
     ("уточнено", "refined"),
     (
         "Подарок: нажми «Посмотреть состояние тюрьмы» и вернись — подскажу, какой взять",
-        "Gift: open the prison status and come back — I'll tell you which to take",
+        "Gift: click “View Prison Status” and come back — I'll tell you which to take",
     ),
     ("Не узнал карты выбора — выбери сам", "Didn't recognize the cards — pick yourself"),
 ];
 
 /// «Фраза + клетка»: русское начало → английское.
 const WITH_CELL: &[(&str, &str)] = &[
-    ("Пожирание: съесть ", "Devour: eat "),
-    ("Цепочка: съесть ", "Chain: eat "),
+    ("Пожирание: съесть ", "Consume "),
+    ("Цепочка: съесть ", "Chain Consume "),
     ("Метка добычи: ", "Mark prey: "),
     ("Пометить ", "Mark "),
-    ("Съесть ", "Eat "),
+    ("Съесть ", "Consume "),
     ("затем ", "then "),
     ("Выбери ", "Pick "),
     ("Иди в ", "Go to "),
-    ("узник в камере ", "prisoner in cell "),
+    ("узник в камере ", "inmate in cell "),
     ("в камеру ", "to cell "),
     ("камера ", "cell "),
 ];
 
+/// Допросная — как в клиенте («Interrogation Room»).
+const INTERROGATION_ROOM: &str = "Interrogation Room";
+
 fn cell(s: &str) -> Option<String> {
     if s == "допросную" {
-        return Some("Interrogation".into());
+        return Some(INTERROGATION_ROOM.into());
     }
     let n = s.strip_prefix('№').unwrap_or(s);
     (!n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).then(|| format!("#{n}"))
@@ -204,6 +209,37 @@ mod tests {
         assert_eq!(events, EVENT_IDS);
     }
 
+    /// Надписи кнопок и карточек в подсказках — как в клиенте (раздел `ui`):
+    /// 01.11 подсказки писали «Devour», «End day», «Accept the event», «Reroll»,
+    /// а на экране — Consume, End, Confirm, Re-roll.
+    #[test]
+    fn ui_words_match_client() {
+        let c = client();
+        let ui = |k: &str| c["ui"][k]["en"].as_str().unwrap_or_else(|| panic!("ui.{k}")).to_string();
+        for (ru, key) in [
+            ("Пожирание", "consume"),
+            ("Заменить", "replace"),
+            ("Выслеживание", "hunt"),
+            ("Завершить день", "end"),
+            ("Подстрекнуть", "instigate"),
+            ("Наградить", "bestow"),
+            ("Принять событие", "confirm"),
+            ("Обновить выбор", "reroll"),
+        ] {
+            assert_eq!(phrase(ru), Some(ui(key).as_str()), "{ru}");
+        }
+        assert_eq!(hint_line("Цепочка: съесть №3"), format!("{} #3", ui("chainConsume")));
+        assert_eq!(INTERROGATION_ROOM, ui("interrogationRoom"));
+        assert!(phrase(crate::advisor::TREASURE_ASK).unwrap().contains(&ui("viewPrisonStatus")));
+        assert!(phrase("цепочка к призматическому").unwrap().contains(&ui("chromatic")));
+        // Слова, которых в клиенте нет: «Devour», «Prismatic», «prisoner» (там — Inmate).
+        for (ru, en) in PHRASES.iter().chain(WITH_CELL) {
+            for bad in ["Devour", "Prismatic", "prisoner", "Reroll", "End day"] {
+                assert!(!en.contains(bad), "«{ru}» → «{en}»: «{bad}» не из клиента");
+            }
+        }
+    }
+
     /// Каждое название клиента читается обратно (OCR карт выбора и цели): целиком,
     /// обрезанное многоточием, в две строки и с ошибкой в одной букве.
     #[test]
@@ -250,14 +286,14 @@ Fittest"), Some(1));
 
     #[test]
     fn lines() {
-        assert_eq!(hint_line("Пожирание: съесть №6"), "Devour: eat #6");
-        assert_eq!(hint_line("Иди в №4 · событие"), "Go to #4 · event");
-        assert_eq!(hint_line("Иди в допросную"), "Go to Interrogation");
+        assert_eq!(hint_line("Пожирание: съесть №6"), "Consume #6");
+        assert_eq!(hint_line("Иди в №4 · событие"), "Go to #4 · incident");
+        assert_eq!(hint_line("Иди в допросную"), "Go to Interrogation Room");
         assert_eq!(hint_line("затем №6 · одну карту не узнал"), "then #6 · one card not recognized");
-        assert_eq!(hint_line("Отменить, затем «Завершить день»"), "Cancel, then “End day”");
+        assert_eq!(hint_line("Отменить, затем «Завершить день»"), "Cancel, then “End”");
         assert_eq!(hint_line("Взять: Ржавая пила"), "Take: Rusty Saw");
         assert_eq!(hint_line("Взять: Багряное вино"), "Take: Crimson Vintage");
-        assert_eq!(hint_line("цепочка к призма…"), "chain to a Prismatic");
+        assert_eq!(hint_line("цепочка к призма…"), "chain to a Chromatic");
         assert_eq!(hint_line("что-то новое"), "что-то новое");
     }
 
